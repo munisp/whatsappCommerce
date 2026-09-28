@@ -263,3 +263,60 @@ describe("buildCategoryTree", () => {
     expect(tree[0].subcategories.map((s) => s.id)).toEqual(["water", "malt drinks"]);
   });
 });
+
+// === W50 CHANNELS ===
+describe("W50 synonyms / distance sort / widening / area text", () => {
+  it("expandDiscoveryQuery maps pidgin + Nigerian terms to categories", async () => {
+    const { expandDiscoveryQuery } = await import("./geoDiscovery");
+    expect(expandDiscoveryQuery("fast food")).toContain("restaurant");
+    expect(expandDiscoveryQuery("chop")).toContain("buka");
+    expect(expandDiscoveryQuery("chemist")).toContain("pharmacy");
+    expect(expandDiscoveryQuery("fuel")).toContain("filling station");
+    expect(expandDiscoveryQuery("unknown thing")).toEqual(["unknown thing"]);
+  });
+
+  it("synonyms match categories in discoverNearbyPure (chemist → pharmacy)", () => {
+    const ms = [
+      merchant("t-chemist", 6.5290, 3.3820, { categories: ["pharmacy"], productText: [] }),
+    ];
+    const r = discoverNearbyPure({ ...OPTS, radiusKm: 5, query: "chemist" }, { merchants: ms, sponsored: [] });
+    expect(r.items.map((i) => i.tenantId)).toEqual(["t-chemist"]);
+  });
+
+  it("distance sort ranks by proximity; sponsored boost is capped in km", () => {
+    const ms = [
+      merchant("t-close", 6.5255, 3.3795, { trustScore: 10 }), // ~0.15km
+      merchant("t-far-trusted", 6.5500, 3.3900, { trustScore: 100 }), // ~3km
+    ];
+    const r = discoverNearbyPure({ ...OPTS, radiusKm: 5, sortBy: "distance" }, { merchants: ms, sponsored: [] });
+    expect(r.items.map((i) => i.tenantId)).toEqual(["t-close", "t-far-trusted"]);
+    // Sponsored far merchant (boost 1km) still cannot outrank the 0.15km one.
+    const sponsored: SponsoredCandidate[] = [{
+      tenantId: "t-far-trusted", categories: [], centerLat: LAGOS.lat, centerLng: LAGOS.lng,
+      radiusKm: 10, bidCents: 500,
+    }];
+    const boosted = discoverNearbyPure(
+      { ...OPTS, radiusKm: 5, sortBy: "distance", sponsoredBoostKm: 1 },
+      { merchants: ms, sponsored },
+    );
+    expect(boosted.items[0].tenantId).toBe("t-close");
+    expect(boosted.items.find((i) => i.tenantId === "t-far-trusted")?.sponsored).toBe(true);
+  });
+
+  it("items carry lat/lng for map links", () => {
+    const r = discoverNearbyPure({ ...OPTS, radiusKm: 5 }, { merchants: FIXTURE, sponsored: [] });
+    const near = r.items.find((i) => i.tenantId === "t-near");
+    expect(near?.latitude).toBeCloseTo(6.5290, 4);
+    expect(near?.longitude).toBeCloseTo(3.3820, 4);
+  });
+
+  it("matchesAreaText matches address/city words (≥3 chars)", async () => {
+    const { matchesAreaText } = await import("./geoDiscovery");
+    const row = { businessName: "Mama Nkechi Stores", addressLine: "12 Aminu Kano Cres", city: "Wuse 2" };
+    expect(matchesAreaText("wuse", row)).toBe(true);
+    expect(matchesAreaText("Aminu Kano", row)).toBe(true);
+    expect(matchesAreaText("lekki", row)).toBe(false);
+    expect(matchesAreaText("ab", row)).toBe(false); // too short
+  });
+});
+// === END W50 CHANNELS ===

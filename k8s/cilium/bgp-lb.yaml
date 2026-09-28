@@ -1,0 +1,52 @@
+# === W54 CILIUM ===
+# Bare-metal load balancing / ingress for the platform (no cloud LB).
+# Two options; pick ONE:
+#
+# A) Cilium L2 announcements (simplest, same-subnet clients):
+#      helm upgrade cilium cilium/cilium -n kube-system \
+#        --set l2announcements.enabled=true \
+#        --set externalIPs.enabled=true
+#    then apply the policy+pool below.
+#
+# B) Cilium BGP control plane (multi-subnet / routed fabric): enable
+#    bgpControlPlane.enabled=true and model CiliumBGPPeeringPolicy against
+#    your ToR; skip the L2 policy in that case.
+#
+# The single LoadBalancer IP below fronts the `server` Service: webhook
+# senders (Meta, Telegram, Paystack, Flutterwave, Shopify, Shipbubble) all
+# hit this IP, and k8s/cilium/network-policies.yaml L7-restricts what paths
+# they can touch.
+apiVersion: cilium.io/v2alpha1
+kind: CiliumL2AnnouncementPolicy
+metadata:
+  name: platform-l2
+  labels: {app.kubernetes.io/part-of: whatsapp-commerce-platform}
+spec:
+  serviceSelector:
+    matchLabels: {app: server, expose: "true"}
+  nodeSelector:
+    matchExpressions:
+      - {key: node-role.kubernetes.io/control-plane, operator: DoesNotExist}
+  interfaces:
+    - eth0 # adjust to the NIC on the LAN carrying webhook traffic
+  externalIPs: false
+  loadBalancerIPs: true
+---
+apiVersion: cilium.io/v2alpha1
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: platform-pool
+  labels: {app.kubernetes.io/part-of: whatsapp-commerce-platform}
+spec:
+  blocks:
+    - cidr: REPLACE_WITH_LB_CIDR # e.g. 192.168.10.240/29
+---
+# Patch the server Service to request an LB IP (kept separate so k8s/base
+# stays cloud-agnostic):
+#   kubectl -n whatsapp-commerce patch svc server --type merge -p \
+#     '{"metadata":{"labels":{"expose":"true"}},"spec":{"type":"LoadBalancer"}}'
+#
+# Alternatively terminate TLS at an Ingress/Gateway (Cilium Gateway API is
+# supported with gatewayAPI.enabled=true) and keep `server` as ClusterIP;
+# either way the `fromEntities: world` L7 policy still applies at the pod.
+# === END W54 CILIUM ===

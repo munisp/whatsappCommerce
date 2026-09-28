@@ -9,7 +9,7 @@
  *
  * Hermetic on purpose: no database at all (DATABASE_URL is cleared, so startWorkflow skips its
  * persistence step) and the Temporal client is stubbed. What gets RECORDED in
- * temporal_workflow_runs is asserted against a real database in simulation journey J468.
+ * temporal_workflow_runs is asserted against a real database in simulation journey J561.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 

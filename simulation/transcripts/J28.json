@@ -8,82 +8,82 @@
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348014060211",
-      "sessionId": "ussd-1790420963186",
+      "phone": "2348013934484",
+      "sessionId": "ussd-1790545590674",
       "text": "(dial)",
-      "at": 1790420963497
+      "at": 1790545590985
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348014060211",
-      "sessionId": "ussd-1790420963186",
+      "phone": "2348013934484",
+      "sessionId": "ussd-1790545590674",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1790420963498
+      "at": 1790545590986
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348014060211",
-      "sessionId": "ussd-1790420963186",
+      "phone": "2348013934484",
+      "sessionId": "ussd-1790545590674",
       "text": "menu",
-      "at": 1790420963806
+      "at": 1790545591293
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348014060211",
-      "sessionId": "ussd-1790420963186",
+      "phone": "2348013934484",
+      "sessionId": "ussd-1790545590674",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1790420963807
+      "at": 1790545591294
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348014060211",
-      "sessionId": "ussd-1790420963186",
+      "phone": "2348013934484",
+      "sessionId": "ussd-1790545590674",
       "text": "1",
-      "at": 1790420964119
+      "at": 1790545591625
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348014060211",
-      "sessionId": "ussd-1790420963186",
-      "text": "END Sure! Here's what we have:\n\n1. Jollof Rice — NGN 2500.00\n2. Grilled Chicken — NGN 3000.00\n3. Last Unit Special — NGN 1000.00\n4. Sold Out Sneakers — NGN 15000.00 (out of stock)\n5. Ankara Fabric — NGN 5000.00\n6. Restock Widget — NGN 750.00 (out of stock)\n\nReply with a number or an item's name to add it.",
-      "at": 1790420964120
+      "phone": "2348013934484",
+      "sessionId": "ussd-1790545590674",
+      "text": "END DEAL: Promo SIM10 — 10% off. Use code SIM10\nForward: 🔥 Promo SIM10 — 10% off at our store! Use code SIM10. https://wa.me/2347000000000?text=DEAL%20SIM10\nWhat would you like? We have Jollof Rice and more.",
+      "at": 1790545591626
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348014060211",
-      "sessionId": "ussd-1790420963186-2",
+      "phone": "2348013934484",
+      "sessionId": "ussd-1790545590674-2",
       "text": "2",
-      "at": 1790420964430
+      "at": 1790545591936
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348014060211",
-      "sessionId": "ussd-1790420963186-2",
+      "phone": "2348013934484",
+      "sessionId": "ussd-1790545590674-2",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1790420964431
+      "at": 1790545591937
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348014060211",
-      "sessionId": "ussd-1790420963186",
+      "phone": "2348013934484",
+      "sessionId": "ussd-1790545590674",
       "text": "1*xyz-nonsense",
-      "at": 1790420964744
+      "at": 1790545592252
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348014060211",
-      "sessionId": "ussd-1790420963186",
+      "phone": "2348013934484",
+      "sessionId": "ussd-1790545590674",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1790420964745
+      "at": 1790545592253
     }
   ]
 }

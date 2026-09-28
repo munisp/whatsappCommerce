@@ -1,0 +1,86 @@
+{
+  "id": "J547",
+  "title": "DISP-2: chargeback freezes escrow + idempotent replay + lost recovery entry",
+  "feature": "W54 chargeback-escrow interlock + lost-chargeback recovery",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000064",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548115445,
+      "kind": "text",
+      "body": "🚨 *Payment dispute* (open): paystack ref w54-j547-9tv8heq6 for 1250.00 NGN on order ord-j547-9tv8heq6. The order is flagged; review the dispute in your PSP dashboard."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000065",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548115451,
+      "kind": "text",
+      "body": "🔒 Escrow on order ord-j547-9tv8heq6 is FROZEN (dispute_raised) — payout is blocked while the dispute (w54-j547-9tv8heq6) is open."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000066",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548115896,
+      "kind": "text",
+      "body": "🚨 *Payment dispute* (open): paystack ref w54-j547-9tv8heq6 for 1250.00 NGN on order ord-j547-9tv8heq6. The order is flagged; review the dispute in your PSP dashboard."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000067",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548116339,
+      "kind": "text",
+      "body": "🚨 *Payment dispute* (lost): paystack ref w54-j547-9tv8heq6 for 1250.00 NGN on order ord-j547-9tv8heq6. The order is flagged; review the dispute in your PSP dashboard."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000068",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548116346,
+      "kind": "text",
+      "body": "🧾 *Chargeback lost* on order ord-j547-9tv8heq6 (w54-j547-9tv8heq6) — a recovery entry of 1250.00 NGN was recorded for ops follow-up."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000069",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548116780,
+      "kind": "text",
+      "body": "🚨 *Payment dispute* (lost): paystack ref w54-j547-9tv8heq6 for 1250.00 NGN on order ord-j547-9tv8heq6. The order is flagged; review the dispute in your PSP dashboard."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000070",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548116786,
+      "kind": "text",
+      "body": "🧾 *Chargeback lost* on order ord-j547-9tv8heq6 (w54-j547-9tv8heq6) — a recovery entry of 1250.00 NGN was recorded for ops follow-up."
+    }
+  ]
+}

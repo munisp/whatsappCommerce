@@ -9,6 +9,13 @@ import App from "./App";
 import { isLoggingOut, startLogin } from "@/const";
 import "@/index.css";
 import { TenantProvider } from "@/contexts/TenantContext";
+// === W48 perf (PERF-FE-6): self-hosted fonts (latin subsets) ===
+import "@fontsource/inter/latin-400.css";
+import "@fontsource/inter/latin-500.css";
+import "@fontsource/inter/latin-600.css";
+import "@fontsource/inter/latin-700.css";
+import "@fontsource/jetbrains-mono/latin-400.css";
+import "@fontsource/jetbrains-mono/latin-500.css";
 
 // Vite fires this when a lazy route chunk fails to load — always true for any
 // tab left open across a deploy, since each deploy replaces /assets/ with a

@@ -128,3 +128,6 @@ rust/*/target/
 data/tax-statements/
 # === END W33 tax-statements ===
 .qa/perf/loadshed/latest.jsonl
+
+# === W49 RICHMEDIA: J491 receipt-pdf artifacts (regenerated each run) ===
+data/uc-docs/receipts/

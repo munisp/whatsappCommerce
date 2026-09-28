@@ -7,298 +7,298 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018413834",
-      "profileName": "Sim User 3834",
-      "inboundId": "wamid.sim.in.text.00301",
-      "at": 1790421143528,
+      "phone": "2348012107184",
+      "profileName": "Sim User 7184",
+      "inboundId": "wamid.sim.in.text.00007",
+      "at": 1790546155292,
       "kind": "text",
       "text": "3 jollof rice j105a"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00301",
-      "at": 1790421143532
+      "wamid": "wamid.sim.in.text.00007",
+      "at": 1790546155299
     },
     {
       "dir": "out",
-      "phone": "2348018413834",
-      "wamid": "wamid.sim.000487",
+      "phone": "2348012107184",
+      "wamid": "wamid.sim.000039",
       "statuses": [
         "sent"
       ],
-      "at": 1790421143551,
+      "at": 1790546155337,
       "kind": "text",
-      "body": "✅ 3 × Jollof Rice"
+      "body": "✅ 3 × Jollof Rice\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348018413834",
-      "profileName": "Sim User 3834",
-      "inboundId": "wamid.sim.in.text.00302",
-      "at": 1790421144080,
+      "phone": "2348012107184",
+      "profileName": "Sim User 7184",
+      "inboundId": "wamid.sim.in.text.00008",
+      "at": 1790546155837,
       "kind": "text",
       "text": "confirm my order j105a"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00302",
-      "at": 1790421144086
+      "wamid": "wamid.sim.in.text.00008",
+      "at": 1790546155845
     },
     {
       "dir": "out",
-      "phone": "2348018413834",
-      "wamid": "wamid.sim.000488",
+      "phone": "2348012107184",
+      "wamid": "wamid.sim.000040",
       "statuses": [
         "sent"
       ],
-      "at": 1790421144107,
+      "at": 1790546155873,
       "kind": "text",
       "body": "🛒 *Your order*\n3 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦7,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348018413834",
-      "profileName": "Sim User 3834",
-      "inboundId": "wamid.sim.in.text.00303",
-      "at": 1790421144628,
+      "phone": "2348012107184",
+      "profileName": "Sim User 7184",
+      "inboundId": "wamid.sim.in.text.00009",
+      "at": 1790546156382,
       "kind": "text",
       "text": "2 cash on delivery"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00303",
-      "at": 1790421144633
+      "wamid": "wamid.sim.in.text.00009",
+      "at": 1790546156389
     },
     {
       "dir": "out",
-      "phone": "2348018413834",
-      "wamid": "wamid.sim.000489",
+      "phone": "2348012107184",
+      "wamid": "wamid.sim.000041",
       "statuses": [
         "sent"
       ],
-      "at": 1790421144651,
-      "kind": "location_request",
-      "body": "📍 Share your delivery location — or just type your full address here."
-    },
-    {
-      "dir": "out",
-      "phone": "2348018413834",
-      "wamid": "wamid.sim.000490",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790421144654,
+      "at": 1790546156419,
       "kind": "text",
       "body": "Great — delivery it is! 🛵 Please send me your full delivery address (street, area, city) — or tap the button below to share your location. 📍"
     },
     {
+      "dir": "out",
+      "phone": "2348012107184",
+      "wamid": "wamid.sim.000042",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790546156423,
+      "kind": "location_request",
+      "body": "📍 Share your delivery location — or just type your full address here."
+    },
+    {
       "dir": "in",
-      "phone": "2348018413834",
-      "profileName": "Sim User 3834",
-      "inboundId": "wamid.sim.in.text.00304",
-      "at": 1790421145179,
+      "phone": "2348012107184",
+      "profileName": "Sim User 7184",
+      "inboundId": "wamid.sim.in.text.00010",
+      "at": 1790546156927,
       "kind": "text",
       "text": "5 J105 Street, Ikeja, Lagos"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00304",
-      "at": 1790421145184
+      "wamid": "wamid.sim.in.text.00010",
+      "at": 1790546156935
     },
     {
       "dir": "out",
-      "phone": "2348018413834",
-      "wamid": "wamid.sim.000491",
+      "phone": "2348012107184",
+      "wamid": "wamid.sim.000043",
       "statuses": [
         "sent"
       ],
-      "at": 1790421145223,
+      "at": 1790546156986,
       "kind": "text",
-      "body": "🧾 *Delivery Order ORD-MUIAIT89*\n3 × Jollof Rice — ₦2,500.00 each\n📍 Deliver to: 5 J105 Street, Ikeja, Lagos\nSubtotal: ₦7,500.00\nDelivery fee (same-city estimate): ₦1,500.00\n*Total: ₦9,000.00*\n\n💵 *Cash on delivery* — please have ₦9,000.00 ready for the rider.\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/3d3982ee-bc9e-4009-a90d-e51685e27316.2fqhfoJnb6URqv18w0Rklvg6"
+      "body": "🧾 *Delivery Order ORD-MUKCY8X7*\n3 × Jollof Rice — ₦2,500.00 each\n📍 Deliver to: 5 J105 Street, Ikeja, Lagos\nSubtotal: ₦7,500.00\nDelivery fee (same-city estimate): ₦1,500.00\n*Total: ₦9,000.00*\n\n💵 *Cash on delivery* — please have ₦9,000.00 ready for the rider.\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/550c4cd4-5b8b-4520-b910-97ef02f35fb9.zWaK2oF1slixp9q5uWIN0jdl"
     },
     {
       "dir": "out",
-      "phone": "2348018413834",
-      "wamid": "wamid.sim.000492",
+      "phone": "2348012107184",
+      "wamid": "wamid.sim.000044",
       "statuses": [
         "sent"
       ],
-      "at": 1790421145227,
+      "at": 1790546156992,
       "kind": "interactive",
-      "body": "Order ORD-MUIAIT89 — manage it here:",
+      "body": "Order ORD-MUKCY8X7 — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:3d3982ee-bc9e-4009-a90d-e51685e27316",
-          "title": "Track Order"
+          "id": "order_track:550c4cd4-5b8b-4520-b910-97ef02f35fb9",
+          "title": "📦 Track Order"
         },
         {
-          "id": "order_pay:3d3982ee-bc9e-4009-a90d-e51685e27316",
-          "title": "Pay Now"
+          "id": "order_pay:550c4cd4-5b8b-4520-b910-97ef02f35fb9",
+          "title": "💳 Pay Now"
         },
         {
-          "id": "order_cancel:3d3982ee-bc9e-4009-a90d-e51685e27316",
-          "title": "Cancel Order"
+          "id": "order_cancel:550c4cd4-5b8b-4520-b910-97ef02f35fb9",
+          "title": "❌ Cancel"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348017186369",
-      "profileName": "Sim User 6369",
-      "inboundId": "wamid.sim.in.text.00305",
-      "at": 1790421145740,
+      "phone": "2348011700007",
+      "profileName": "Sim User 0007",
+      "inboundId": "wamid.sim.in.text.00011",
+      "at": 1790546157482,
       "kind": "text",
-      "text": "RIDER_CONFIRM ORD-MUIAIT89"
+      "text": "RIDER_CONFIRM ORD-MUKCY8X7"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00305",
-      "at": 1790421145745
+      "wamid": "wamid.sim.in.text.00011",
+      "at": 1790546157489
     },
     {
       "dir": "out",
-      "phone": "2348017186369",
-      "wamid": "wamid.sim.000493",
+      "phone": "2348011700007",
+      "wamid": "wamid.sim.000045",
       "statuses": [
         "sent"
       ],
-      "at": 1790421145772,
+      "at": 1790546157524,
       "kind": "text",
-      "body": "✅ Cash for ORD-MUIAIT89 fully collected (9000.00). State: cash_collected."
+      "body": "✅ Cash for ORD-MUKCY8X7 fully collected (9000.00). State: cash_collected."
     },
     {
       "dir": "in",
-      "phone": "2348018413834",
-      "profileName": "Sim User 3834",
-      "inboundId": "wamid.sim.in.text.00306",
-      "at": 1790421146308,
+      "phone": "2348012107184",
+      "profileName": "Sim User 7184",
+      "inboundId": "wamid.sim.in.text.00012",
+      "at": 1790546158045,
       "kind": "text",
       "text": "1 jollof rice j105b"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00306",
-      "at": 1790421146312
+      "wamid": "wamid.sim.in.text.00012",
+      "at": 1790546158053
     },
     {
       "dir": "out",
-      "phone": "2348018413834",
-      "wamid": "wamid.sim.000494",
+      "phone": "2348012107184",
+      "wamid": "wamid.sim.000046",
       "statuses": [
         "sent"
       ],
-      "at": 1790421146332,
+      "at": 1790546158080,
       "kind": "text",
-      "body": "✅ 1 × Jollof Rice"
+      "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348018413834",
-      "profileName": "Sim User 3834",
-      "inboundId": "wamid.sim.in.text.00307",
-      "at": 1790421146859,
+      "phone": "2348012107184",
+      "profileName": "Sim User 7184",
+      "inboundId": "wamid.sim.in.text.00013",
+      "at": 1790546158590,
       "kind": "text",
       "text": "confirm my order j105b"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00307",
-      "at": 1790421146864
+      "wamid": "wamid.sim.in.text.00013",
+      "at": 1790546158598
     },
     {
       "dir": "out",
-      "phone": "2348018413834",
-      "wamid": "wamid.sim.000495",
+      "phone": "2348012107184",
+      "wamid": "wamid.sim.000047",
       "statuses": [
         "sent"
       ],
-      "at": 1790421146911,
+      "at": 1790546158667,
       "kind": "text",
-      "body": "🧾 *Delivery Order ORD-MUIAIUJ1*\n3 × Jollof Rice — ₦2,500.00 each\n1 × Jollof Rice — ₦2,500.00 each\n📍 Deliver to: 5 J105 Street, Ikeja, Lagos\nSubtotal: ₦10,000.00\nDelivery fee (same-city estimate): ₦1,500.00\n*Total: ₦11,500.00*\n\n💵 *Cash on delivery* — please have ₦11,500.00 ready for the rider.\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/d1f27825-162d-42d8-8af8-2f0d73df670f.5RAhs9jMV1828wnTZ5DwLLOW"
+      "body": "🧾 *Delivery Order ORD-MUKCYA7O*\n3 × Jollof Rice — ₦2,500.00 each\n1 × Jollof Rice — ₦2,500.00 each\n📍 Deliver to: 5 J105 Street, Ikeja, Lagos\nSubtotal: ₦10,000.00\nDelivery fee (same-city estimate): ₦1,500.00\n*Total: ₦11,500.00*\n\n💵 *Cash on delivery* — please have ₦11,500.00 ready for the rider.\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/af3dc5e0-2926-48b6-96d8-6895d0f47025.FRDTAd16XHjX9S2NbjaOeyBQ"
     },
     {
       "dir": "out",
-      "phone": "2348018413834",
-      "wamid": "wamid.sim.000496",
+      "phone": "2348012107184",
+      "wamid": "wamid.sim.000048",
       "statuses": [
         "sent"
       ],
-      "at": 1790421146915,
+      "at": 1790546158671,
       "kind": "interactive",
-      "body": "Order ORD-MUIAIUJ1 — manage it here:",
+      "body": "Order ORD-MUKCYA7O — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:d1f27825-162d-42d8-8af8-2f0d73df670f",
-          "title": "Track Order"
+          "id": "order_track:af3dc5e0-2926-48b6-96d8-6895d0f47025",
+          "title": "📦 Track Order"
         },
         {
-          "id": "order_pay:d1f27825-162d-42d8-8af8-2f0d73df670f",
-          "title": "Pay Now"
+          "id": "order_pay:af3dc5e0-2926-48b6-96d8-6895d0f47025",
+          "title": "💳 Pay Now"
         },
         {
-          "id": "order_cancel:d1f27825-162d-42d8-8af8-2f0d73df670f",
-          "title": "Cancel Order"
+          "id": "order_cancel:af3dc5e0-2926-48b6-96d8-6895d0f47025",
+          "title": "❌ Cancel"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348018413834",
-      "profileName": "Sim User 3834",
-      "inboundId": "wamid.sim.in.text.00308",
-      "at": 1790421147411,
+      "phone": "2348012107184",
+      "profileName": "Sim User 7184",
+      "inboundId": "wamid.sim.in.text.00014",
+      "at": 1790546159135,
       "kind": "text",
       "text": "2 cash on delivery"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00308",
-      "at": 1790421147417
+      "wamid": "wamid.sim.in.text.00014",
+      "at": 1790546159141
     },
     {
       "dir": "out",
-      "phone": "2348018413834",
-      "wamid": "wamid.sim.000497",
+      "phone": "2348012107184",
+      "wamid": "wamid.sim.000049",
       "statuses": [
         "sent"
       ],
-      "at": 1790421147435,
+      "at": 1790546159167,
       "kind": "text",
       "body": "Sorry, I didn't quite get that — type 'menu' to see options."
     },
     {
       "dir": "in",
-      "phone": "2348018413834",
-      "profileName": "Sim User 3834",
-      "inboundId": "wamid.sim.in.text.00309",
-      "at": 1790421147961,
+      "phone": "2348012107184",
+      "profileName": "Sim User 7184",
+      "inboundId": "wamid.sim.in.text.00015",
+      "at": 1790546159678,
       "kind": "text",
       "text": "5 J105 Street, Ikeja, Lagos"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00309",
-      "at": 1790421147966
+      "wamid": "wamid.sim.in.text.00015",
+      "at": 1790546159685
     },
     {
       "dir": "out",
-      "phone": "2348018413834",
-      "wamid": "wamid.sim.000498",
+      "phone": "2348012107184",
+      "wamid": "wamid.sim.000050",
       "statuses": [
         "sent"
       ],
-      "at": 1790421147984,
+      "at": 1790546159716,
       "kind": "text",
       "body": "Sorry, I didn't quite get that — type 'menu' to see options."
     }

@@ -45,7 +45,9 @@ async def lifespan(app: FastAPI):
         topic=os.getenv("KAFKA_KYC_TOPIC", "kyc.events"),
     )
     app.state.redis = RedisSessionClient(
-        url=os.getenv("REDIS_URL", "redis://localhost:6379/2"),
+        # W48 PERF-SC-16: liveness sessions are durable state — prefer the
+        # noeviction instance (REDIS_DURABLE_URL) over the LRU cache instance.
+        url=os.getenv("REDIS_DURABLE_URL") or os.getenv("REDIS_URL", "redis://localhost:6379/2"),
     )
     await app.state.kafka.start()
     await app.state.redis.connect()
@@ -125,11 +127,12 @@ async def verify_document(
     content = await file.read()
     log.info("doc.verify.start", app_id=application_id, doc_type=document_type, size=len(content))
 
-    # Step 1: OCR
-    ocr_result = await app.state.ocr.process(content, file.content_type or "image/jpeg")
-
-    # Step 2: Docling structured parsing
-    docling_result = await app.state.docling.parse(content, file.content_type or "image/jpeg")
+    # Steps 1+2: OCR and Docling are independent — run them concurrently
+    # (=== W48 sidecars PERF-SC-25 ===; was sequential await → 2× latency).
+    ocr_result, docling_result = await asyncio.gather(
+        app.state.ocr.process(content, file.content_type or "image/jpeg"),
+        app.state.docling.parse(content, file.content_type or "image/jpeg"),
+    )
 
     # Step 3: VLM analysis
     vlm_result = await app.state.vlm.analyze_document(

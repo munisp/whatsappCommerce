@@ -328,8 +328,33 @@ export const outbound = {
     ledger.calls.length = 0;
     ledger.transfers.length = 0;
     erp.reset();
+    sms.calls.length = 0; // === W50 SMS ===
   },
 };
+
+// === W50 SMS ===
+/**
+ * Africa's Talking / Twilio SMS provider mock state. The fetch interceptor
+ * routes api.africastalking.com + api.twilio.com here (recorded into the
+ * shared outbound ledger AND sms.calls for journey assertions); fault
+ * injection via meta.hostStatus.set(hostname, status).
+ */
+class SmsMockState {
+  calls: RecordedCall[] = [];
+}
+export const sms = new SmsMockState();
+/** All intercepted SMS provider calls (AT + Twilio), in order. */
+export function smsCalls(): RecordedCall[] {
+  return sms.calls;
+}
+/** Parse a urlencoded provider body into a plain object. */
+export function smsBodyParams(call: RecordedCall): Record<string, string> {
+  const raw = typeof call.body === "string" ? call.body : "";
+  const out: Record<string, string> = {};
+  for (const [k, v] of new URLSearchParams(raw)) out[k] = v;
+  return out;
+}
+// === END W50 SMS ===
 
 // ── Interceptor ──────────────────────────────────────────────────────────────
 
@@ -1184,6 +1209,28 @@ export function installFetchMock(): void {
       ledger.calls.push(call);
       return handleLedger(u, method, body);
     }
+
+    // === W50 SMS === Africa's Talking + Twilio SMS provider endpoints.
+    if (u.hostname === "api.africastalking.com" || u.hostname === "api.twilio.com") {
+      const call = record(url, method, bodyText, headers);
+      sms.calls.push(call);
+      const smsHostStatus = meta.hostStatus.get(u.hostname);
+      if (smsHostStatus !== undefined && smsHostStatus >= 400) {
+        return jsonResponse({ error: { message: `sim: hostStatus ${smsHostStatus} for ${u.hostname}` } }, smsHostStatus);
+      }
+      if (u.hostname === "api.africastalking.com") {
+        const params = smsBodyParams(call);
+        return jsonResponse({
+          SMSMessageData: {
+            Message: "Sent to 1/1 Total Cost: NGN 2.50",
+            Recipients: [{ statusCode: 101, number: params.to ?? "", status: "Success", cost: "NGN 2.50", messageId: nextWamid("atx") }],
+          },
+        }, 201);
+      }
+      // Twilio: 201 + Message resource envelope.
+      return jsonResponse({ sid: nextWamid("SM"), status: "queued" }, 201);
+    }
+    // === END W50 SMS ===
 
     // Wave 15: scripted ERP connector endpoints (J76) — per-host handlers.
     if (erp.handlers.has(u.hostname)) {

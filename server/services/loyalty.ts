@@ -292,7 +292,21 @@ export async function awardPointsForOrder(
     .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId))).limit(1);
   if (!order || order.status !== "delivered") return { awarded: 0, balanceAfter: null };
   const rules = await getLoyaltyRules(db, tenantId);
-  const points = computeEarnPoints(rules, toMinorUnitsExact(order.totalAmount));
+  let points = computeEarnPoints(rules, toMinorUnitsExact(order.totalAmount));
+  // === W54 capabilities (CAP-1): membership points multiplier ===
+  // A live consumer membership multiplies the earn (whole integer, floor is
+  // inherent — points are already integers). Fail-open: a benefits lookup
+  // failure NEVER blocks the base earn.
+  try {
+    const { memberBenefitsFor } = await import("./membershipPlans");
+    const benefits = await memberBenefitsFor(db, tenantId, order.customerId);
+    if (benefits && benefits.pointsMultiplier > 1) {
+      points = points * benefits.pointsMultiplier;
+    }
+  } catch (e: any) {
+    console.warn("[loyalty] membership multiplier lookup failed (base earn kept):", e?.message);
+  }
+  // === END W54 capabilities ===
   if (points <= 0) return { awarded: 0, balanceAfter: null };
   const res = await awardPoints({
     tenantId,

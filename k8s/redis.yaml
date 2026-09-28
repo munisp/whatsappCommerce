@@ -35,7 +35,11 @@ spec:
       containers:
         - name: redis
           image: redis:7-alpine
-          command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+          # === W48 sidecars (PERF-SC-16) === CACHE instance: volatile-lru
+          # evicts only TTL'd keys. Idempotency/approval keys
+          # (ns:idem:*, hermes:approval:*, DLQ lists, liveness sessions) must
+          # use the noeviction redis-durable instance (REDIS_DURABLE_URL).
+          command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "volatile-lru"]
           ports:
             - containerPort: 6379
           volumeMounts:
@@ -85,6 +89,103 @@ metadata:
 spec:
   selector:
     app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+  type: ClusterIP
+---
+# === W48 sidecars (PERF-SC-16) === redis-durable — noeviction instance for
+# idempotency keys (ns:idem:*), approval records (hermes:approval:*), DLQ
+# lists (mp:dlq:events) and KYC liveness sessions. Services point at it via
+# REDIS_DURABLE_URL=redis://redis-durable:6379. Eviction of these keys would
+# silently break exactly-once/approval guarantees, so this instance must
+# NEVER evict (noeviction) and should be monitored on used_memory, not
+# evicted_keys.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-durable
+  namespace: whatsapp-commerce
+  labels:
+    app: redis-durable
+    app.kubernetes.io/name: redis-durable
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    version: v1
+spec:
+  strategy:
+    type: Recreate
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-durable
+  template:
+    metadata:
+      labels:
+        app: redis-durable
+        app.kubernetes.io/name: redis-durable
+        app.kubernetes.io/part-of: whatsapp-commerce-platform
+        version: v1
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "384Mi"
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: redis-data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-durable
+  namespace: whatsapp-commerce
+  labels:
+    app: redis-durable
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  selector:
+    app: redis-durable
   ports:
     - port: 6379
       targetPort: 6379

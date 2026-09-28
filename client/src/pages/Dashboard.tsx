@@ -8,26 +8,38 @@ import { PendingPoApprovalsWidget } from "@/components/b2b/PendingPoApprovalsWid
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
+// === W48 perf (PERF-FE-2): recharts moved to the lazy DashboardCharts chunk ===
+import { lazy, memo, Suspense } from "react";
 import { AlertTriangle, Building2, Bot, MessageSquare, ShoppingCart, TrendingUp, Users, CheckCircle2 } from "lucide-react";
 import { Siren } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 
+const DashboardCharts = lazy(() => import("@/components/DashboardCharts"));
 
 // W30 (V3#6): charts are fed by real analytics queries — never hardcoded
 // series. When a query returns no points we render an explicit empty state.
 
-function ChartEmptyState({ label }: { label: string }) {
+// === W48 perf (PERF-FE-10): memoized KPI card so the ~11 dashboard queries
+// don't re-render the whole grid on every update. ===
+interface KpiDef { label: string; value: string | number; icon: React.ComponentType<{ className?: string }>; color: string; sub: string }
+const KpiCard = memo(function KpiCard({ kpi }: { kpi: KpiDef }) {
   return (
-    <div className="h-[200px] flex flex-col items-center justify-center text-muted-foreground gap-1">
-      <TrendingUp className="w-6 h-6 opacity-40" />
-      <p className="text-sm font-medium">No data yet</p>
-      <p className="text-xs">{label}</p>
-    </div>
+    <Card className="bg-card border-border">
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs text-muted-foreground">{kpi.label}</p>
+            <p className={`text-2xl font-bold mt-1 ${kpi.color}`}>{kpi.value}</p>
+            <p className="text-xs text-muted-foreground mt-1">{kpi.sub}</p>
+          </div>
+          <kpi.icon className={`w-8 h-8 ${kpi.color} opacity-50 mt-1`} />
+        </div>
+      </CardContent>
+    </Card>
   );
-}
+});
 
 export default function Dashboard() {
   const { activeTenantId: DEMO_TENANT } = useActiveTenant();
@@ -98,18 +110,7 @@ export default function Dashboard() {
         {/* KPI Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         {kpis.map((kpi) => (
-            <Card key={kpi.label} className="bg-card border-border">
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-xs text-muted-foreground">{kpi.label}</p>
-                    <p className={`text-2xl font-bold mt-1 ${kpi.color}`}>{kpi.value}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{kpi.sub}</p>
-                  </div>
-                  <kpi.icon className={`w-8 h-8 ${kpi.color} opacity-50 mt-1`} />
-                </div>
-              </CardContent>
-            </Card>
+            <KpiCard key={kpi.label} kpi={kpi} />
           ))}
         {/* Usage vs plan + WhatsApp quality (metering APIs are admin-only) */}
         {user?.role === "admin" && (
@@ -147,54 +148,18 @@ export default function Dashboard() {
           <PendingPoApprovalsWidget />
         </div>
 
-        {/* Charts — platform-wide (cross-tenant) aggregates, admin-only; see isPlatformAdmin note above */}
+        {/* Charts — platform-wide (cross-tenant) aggregates, admin-only; see isPlatformAdmin note above.
+            Lazy chunk keeps recharts out of the initial bundle (W48 PERF-FE-2). */}
         {isPlatformAdmin && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card className="bg-card border-border">
-            <CardHeader><CardTitle className="text-sm font-medium text-muted-foreground">Revenue Trend (USD)</CardTitle></CardHeader>
-            <CardContent>
-              {revenueData.length === 0 ? (
-                <ChartEmptyState label="Completed (paid) order revenue for the last 7 months will appear here." />
-              ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <AreaChart data={revenueData}>
-                  <defs>
-                    <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="oklch(0.65 0.18 160)" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="oklch(0.65 0.18 160)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.25 0.015 220)" />
-                  <XAxis dataKey="month" tick={{ fill: "oklch(0.60 0.01 220)", fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: "oklch(0.60 0.01 220)", fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{ background: "oklch(0.16 0.015 220)", border: "1px solid oklch(0.25 0.015 220)", borderRadius: 8, color: "oklch(0.95 0.005 220)" }} />
-                  <Area type="monotone" dataKey="revenue" stroke="oklch(0.65 0.18 160)" fill="url(#revGrad)" strokeWidth={2} />
-                </AreaChart>
-              </ResponsiveContainer>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="bg-card border-border">
-            <CardHeader><CardTitle className="text-sm font-medium text-muted-foreground">Conversations (Bot vs Human)</CardTitle></CardHeader>
-            <CardContent>
-              {convData.length === 0 ? (
-                <ChartEmptyState label="AI-handled vs human conversations for the last 7 days will appear here." />
-              ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={convData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.25 0.015 220)" />
-                  <XAxis dataKey="day" tick={{ fill: "oklch(0.60 0.01 220)", fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: "oklch(0.60 0.01 220)", fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{ background: "oklch(0.16 0.015 220)", border: "1px solid oklch(0.25 0.015 220)", borderRadius: 8, color: "oklch(0.95 0.005 220)" }} />
-                  <Bar dataKey="bot" fill="oklch(0.65 0.18 160)" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="human" fill="oklch(0.60 0.18 200)" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+        <Suspense fallback={
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {[0, 1].map((i) => (
+              <Card key={i} className="bg-card border-border"><CardContent className="h-[248px] animate-pulse" /></Card>
+            ))}
+          </div>
+        }>
+          <DashboardCharts revenueData={revenueData} convData={convData} />
+        </Suspense>
         )}
 
         {/* Tenant Metrics */}

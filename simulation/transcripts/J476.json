@@ -1,7 +1,7 @@
 {
   "id": "J476",
-  "title": "telegram consent grant (every path) shows the welcome menu in the same turn",
-  "feature": "Telegram/WhatsApp parity — post-consent menu",
+  "title": "JSON body limit 2mb default + template seed multi-row (PERF-API-13/19)",
+  "feature": "oversized JSON rejected 413 pre-route; DEFAULT_TEMPLATES seeded once via one insert",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
   "messages": []

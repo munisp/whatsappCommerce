@@ -1198,9 +1198,10 @@ export function buildOrderActionCard(opts: { orderId: string; orderNumber: strin
     action: {
       type: "button",
       buttons: [
-        { id: orderActionReplyId("track", opts.orderId), title: "Track Order" },
-        { id: orderActionReplyId("pay", opts.orderId), title: "Pay Now" },
-        { id: orderActionReplyId("cancel", opts.orderId), title: "Cancel Order" },
+        // === W49 RICHMEDIA (RICH-10): emoji icons on card buttons ===
+        { id: orderActionReplyId("track", opts.orderId), title: "📦 Track Order" },
+        { id: orderActionReplyId("pay", opts.orderId), title: "💳 Pay Now" },
+        { id: orderActionReplyId("cancel", opts.orderId), title: "❌ Cancel" },
       ],
     },
   };
@@ -1357,6 +1358,58 @@ export async function handleInteractiveInbound(opts: {
     return { handled: true, reply };
   }
 
+  // === W52 SHARE === "📤 Share" promo-card tap (WA reply button / TG inline
+  // keyboard, id "promo_share:<CODE>"): send the sharer the localized bundle
+  // message (wa.me share URL + TG share URL + forward text) carrying THEIR
+  // referral code, and count the tap on the existing agent_events rail.
+  const shareTap = /^promo_share:([A-Za-z0-9_-]{2,32})$/i.exec(id);
+  if (shareTap) {
+    try {
+      const { getActivePromos } = await import("./promoSpotlight");
+      const { buildDealShareBundle, renderShareBundleMessage, recordShareTap } = await import("./shareDeal");
+      const { getOrCreateReferralCode } = await import("./referrals");
+      const settings = (opts.tenant as any)?.settings ??
+        (await db.select({ settings: tenants.settings }).from(tenants)
+          .where(eq(tenants.id, tenantId)).limit(1).catch(() => [] as any[]))[0]?.settings ?? null;
+      const channel = /^telegram:/i.test(phone) ? "telegram" : "whatsapp";
+      const promoCode = shareTap[1]!.toUpperCase();
+      const promo = getActivePromos(settings).find((p) => p.code.toUpperCase() === promoCode);
+      if (!promo) {
+        return { handled: true, reply: t27("en", "shareDealBadPromo", { code: promoCode }) };
+      }
+      // TG session keys resolve to the linked E.164 phone when bound (same
+      // rule as the W44 referral grammar in routers/nlp.ts).
+      let customerRef = phone;
+      if (/^telegram:/i.test(phone)) {
+        const chatId = phone.replace(/^telegram:/i, "");
+        const { telegramIdentities } = await import("../../drizzle/schema");
+        const [ident] = await db.select({ phone: telegramIdentities.phoneE164 })
+          .from(telegramIdentities)
+          .where(and(eq(telegramIdentities.tenantId, tenantId), eq(telegramIdentities.chatId, chatId)))
+          .limit(1).catch(() => [] as any[]);
+        if (ident?.phone) customerRef = ident.phone;
+      }
+      const locale = await resolveLocale({ tenantId, phone: customerRef, tenantSettings: settings }).catch(() => "en" as Locale);
+      const refRow = await getOrCreateReferralCode(tenantId, customerRef, db);
+      const spotlight = {
+        kind: "promo" as const,
+        title: `Promo ${promo.code}`,
+        discountText: promo.type === "percent" ? `${Math.round(promo.value)}% off` : `${promo.value} off`,
+        code: promo.code,
+      };
+      const bundle = buildDealShareBundle({ settings, promo: spotlight, referralCode: refRow.code, locale });
+      if (!bundle) {
+        return { handled: true, reply: t27(locale, "shareDealBadPromo", { code: promo.code }) };
+      }
+      await recordShareTap(db, { tenantId, promoCode: promo.code, channel });
+      return { handled: true, reply: renderShareBundleMessage(locale, bundle) };
+    } catch (e: any) {
+      console.warn("[useCases] promo share tap failed:", e?.message);
+      return { handled: true, reply: "Sorry — I couldn't build that share link just now. Please try again." };
+    }
+  }
+  // === END W52 SHARE ===
+
   // 2. Menu button/list replies → numeric selection through the text path.
   const config = loadMenuConfig(opts.tenant);
   let n = id ? parseMenuEntryReplyId(id) : null;
@@ -1470,15 +1523,188 @@ export async function handleUssdRequest(opts: {
     return ussdWrap(outcome.reply ?? "OK.", !continues);
   }
 
+  // === W51 PROMOS === USSD "popular items": localized numbered text list
+  // ranked featured-pins → 90-day sales (same ranking as the WA/TG cards).
+  if (/^(popular|popular items|most ordered|top items)$/i.test(lastInput)) {
+    const { buildPopularBrowseResult } = await import("./promoSpotlight");
+    const popular = await buildPopularBrowseResult(db, { tenantId, locale: ussdLocale });
+    return ussdWrap(popular.reply, true);
+  }
+  // === END W51 PROMOS ===
+
+  // === W50 CHANNELS (B6) === USSD discovery-by-text: USSD has no GPS pin,
+  // so "…near me" intents (or an open awaitingDiscoveryArea prompt) resolve
+  // a typed area/landmark against the discoverable merchants' address fields
+  // (merchantLocations addressLine/city/label) — no external geocoder.
+  {
+    const { extractDiscoverQuery } = await import("./discoveryMenu");
+    const residual = extractDiscoverQuery(lastInput);
+    const discoveryIntent = residual != null || /^(discover|nearby|near me)/i.test(lastInput);
+    const awaitingArea = session?.awaitingDiscoveryArea === true;
+    if (discoveryIntent || awaitingArea) {
+      const { t27 } = await import("./i18n");
+      const areaText = awaitingArea ? lastInput.trim() : (residual ?? "").trim();
+      if (areaText.length < 3) {
+        await saveSession({ ...(session ?? newSession(tenantId, phone)), awaitingDiscoveryArea: true });
+        return ussdWrap(t27(ussdLocale, "discoveryAskLocationTyped"), false);
+      }
+      const { discoverByAreaText } = await import("./geoDiscovery");
+      const matches = await discoverByAreaText(db, areaText, 5).catch(() => [] as any[]);
+      await saveSession({ ...(session ?? newSession(tenantId, phone)), awaitingDiscoveryArea: false, mode: "menu" });
+      if (!matches.length) {
+        return ussdWrap(t27(ussdLocale, "discoveryEmpty"), true);
+      }
+      const lines = matches.map((m: any, i: number) =>
+        `${i + 1}. ${m.businessName} — ${[m.addressLine, m.city].filter(Boolean).join(", ") || m.label}`);
+      return ussdWrap(`${t27(ussdLocale, "discoveryHeader")}\n${lines.join("\n")}`, true);
+    }
+  }
+  // === END W50 CHANNELS ===
+
+  // === W53 EVENTS === USSD/SMS ticket purchase: "events" → numbered
+  // published-events list → event number → ticket types → type number →
+  // quantity → order + payment link via the EXISTING rail
+  // (services/events.purchaseTickets — integer cents, idempotency,
+  // paymentConfirm untouched). Codes are issued on payment confirm via the
+  // post-commit receipt seam and delivered by text to this phone. ===
+  {
+    const flow = session?.eventsFlow;
+    const numeric = /^\d{1,3}$/.test(lastInput) ? Number(lastInput) : null;
+    const money = (cents: number, cur: string) =>
+      `${cur} ${(cents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+
+    if (/^(events|tickets)$/i.test(lastInput)) {
+      const { listPublishedEvents } = await import("./events");
+      const rows = await listPublishedEvents(db, tenantId, 5).catch(() => [] as any[]);
+      if (!rows.length) {
+        await saveSession({ ...(session ?? newSession(tenantId, phone)), eventsFlow: undefined });
+        return ussdWrap(t27(ussdLocale, "eventsEmpty"), true);
+      }
+      await saveSession({
+        ...(session ?? newSession(tenantId, phone)),
+        eventsFlow: { step: "pick_event", eventIds: rows.map((r: any) => r.id) },
+      });
+      const lines = rows.map((ev: any, i: number) => {
+        const when = ev.startsAt instanceof Date ? ev.startsAt.toISOString().slice(0, 10) : String(ev.startsAt ?? "").slice(0, 10);
+        return `${i + 1}. ${ev.title} — ${when}${ev.venue ? ` @ ${ev.venue}` : ""}`;
+      });
+      return ussdWrap(`${t27(ussdLocale, "eventsHeader")}\n${lines.join("\n")}\n${t27(ussdLocale, "eventUssdPickEvent")}`, false);
+    }
+
+    if (flow && numeric !== null) {
+      if (flow.step === "pick_event" && Array.isArray(flow.eventIds)) {
+        const eventId = flow.eventIds[numeric - 1];
+        if (!eventId) {
+          await saveSession({ ...session!, eventsFlow: undefined });
+          return ussdWrap(t27(ussdLocale, "eventsPickInvalid"), true);
+        }
+        const { getEventForTenant, listTicketTypes } = await import("./events");
+        const [ev, types] = await Promise.all([
+          getEventForTenant(db, tenantId, eventId),
+          listTicketTypes(db, tenantId, eventId),
+        ]);
+        if (!ev || !types.length) {
+          await saveSession({ ...session!, eventsFlow: undefined });
+          return ussdWrap(t27(ussdLocale, "eventTicketTypesEmpty"), true);
+        }
+        await saveSession({
+          ...session!,
+          eventsFlow: { step: "pick_type", eventId, typeIds: types.map((t: any) => t.id) },
+        });
+        const lines = types.map((t: any, i: number) =>
+          `${i + 1}. ${t.name} — ${money(t.priceCents, t.currency)} (${t27(ussdLocale, "eventTicketsLeft", { count: String(Math.max(0, t.quantity - t.soldCount)) })})`);
+        return ussdWrap(`${ev.title}\n${t27(ussdLocale, "eventTicketTypesHeader")}\n${lines.join("\n")}`, false);
+      }
+      if (flow.step === "pick_type" && Array.isArray(flow.typeIds)) {
+        const ticketTypeId = flow.typeIds[numeric - 1];
+        if (!ticketTypeId || !flow.eventId) {
+          await saveSession({ ...session!, eventsFlow: undefined });
+          return ussdWrap(t27(ussdLocale, "eventsPickInvalid"), true);
+        }
+        await saveSession({ ...session!, eventsFlow: { step: "pick_qty", eventId: flow.eventId, ticketTypeId } });
+        return ussdWrap(t27(ussdLocale, "eventUssdPickQty"), false);
+      }
+      if (flow.step === "pick_qty" && flow.eventId && flow.ticketTypeId) {
+        let reply: string;
+        try {
+          const { purchaseTickets } = await import("./events");
+          const p = await purchaseTickets(db, {
+            tenantId, eventId: flow.eventId, ticketTypeId: flow.ticketTypeId,
+            qty: numeric, buyerCustomerId: phone,
+          });
+          reply = t27(ussdLocale, "eventTicketPurchaseReady", {
+            qty: String(numeric), type: p.ticketTypeName, event: p.eventTitle,
+            total: (p.totalCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 }),
+            currency: p.currency, orderNumber: p.orderNumber,
+          }) + (p.paymentUrl ? `\nPay: ${p.paymentUrl}` : `\n${t27(ussdLocale, "eventTicketLinkPending")}`);
+        } catch (e: any) {
+          reply = e?.code === "CONFLICT" || e?.code === "BAD_REQUEST" || e?.code === "NOT_FOUND"
+            ? (e?.message ?? t27(ussdLocale, "eventTicketSoldOut"))
+            : t27(ussdLocale, "eventTicketPurchaseFailed");
+        }
+        await saveSession({ ...(await getSession(tenantId, phone)) ?? session!, eventsFlow: undefined });
+        return ussdWrap(reply, true);
+      }
+    }
+    // A stale flow never swallows free text — any non-numeric input clears it.
+    if (flow && numeric === null && session) {
+      await saveSession({ ...session, eventsFlow: undefined });
+    }
+  }
+  // === END W53 EVENTS ===
+
   // Numeric menu selection.
   if (!session || session.mode === "menu") {
     const selection = resolveMenuSelection(deps.config, lastInput);
     if (selection) {
       const outcome = await dispatchSelection(deps, session, selection);
+      // === W51 PROMOS === USSD promo one-liner on the shop inquiry path
+      // (honors settings.promos.showActive; locale-aware via MESSAGE_CATALOG).
+      if (selection.id === "shop") {
+        try {
+          const { getPromoSpotSettings, getSpotlightPromos, renderPromoLine } = await import("./promoSpotlight");
+          const spot = getPromoSpotSettings(ussdTenantSettings);
+          if (spot.showActive) {
+            const promo = (await getSpotlightPromos(db, tenantId, ussdTenantSettings))[0];
+            if (promo) {
+              // === W52 SHARE === the promo one-liner APPENDS the forward
+              // line ("Forward: {blurb} {ctwaLink}") when the tenant has a
+              // public WA phone for the deep link.
+              const { buildForwardText } = await import("./shareDeal");
+              const fwd = buildForwardText(ussdLocale, promo, ussdTenantSettings);
+              const header = fwd ? `${renderPromoLine(ussdLocale, promo)}\n${fwd}` : renderPromoLine(ussdLocale, promo);
+              outcome.reply = `${header}\n${outcome.reply ?? ""}`.trim();
+              // === END W52 SHARE ===
+            }
+          }
+        } catch { /* promo line is cosmetic — fail open */ }
+      }
+      // === END W51 PROMOS ===
       const continues = (await getSession(tenantId, phone))?.mode === "usecase";
       return ussdWrap(outcome.reply ?? "OK.", !continues);
     }
   }
+
+  // === W54 capabilities (CAP-2): USSD depth — read-only balance queries ===
+  // "savings"/"stokvel" → circle balance + next payout (read paths reused
+  // from services/stokvel.ts — the same data savingsWa renders on chat);
+  // "loyalty"/"points" → loyalty points balance (services/loyalty.ts);
+  // "membership" → consumer membership status (CAP-1). All READ-ONLY and
+  // END-terminated: no state to hijack, consistent with the existing USSD
+  // session semantics (a dial is already phone-authenticated by the carrier,
+  // same as the events/order-status flows). Localized ×8 via t27.
+  if (/^(savings|stokvel|esusu|ajo|chama|loyalty|points|loyalty points|membership|my membership)$/i.test(lastInput)) {
+    const { buildUssdBalanceReply } = await import("./ussdBalances");
+    const kw = lastInput.replace(/^loyalty points$/i, "loyalty").replace(/^my membership$/i, "membership");
+    const reply = await buildUssdBalanceReply(db, {
+      tenantId, phone, keyword: kw, sessionLanguage: ussdLocale,
+    }).catch((e: any) => {
+      console.warn("[ussd] balance query failed (fail-open):", e?.message);
+      return null;
+    });
+    if (reply) return ussdWrap(reply, true);
+  }
+  // === END W54 capabilities ===
 
   // Unknown input → re-show the menu.
   await saveSession({ ...newSession(tenantId, phone), awaitingMenuSelection: true });

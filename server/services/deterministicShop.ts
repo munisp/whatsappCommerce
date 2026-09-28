@@ -118,7 +118,7 @@ const emptyItems = { extractedItems: [], extractedProduct: null, extractedQuanti
 // "hi, I want 2 milo" should still fall through to the add-to-cart matching below, not get swallowed here.
 // NOTE: "hi"/"hello" (unlike "hey"/"yo"/"good morning"/etc.) are in waMenu.ts's own MENU_KEYWORDS — the menu
 // engine intercepts those BEFORE this module ever runs, on every channel, at every point in a conversation (not
-// just a fresh session — confirmed while adding this: J483 tried "hi" first and it never reached here at all).
+// just a fresh session — confirmed while adding this: J576 tried "hi" first and it never reached here at all).
 // This still matters for the wider set of ordinary greetings that aren't in that fixed list.
 const GREETING_RE = /^(?:hi+|hiya|hello+|hey+|yo+|sup|howdy)\s*(?:there)?[.,!]*$|^good\s*(?:morning|afternoon|evening)[.,!]*$/i;
 

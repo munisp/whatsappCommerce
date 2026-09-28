@@ -7,7 +7,7 @@ import { recordEscrowSettlement, recordPayoutLatency } from "../_core/telemetry"
 import { getDb } from "../db";
 import { ENV } from "../_core/env";
 import {
-  escrowTransactions, escrowConfig, escrowDisputes,
+  escrowTransactions, escrowConfig, escrowDisputes, rmaRequests,
   merchantWallets, walletTransactions,
   orders, customers, users, logisticsShipments, paymentIntents, paymentTransactions,
   type EscrowTransaction, type EscrowConfig,
@@ -1340,7 +1340,15 @@ export const escrowRouter = router({
 
       const results: { id: string; success: boolean; error?: string; newState?: string }[] = [];
 
-      for (const escrow of rows) {
+      // === W48 PERF-API-13 (api-db): bounded-concurrency pool (5 workers,
+      // Promise.allSettled) instead of up to 100 strictly-sequential escrow
+      // settlements. Each settle/refund is its own claim-first atomic
+      // transaction; results are keyed by index so per-row outcomes and the
+      // audit trail are unchanged. ===
+      const BULK_CONCURRENCY = 5;
+      const indexedResults: ({ id: string; success: boolean; error?: string; newState?: string } | undefined)[] = new Array(rows.length);
+      const processOneEscrow = async (idx: number): Promise<void> => {
+        const escrow = rows[idx];
         try {
           if (input.action === "release") {
             const result = await settleEscrowAtomic(db, escrow.id, {
@@ -1354,8 +1362,8 @@ export const escrowRouter = router({
               descriptionPrefix: "Bulk settlement",
             });
             if (!result.transitioned || !result.escrow) {
-              results.push({ id: escrow.id, success: false, error: `Cannot release from state: ${escrow.state}` });
-              continue;
+              indexedResults[idx] = { id: escrow.id, success: false, error: `Cannot release from state: ${escrow.state}` };
+              return;
             }
             await db.update(orders).set({ status: "delivered", paymentStatus: "completed", updatedAt: new Date() })
               .where(eq(orders.id, escrow.orderId));
@@ -1366,15 +1374,15 @@ export const escrowRouter = router({
               metadata: { orderId: escrow.orderId, escrowId: escrow.id },
               read: false, readAt: null, createdAt: new Date(),
             }).catch(() => {});
-            results.push({ id: escrow.id, success: true, newState: result.newState });
+            indexedResults[idx] = { id: escrow.id, success: true, newState: result.newState };
           } else {
             // Refund (always the full remaining amount in bulk operations)
             const result = await refundEscrowAtomic(db, escrow.id, {
               reason: input.reason,
             });
             if (!result.success) {
-              results.push({ id: escrow.id, success: false, error: result.error ?? `Cannot refund from state: ${escrow.state}` });
-              continue;
+              indexedResults[idx] = { id: escrow.id, success: false, error: result.error ?? `Cannot refund from state: ${escrow.state}` };
+              return;
             }
             // ── W38 (PAY-7) bulk refund honesty: the internal ledger refund
             // above is NOT money back to the buyer's bank when custody is PSP
@@ -1415,8 +1423,8 @@ export const escrowRouter = router({
                   metadata: { orderId: escrow.orderId, escrowId: escrow.id, refundPending: true },
                   read: false, readAt: null, createdAt: new Date(),
                 }).catch(() => {});
-                results.push({ id: escrow.id, success: true, newState: "refund_pending" });
-                continue;
+                indexedResults[idx] = { id: escrow.id, success: true, newState: "refund_pending" };
+                return;
               }
               const honestStatus = honestOrderRefundStatus(outcome);
               await db.update(orders).set({ status: "refunded", paymentStatus: honestStatus, updatedAt: new Date() })
@@ -1428,8 +1436,8 @@ export const escrowRouter = router({
                 metadata: { orderId: escrow.orderId, escrowId: escrow.id, providerRefund: outcome.status },
                 read: false, readAt: null, createdAt: new Date(),
               }).catch(() => {});
-              results.push({ id: escrow.id, success: true, newState: honestStatus });
-              continue;
+              indexedResults[idx] = { id: escrow.id, success: true, newState: honestStatus };
+              return;
             }
             await db.update(orders).set({ status: "refunded", paymentStatus: "refunded", updatedAt: new Date() })
               .where(eq(orders.id, escrow.orderId));
@@ -1440,7 +1448,7 @@ export const escrowRouter = router({
               metadata: { orderId: escrow.orderId, escrowId: escrow.id },
               read: false, readAt: null, createdAt: new Date(),
             }).catch(() => {});
-            results.push({ id: escrow.id, success: true, newState: "refunded" });
+            indexedResults[idx] = { id: escrow.id, success: true, newState: "refunded" };
           }
         } catch (err) {
           // Bulk release: same saga compensation as buyerConfirm — reverse any
@@ -1452,9 +1460,19 @@ export const escrowRouter = router({
               reason: err.message,
             }).catch((compErr) => console.error("[escrow.bulkUpdateState] compensation failed:", compErr));
           }
-          results.push({ id: escrow.id, success: false, error: err instanceof Error ? err.message : String(err) });
+          indexedResults[idx] = { id: escrow.id, success: false, error: err instanceof Error ? err.message : String(err) };
         }
-      }
+      };
+      let nextEscrowIdx = 0;
+      const workers = Array.from({ length: Math.min(BULK_CONCURRENCY, rows.length) }, async () => {
+        while (nextEscrowIdx < rows.length) {
+          const i = nextEscrowIdx++;
+          await processOneEscrow(i);
+        }
+      });
+      await Promise.allSettled(workers);
+      for (const r of indexedResults) if (r) results.push(r);
+      // === END W48 ===
 
       const succeeded = results.filter(r => r.success).length;
       const failed = results.filter(r => !r.success).length;
@@ -1503,6 +1521,99 @@ export const escrowDisputeRouter = router({
       return created!;
     }),
 
+  // === W54 disputes (DISP-3): merchant respond action ======================
+  /**
+   * First-class merchant response: flips status open → under_review (the enum
+   * value existed since W30 but was NEVER set), attaches the merchant's note
+   * (+ optional self-serve evidence token for the merchant's evidence
+   * uploads), records metadata.merchantRespondedAt for the buyer-no-response
+   * auto-close sweep (DISP-6), audit-logs, and notifies the buyer (WA/TG
+   * parity, fail-open). Guarded: only while the dispute is still "open" AND
+   * inside merchantResponseDeadline — a late response is a CONFLICT (the
+   * deadline sweep owns escalation from there).
+   */
+  merchantRespond: protectedProcedure
+    .input(z.object({
+      disputeId: z.string(),
+      note: z.string().min(1).max(4000),
+      /** Also generate an evidence-portal token the merchant can upload with. */
+      generateEvidenceToken: z.boolean().default(false),
+      evidenceTokenExpiryHours: z.number().int().min(1).max(168).default(72),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const [dispute] = await db.select().from(escrowDisputes).where(eq(escrowDisputes.id, input.disputeId));
+      if (!dispute) throw new TRPCError({ code: "NOT_FOUND", message: "Dispute not found" });
+      // Tenant isolation: only the dispute's own tenant (or an admin).
+      assertTenantAccess(ctx.user, dispute.tenantId);
+      const now = new Date();
+      if (dispute.merchantResponseDeadline && dispute.merchantResponseDeadline < now) {
+        throw new TRPCError({ code: "CONFLICT", message: "Merchant response deadline has passed — the dispute is owned by the escalation sweep" });
+      }
+      const respondedAt = now.toISOString();
+      const merchantEvidence = {
+        ...((dispute.merchantEvidence as Record<string, unknown>) ?? {}),
+        note: input.note,
+        respondedAt,
+        respondedBy: ctx.user.email ?? ctx.user.name ?? String(ctx.user.id),
+      };
+      // Claim-first guarded transition: exactly one open → under_review flip.
+      const claimed = await db.update(escrowDisputes).set({
+        status: "under_review" as any,
+        merchantEvidence: merchantEvidence as any,
+        metadata: {
+          ...((dispute.metadata as Record<string, unknown>) ?? {}),
+          merchantRespondedAt: respondedAt,
+        } as any,
+        updatedAt: now,
+      }).where(and(
+        eq(escrowDisputes.id, input.disputeId),
+        eq(escrowDisputes.status, "open"),
+      )).returning({ id: escrowDisputes.id });
+      if (claimed.length !== 1) {
+        throw new TRPCError({ code: "CONFLICT", message: `Dispute is not open for a merchant response (status: ${dispute.status})` });
+      }
+
+      // Optional evidence token via the evidence-portal rail (same table +
+      // portal URL as buyer evidence links).
+      let evidence: { token: string; portalUrl: string; expiresAt: Date } | null = null;
+      if (input.generateEvidenceToken) {
+        const bytes = new Uint8Array(32);
+        crypto.getRandomValues(bytes);
+        const token = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+        const expiresAt = new Date(now.getTime() + input.evidenceTokenExpiryHours * 3600 * 1000);
+        const { disputeEvidenceTokens } = await import("../../drizzle/schema");
+        await db.insert(disputeEvidenceTokens).values({
+          id: crypto.randomUUID(),
+          token,
+          disputeId: input.disputeId,
+          expiresAt,
+        });
+        evidence = { token, portalUrl: `/evidence/${token}`, expiresAt };
+      }
+
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "dispute.merchant_responded",
+        entityType: "escrow_dispute",
+        entityId: dispute.id,
+        tenantId: dispute.tenantId,
+        summary: `Merchant responded to dispute ${dispute.id} (order ${dispute.orderId}): status open → under_review${evidence ? " + evidence token issued" : ""}`,
+        after: { status: "under_review", note: input.note.slice(0, 500), evidenceTokenIssued: !!evidence },
+      }).catch((e) => console.error("[escrow.merchantRespond] audit log failed:", e));
+
+      // Buyer notification (WA/TG parity, localized, fail-open).
+      const { notifyBuyerMerchantResponded } = await import("../services/disputeNotify");
+      await notifyBuyerMerchantResponded(db, dispute.tenantId, dispute.orderId)
+        .catch((e: any) => console.warn("[escrow.merchantRespond] buyer notify failed (fail-open):", e?.message));
+
+      const [updated] = await db.select().from(escrowDisputes).where(eq(escrowDisputes.id, input.disputeId));
+      return { dispute: updated!, evidence };
+    }),
+  // === END W54 disputes ===
+
   list: protectedProcedure
     .input(z.object({
       tenantId: z.string().optional(),
@@ -1548,6 +1659,26 @@ export const escrowDisputeRouter = router({
         .orderBy(desc(escrowDisputes.createdAt));
     }),
 
+  // === W54 disputes (DISP-5): chargeback queue (payment_disputes) =========
+  /** Admin chargeback/dispute queue — PSP-reported payment rail disputes
+   *  (recordPspDispute), incl. escrow-freeze + recovery-entry state. */
+  chargebacks: adminProcedure
+    .input(z.object({
+      status: z.enum(["open", "won", "lost", "accepted"]).optional(),
+      limit: z.number().int().min(1).max(200).default(100),
+    }).optional())
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const { paymentDisputes } = await import("../../drizzle/schema");
+      const conds = input?.status ? [eq(paymentDisputes.status, input.status)] : [];
+      return db.select().from(paymentDisputes)
+        .where(conds.length ? and(...conds) : undefined)
+        .orderBy(desc(paymentDisputes.createdAt))
+        .limit(input?.limit ?? 100);
+    }),
+  // === END W54 disputes ===
+
   // Found live 2026-09-26, aggressive dashboard QA sweep: this was `adminProcedure` — PLATFORM admin only. A
   // tenant's own owner/operator could see a dispute (`list`, `protectedProcedure`) and escalate it
   // (`escalate`, `protectedProcedure` + `assertTenantAccess`) but was hard-blocked from ever actually
@@ -1558,7 +1689,9 @@ export const escrowDisputeRouter = router({
   review: protectedProcedure
     .input(z.object({
       disputeId: z.string(),
-      resolution: z.enum(["full_release_to_merchant", "full_refund_to_buyer", "partial_refund", "no_action"]),
+      // === W54 disputes (DISP-7): "replacement" added — opens a linked RMA,
+      // money untouched. ===
+      resolution: z.enum(["full_release_to_merchant", "full_refund_to_buyer", "partial_refund", "no_action", "replacement"]),
       refundAmount: z.number().optional(),
       resolverNotes: z.string().optional(),
       // Accepted for backwards compatibility but IGNORED — the resolver identity
@@ -1604,6 +1737,9 @@ export const escrowDisputeRouter = router({
       const [escrowRow] = await db.select().from(escrowTransactions)
         .where(eq(escrowTransactions.id, dispute.escrowTxId)).limit(1);
       let moneyOutcome: { moved: boolean; kind: "refund" | "release" | "none"; amount?: number; detail?: string } = { moved: false, kind: "none" };
+      // === W54 disputes (DISP-7): id of the RMA created by a "replacement"
+      // resolution (null for every other path). ===
+      let replacementRmaId: string | null = null;
       if (escrowRow) {
         if (input.resolution === "full_refund_to_buyer" || input.resolution === "partial_refund") {
           const refund = await refundEscrowAtomic(db, escrowRow.id, {
@@ -1656,8 +1792,9 @@ export const escrowDisputeRouter = router({
           await db.update(orders).set({ paymentStatus: "completed", updatedAt: new Date() })
             .where(eq(orders.id, dispute.orderId));
         } else {
-          // no_action: park the escrow in dispute_resolved for a later admin
-          // release/refund (bulk or single) — guarded, single transition.
+          // no_action / replacement: park the escrow in dispute_resolved for
+          // a later admin release/refund (bulk or single) — guarded, single
+          // transition. Money stays UNTOUCHED on both paths.
           await db.update(escrowTransactions).set({
             state: "dispute_resolved",
             updatedAt: new Date(),
@@ -1665,9 +1802,50 @@ export const escrowDisputeRouter = router({
             eq(escrowTransactions.id, dispute.escrowTxId),
             eq(escrowTransactions.state, "dispute_raised"),
           ));
-          moneyOutcome = { moved: false, kind: "none", detail: "no_action" };
+          moneyOutcome = { moved: false, kind: "none", detail: input.resolution === "replacement" ? "replacement" : "no_action" };
         }
       }
+
+      // === W54 disputes (DISP-7): replacement resolution → open an RMA ====
+      // The money is deliberately untouched (escrow parked dispute_resolved);
+      // the remedy is a return/replacement through the W41 RMA rail. Metadata
+      // link BOTH ways: rma.metadata.disputeId ↔ dispute.metadata.replacementRmaId.
+      if (input.resolution === "replacement") {
+        const [orderRow] = await db.select({ customerId: orders.customerId })
+          .from(orders).where(eq(orders.id, dispute.orderId)).limit(1);
+        const { requestReturn } = await import("../services/rma");
+        const { rma } = await requestReturn(db, {
+          tenantId: dispute.tenantId,
+          orderId: dispute.orderId,
+          buyerRef: String(orderRow?.customerId ?? dispute.orderId),
+          reason: `Dispute ${dispute.id} replacement resolution${input.resolverNotes ? `: ${input.resolverNotes}` : ""}`,
+          requestedVia: "admin",
+        });
+        replacementRmaId = rma.id;
+        // Reverse link on the RMA (additive metadata column, mig 0175).
+        await db.update(rmaRequests).set({
+          metadata: { disputeId: dispute.id, source: "dispute_replacement" },
+          updatedAt: new Date(),
+        }).where(eq(rmaRequests.id, rma.id));
+        // Forward link on the dispute row.
+        const [cur] = await db.select({ metadata: escrowDisputes.metadata })
+          .from(escrowDisputes).where(eq(escrowDisputes.id, dispute.id)).limit(1);
+        await db.update(escrowDisputes).set({
+          metadata: { ...((cur?.metadata as Record<string, unknown>) ?? {}), replacementRmaId: rma.id },
+          updatedAt: new Date(),
+        }).where(eq(escrowDisputes.id, dispute.id));
+        await writeAuditLog({
+          actorId: String(ctx.user.id),
+          actorRole: ctx.user.role,
+          action: "dispute.replacement_rma",
+          entityType: "escrow_dispute",
+          entityId: dispute.id,
+          tenantId: dispute.tenantId,
+          summary: `Dispute ${dispute.id} (order ${dispute.orderId}) resolved as replacement: RMA ${rma.id} opened; escrow funds untouched (parked dispute_resolved).`,
+          after: { resolution: "replacement", rmaId: rma.id },
+        }).catch((e) => console.error("[escrow.review] replacement audit log failed:", e));
+      }
+      // === END W54 disputes ===
 
       const [updated] = await db.select().from(escrowDisputes).where(eq(escrowDisputes.id, input.disputeId));
       // Fire-and-forget: notify merchant of dispute resolution
@@ -1678,6 +1856,26 @@ export const escrowDisputeRouter = router({
         metadata: { orderId: dispute.orderId, disputeId: input.disputeId, resolution: input.resolution },
         read: false, readAt: null, createdAt: new Date(),
       }).catch(() => {});
+      // === W54 disputes (DISP-1): buyer WA/TG resolution notification =====
+      // Non-optional (no email dependency), channel-parity (sendCustomerText
+      // routes telegram-linked buyers via channelSender, WA via the original
+      // waSender), localized via MESSAGE_CATALOG, and FAIL-OPEN — a
+      // notification failure never blocks or rolls back the resolution.
+      {
+        const { notifyBuyerDisputeResolution } = await import("../services/disputeNotify");
+        const amountLabel = moneyOutcome.amount != null
+          ? `₦${moneyOutcome.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          : null;
+        await notifyBuyerDisputeResolution(db, {
+          tenantId: dispute.tenantId,
+          orderId: dispute.orderId,
+          resolution: input.resolution,
+          amountLabel,
+          resolverNotes: input.resolverNotes ?? null,
+          rmaRef: replacementRmaId,
+        }).catch((e: any) => console.warn("[escrow.review] buyer resolution notify failed (fail-open):", e?.message));
+      }
+      // === END W54 disputes ===
       // Fire-and-forget: send buyer email notification if email provided
       // Buyer email is sent only AFTER the money movement above succeeded —
       // and the copy describes what ACTUALLY happened (never "refund issued"

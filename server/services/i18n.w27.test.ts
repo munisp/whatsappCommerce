@@ -22,11 +22,12 @@ import {
 } from "./i18n";
 
 describe("W27 locale set", () => {
-  it("supports exactly en/fr/ha/yo/ig/sw/am", () => {
-    expect([...SUPPORTED_LOCALES].sort()).toEqual(["am", "en", "fr", "ha", "ig", "sw", "yo"]);
+  it("supports exactly en/fr/ha/yo/ig/sw/am/pcm", () => {
+    // === W49 I18N-PCM === pcm is now a first-class locale.
+    expect([...SUPPORTED_LOCALES].sort()).toEqual(["am", "en", "fr", "ha", "ig", "pcm", "sw", "yo"]);
     expect(isLocale("sw")).toBe(true);
     expect(isLocale("am")).toBe(true);
-    expect(isLocale("pcm")).toBe(false);
+    expect(isLocale("pcm")).toBe(true);
   });
   it("has full LocalePack entries for sw + am", () => {
     for (const loc of ["sw", "am"] as const) {
@@ -83,22 +84,29 @@ describe("message catalog (t27)", () => {
 });
 
 describe("language picker", () => {
-  it("renders a numbered menu with all 7 locales", () => {
+  it("renders a numbered menu with all 8 locales", () => {
+    // === W49 I18N-PCM === picker now lists pcm too.
     const menu = buildLanguageMenu("en");
     for (const loc of SUPPORTED_LOCALES) expect(menu).toContain(LOCALE_NAMES[loc]);
-    expect(menu).toContain("7.");
+    expect(menu).toContain("8.");
   });
   it("parses index, code, name and alias choices", () => {
     expect(parseLanguageChoice("1")).toBe("en");
     expect(parseLanguageChoice("3")).toBe("ha");
     expect(parseLanguageChoice("7")).toBe("am");
+    expect(parseLanguageChoice("8")).toBe("pcm");
     expect(parseLanguageChoice("yo")).toBe("yo");
     expect(parseLanguageChoice("Yorùbá")).toBe("yo");
     expect(parseLanguageChoice("kiswahili")).toBe("sw");
     expect(parseLanguageChoice("አማርኛ")).toBe("am");
+    // === W49 I18N-PCM === pidgin aliases
+    expect(parseLanguageChoice("pidgin")).toBe("pcm");
+    expect(parseLanguageChoice("naija")).toBe("pcm");
+    expect(parseLanguageChoice("naija pidgin")).toBe("pcm");
+    expect(parseLanguageChoice("broken english")).toBe("pcm");
     expect(parseLanguageChoice("nope")).toBeNull();
     expect(parseLanguageChoice("0")).toBeNull();
-    expect(parseLanguageChoice("8")).toBeNull();
+    expect(parseLanguageChoice("9")).toBeNull();
   });
 });
 

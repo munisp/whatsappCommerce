@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"time"
@@ -195,9 +196,19 @@ func (c *Client) recordWorkflowFallback(
 	if c.cfg.PlatformAPIKey != "" {
 		req.Header.Set("X-Internal-Token", c.cfg.PlatformAPIKey)
 	}
-	resp, _ := c.http.Do(req)
-	if resp != nil {
-		defer resp.Body.Close()
+	resp, err := c.http.Do(req)
+	// === W48 sidecars (PERF-SC-15) === the fallback previously swallowed the
+	// HTTP error (`resp, _ := c.http.Do`) and logged "fallback_recorded"
+	// unconditionally — a "running" DB row could be a lie. Now the error is
+	// surfaced and 4xx/5xx responses are treated as failures.
+	if err != nil {
+		return WorkflowResult{WorkflowID: workflowID, RunID: syntheticRunID, Started: false, Error: "fallback_record_failed: " + err.Error()}, nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return WorkflowResult{WorkflowID: workflowID, RunID: syntheticRunID, Started: false,
+			Error: fmt.Sprintf("fallback recordRun returned %d: %s", resp.StatusCode, string(body))}, nil
 	}
 	c.logger.Info("temporal.workflow.fallback_recorded",
 		zap.String("workflow_id", workflowID),

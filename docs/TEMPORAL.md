@@ -46,7 +46,7 @@ startJourneyOrchestration ─start──▶  JourneyOrchestrationWorkflow
                                          │ finishJourney(runId, completed|failed|cancelled) ───▶ temporalInternal.finishJourney
 ```
 
-Properties (all proven against a real database in simulation journey **J467**):
+Properties (all proven against a real database in simulation journey **J560**):
 
 - **Idempotent.** Each step carries the deterministic key `${runId}:${activityName}`. A step that already has a checkpoint is
   not re-executed (`{cached:true}`), so "ran, but the response was lost" retries are safe. A step that fails is retryable under the
@@ -90,8 +90,8 @@ unreachable at that moment, restart the server pods after fixing it (starts fall
 - Always on, hermetic (no database): `temporalActivities`, `temporalInternal` (auth + schemas), `temporalEnabledWorkflows`,
   `temporalWorkflowsStatic`.
 - Always on, **real database** (PGlite via the simulation world, real HTTP server, the worker's own client): journeys
-  **J467** (worker ⇄ platform contract: auth, inventory sync, journey steps, idempotent replay, closure, isolation) and
-  **J468** (enable-list gate + what gets recorded), plus J317/J321.
+  **J560** (worker ⇄ platform contract: auth, inventory sync, journey steps, idempotent replay, closure, isolation) and
+  **J561** (enable-list gate + what gets recorded), plus J317/J321.
 - Opt-in (downloads the Temporal test server; ~30 s): `npm run test:temporal` — the workflows in the real sandbox with
   time skipping (7-day KYC waits run instantly), and the real worker process against a stand-in platform API.
 - `npm run check` type-checks `services/temporal-workflows` (it used to be outside the tsconfig).

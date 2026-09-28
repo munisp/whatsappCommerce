@@ -1,0 +1,161 @@
+{
+  "id": "J540",
+  "title": "WA events → ticket types → buy → paystack webhook → codes delivered",
+  "feature": "W53 events: WA ticket purchase end-to-end",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348012801815",
+      "profileName": "Sim User 1815",
+      "inboundId": "wamid.sim.in.text.00007",
+      "at": 1790548095580,
+      "kind": "text",
+      "text": "events"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00007",
+      "at": 1790548095587
+    },
+    {
+      "dir": "out",
+      "phone": "2348012801815",
+      "wamid": "wamid.sim.000025",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548095611,
+      "kind": "image",
+      "mediaKind": "image",
+      "caption": "🎟️ Upcoming events:\n1. W53 J540 Live Show — 2026-10-04 22:28 @ W53 Arena, Lagos",
+      "mediaId": "https://cdn.sim/w53/j540-header.png"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012801815",
+      "wamid": "wamid.sim.000026",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548095614,
+      "kind": "text",
+      "body": "🎟️ Upcoming events:\n1. W53 J540 Live Show — 2026-10-04 22:28 @ W53 Arena, Lagos\nReply TICKET <number> to see ticket types (e.g. TICKET 1)."
+    },
+    {
+      "dir": "in",
+      "phone": "2348012801815",
+      "profileName": "Sim User 1815",
+      "inboundId": "wamid.sim.in.text.00008",
+      "at": 1790548096125,
+      "kind": "text",
+      "text": "ticket 1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00008",
+      "at": 1790548096133
+    },
+    {
+      "dir": "out",
+      "phone": "2348012801815",
+      "wamid": "wamid.sim.000027",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548096166,
+      "kind": "text",
+      "body": "🎟️ W53 J540 Live Show\nTicket types:\n1. General — NGN 2,500.00 (50 left)\n2. VIP — NGN 9,000.00 (10 left)\nReply BUY <number> [qty] to get a payment link (e.g. BUY 1 2)."
+    },
+    {
+      "dir": "in",
+      "phone": "2348012801815",
+      "profileName": "Sim User 1815",
+      "inboundId": "wamid.sim.in.text.00009",
+      "at": 1790548096670,
+      "kind": "text",
+      "text": "buy 1 2"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00009",
+      "at": 1790548096677
+    },
+    {
+      "dir": "out",
+      "phone": "2348012801815",
+      "wamid": "wamid.sim.000028",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548096713,
+      "kind": "text",
+      "body": "🎟️ 2 × General for W53 J540 Live Show — total NGN 5,000.00 (order EVT-MUKE3TMI).\nTap to pay securely: https://checkout.paystack.com/sim/EVT-1790548096698-8974599D"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012801815",
+      "wamid": "wamid.sim.000029",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548097265,
+      "kind": "text",
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: EVT-MUKE3TMI\n\n2 × W53 J540 Live Show — General — ₦5,000.00\n\n*Total paid: ₦5,000.00*\nPayment ref: EVT-1790548096698-8974599D\n\n🔎 Track your order: http://localhost:4173/track/5b222d27-cbc9-4a68-8e9c-29967670c992.-oCdyFN5kUA7dWQLQ9ZIlNlZ"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012801815",
+      "wamid": "wamid.sim.000030",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548097285,
+      "kind": "text",
+      "body": "🎟️ Your tickets for *W53 J540 Live Show* (2026-10-04 22:28) at W53 Arena, Lagos:\n1. T-0A8A1CA2\n2. T-CEE0D858\nShow the codes at the door. Order EVT-MUKE3TMI."
+    },
+    {
+      "dir": "out",
+      "phone": "2348012801815",
+      "wamid": "wamid.sim.000031",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548097292,
+      "kind": "document",
+      "mediaKind": "document",
+      "caption": "🧾 Receipt for order EVT-MUKE3TMI",
+      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-EVT-MUKE3TMI.pdf"
+    },
+    {
+      "dir": "in",
+      "phone": "2348012801815",
+      "profileName": "Sim User 1815",
+      "inboundId": "wamid.sim.in.text.00010",
+      "at": 1790548098678,
+      "kind": "text",
+      "text": "my tickets"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00010",
+      "at": 1790548098686
+    },
+    {
+      "dir": "out",
+      "phone": "2348012801815",
+      "wamid": "wamid.sim.000032",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548098710,
+      "kind": "text",
+      "body": "🎟️ Your tickets:\n• T-0A8A1CA2 — issued\n• T-CEE0D858 — issued"
+    }
+  ]
+}

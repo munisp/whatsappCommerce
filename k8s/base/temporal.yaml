@@ -1,0 +1,147 @@
+# === W54 CILIUM ===
+# Temporal (auto-setup) + its Postgres, modeled from docker-compose.yml.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-db
+  namespace: whatsapp-commerce
+  labels: {app: temporal-db, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: temporal-db}
+  template:
+    metadata:
+      labels: {app: temporal-db, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+    spec:
+      securityContext:
+        fsGroup: 70
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - {name: POSTGRES_DB, value: temporal}
+            - {name: POSTGRES_USER, value: temporal}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: platform-db, key: temporal-db-password}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports:
+            - {name: postgres, containerPort: 5432}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "temporal", "-d", "temporal"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "temporal", "-d", "temporal"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+            - {name: tmp, mountPath: /tmp}
+            - {name: run, mountPath: /var/run/postgresql}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: temporal-db-data}
+        - {name: tmp, emptyDir: {}}
+        - {name: run, emptyDir: {}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: temporal-db-data
+  namespace: whatsapp-commerce
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests: {storage: 8Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal-db
+  namespace: whatsapp-commerce
+  labels: {app: temporal-db}
+spec:
+  selector: {app: temporal-db}
+  ports:
+    - {name: postgres, port: 5432, targetPort: 5432}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal
+  namespace: whatsapp-commerce
+  labels: {app: temporal, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: temporal}
+  template:
+    metadata:
+      labels: {app: temporal, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+    spec:
+      containers:
+        - name: temporal
+          image: temporalio/auto-setup:latest
+          env:
+            - {name: DB, value: postgres12}
+            - {name: DB_PORT, value: "5432"}
+            - {name: POSTGRES_USER, value: temporal}
+            - name: POSTGRES_PWD
+              valueFrom:
+                secretKeyRef: {name: platform-db, key: temporal-db-password}
+            - {name: POSTGRES_SEEDS, value: temporal-db}
+          ports:
+            - {name: grpc, containerPort: 7233}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "2", memory: 2Gi}
+          readinessProbe:
+            tcpSocket: {port: 7233}
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            tcpSocket: {port: 7233}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            # temporalio/auto-setup runs as the temporal user (uid 1000).
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false # auto-setup writes schema tooling temp files
+            capabilities: {drop: ["ALL"]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal
+  namespace: whatsapp-commerce
+  labels: {app: temporal}
+spec:
+  selector: {app: temporal}
+  ports:
+    - {name: grpc, port: 7233, targetPort: 7233}
+# === END W54 CILIUM ===

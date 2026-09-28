@@ -20,6 +20,7 @@ import {
   type LatLng,
 } from "@/lib/opsLogistics";
 import { MapPin, MapPinOff, RefreshCw, Truck, Loader2 } from "lucide-react";
+import { usePollInterval } from "@/hooks/usePollInterval";
 
 /** Center on Nigeria when no shipment carries coordinates. */
 const DEFAULT_CENTER: [number, number] = [8.6753, 9.082];
@@ -53,6 +54,8 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 };
 
 function LiveLogisticsMapInner() {
+  // W48 PERF-FE-5: visibility-gated polling
+  const mapPoll = usePollInterval(30_000);
   // Delivery-zone ETAs are inherently per-tenant, so this map always shows
   // one tenant at a time — picked locally here, not a global sidebar concept.
   const { data: tenants } = trpc.tenant.list.useQuery({ limit: 100 });
@@ -72,7 +75,7 @@ function LiveLogisticsMapInner() {
   const { data, isLoading, refetch, isFetching, dataUpdatedAt } =
     trpc.logistics.listShipments.useQuery(
       { tenantId, limit: 200 },
-      { refetchInterval: 30_000, enabled: !!tenantId },
+      { refetchInterval: mapPoll, enabled: !!tenantId },
     );
   const shipments = (data?.items ?? []) as unknown as ShipmentRow[];
 

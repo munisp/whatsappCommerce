@@ -1,0 +1,26 @@
+{
+  "id": "J490",
+  "title": "cta_url pay button on WA + URL button on TG",
+  "feature": "RICH-7",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348017000490",
+      "wamid": "wamid.sim.000042",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790547728868,
+      "kind": "interactive",
+      "body": "💳 Order SO-490 is awaiting payment. Tap below to pay securely.",
+      "buttons": [
+        {
+          "id": "https://pay.example.com/checkout/490",
+          "title": "cta_url"
+        }
+      ]
+    }
+  ]
+}

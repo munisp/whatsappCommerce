@@ -19,6 +19,7 @@ import {
   nlpSessions,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { cpus as osCpus } from "node:os";
 
 let _db: ReturnType<typeof drizzle<Record<string, never>>> | null = null;
 let _client: ReturnType<typeof postgres> | null = null;
@@ -35,11 +36,19 @@ export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
       const connStr = process.env.POSTGRES_URL || process.env.DATABASE_URL;
-      // PG pool size is env-configurable (PG_POOL_MAX, default 10) so the
-      // platform can scale per-replica connection budgets without rebuilds.
+      // PG pool size is env-configurable (PG_POOL_MAX). === W48 PERF-API-14
+      // (api-db): default raised from a flat 10 to ≈2× vCPU per replica
+      // (floor 10, cap 40) — every inbound chat message consumes several
+      // sequential queries, so a flat 10 saturated quickly under burst.
+      // PG_POOL_MAX still wins when explicitly set per environment. ===
       const poolMax = (() => {
         const v = parseInt(process.env.PG_POOL_MAX ?? "", 10);
-        return Number.isFinite(v) && v > 0 ? v : 10;
+        if (Number.isFinite(v) && v > 0) return v;
+        try {
+          return Math.min(40, Math.max(10, 2 * osCpus().length));
+        } catch {
+          return 10;
+        }
       })();
       _client = postgres(connStr!, {
         max: poolMax,
@@ -252,7 +261,26 @@ export async function createTenant(data: InsertTenant) {
 export async function updateTenant(id: string, data: Partial<InsertTenant>) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
+  // === W48 merger fix: resolve the WA phone_number_id BEFORE the write so
+  // the waTenantLookup read-through cache (PERF-INT-6 — caches the row incl.
+  // status+settings) can be invalidated after it. ===
+  const [pre] = await db
+    .select({ whatsappPhoneNumberId: tenants.whatsappPhoneNumberId })
+    .from(tenants).where(eq(tenants.id, id)).limit(1);
   await db.update(tenants).set(data).where(eq(tenants.id, id));
+  // === W48 PERF-API-9 (api-db): tenant settings changed → invalidate the
+  // read-through tenant-config cache (fail-open). ===
+  try {
+    const { invalidateTenantConfigCache } = await import("./services/readThroughCache");
+    await invalidateTenantConfigCache(id);
+  } catch { /* fail-open */ }
+  // === END W48 ===
+  try {
+    const { invalidateWaTenantLookupPair } = await import("./services/waTenantLookup");
+    await invalidateWaTenantLookupPair(pre?.whatsappPhoneNumberId ?? null,
+      (data as any).whatsappPhoneNumberId ?? pre?.whatsappPhoneNumberId ?? null);
+  } catch { /* fail-open */ }
+  // === END W48 merger fix ===
 }
 
 export async function getTenantStats() {
@@ -298,15 +326,16 @@ export async function updateProduct(id: string, tenantId: string, data: Partial<
 export async function getProductStats(tenantId: string) {
   const db = await getDb();
   if (!db) return { total: 0, active: 0, lowStock: 0 };
-  const [total, active, lowStock] = await Promise.all([
-    db.select({ count: sql<number>`count(*)` }).from(products).where(eq(products.tenantId, tenantId)),
-    db.select({ count: sql<number>`count(*)` }).from(products).where(and(eq(products.tenantId, tenantId), eq(products.status, "active"))),
-    db.select({ count: sql<number>`count(*)` }).from(products).where(and(eq(products.tenantId, tenantId), sql`"stockQuantity" <= "lowStockThreshold"`)),
-  ]);
+  // === W48 PERF-API-18 (api-db): single conditional-aggregate scan. ===
+  const [row] = await db.select({
+    total: sql<number>`count(*)::int`,
+    active: sql<number>`count(*) FILTER (WHERE ${products.status} = 'active')::int`,
+    lowStock: sql<number>`count(*) FILTER (WHERE "stockQuantity" <= "lowStockThreshold")::int`,
+  }).from(products).where(eq(products.tenantId, tenantId));
   return {
-    total: Number(total[0]?.count ?? 0),
-    active: Number(active[0]?.count ?? 0),
-    lowStock: Number(lowStock[0]?.count ?? 0),
+    total: Number(row?.total ?? 0),
+    active: Number(row?.active ?? 0),
+    lowStock: Number(row?.lowStock ?? 0),
   };
 }
 
@@ -450,18 +479,21 @@ export async function getOrders(tenantId: string, status?: string, limit = 50, o
 export async function getOrderStats(tenantId: string) {
   const db = await getDb();
   if (!db) return { total: 0, pending: 0, confirmed: 0, delivered: 0, revenue: 0, revenueByCurrency: [] as Array<{ currency: string; amount: number }> };
-  const [total, pending, confirmed, delivered, revenueRows] = await Promise.all([
-    db.select({ count: sql<number>`count(*)` }).from(orders).where(eq(orders.tenantId, tenantId)),
-    db.select({ count: sql<number>`count(*)` }).from(orders).where(and(eq(orders.tenantId, tenantId), eq(orders.status, "pending"))),
-    db.select({ count: sql<number>`count(*)` }).from(orders).where(and(eq(orders.tenantId, tenantId), eq(orders.status, "confirmed"))),
-    db.select({ count: sql<number>`count(*)` }).from(orders).where(and(eq(orders.tenantId, tenantId), eq(orders.status, "delivered"))),
-    // Found live 2026-09-26, aggressive dashboard QA sweep: this used to be a single COALESCE(SUM(...))
-    // across every completed order regardless of currency. This tenant has a real mix of NGN and USD
-    // orders (from before the currency/location bug was fixed — see order-currency memory), so that sum
-    // was adding e.g. ₦10,000 + $9,500 into one meaningless number and the UI slapped a hardcoded "$" on
-    // it. Grouping by currency is the actual fix; `revenue` below is kept only for legacy callers that
-    // don't yet render per-currency and is itself still a cross-currency sum (documented, not fixed) —
-    // new UI should read `revenueByCurrency`.
+  // === W48 PERF-API-4/18 (api-db): one conditional-aggregate scan instead of
+  // 4 filtered count(*) scans. ===
+  // Revenue is grouped by currency (found live 2026-09-26, aggressive dashboard QA sweep): this used to be a single
+  // COALESCE(SUM(...)) across every completed order regardless of currency. This tenant has a real mix of NGN and USD
+  // orders (from before the currency/location bug was fixed — see order-currency memory), so that sum was adding e.g.
+  // ₦10,000 + $9,500 into one meaningless number and the UI slapped a hardcoded "$" on it. `revenue` below is kept only
+  // for legacy callers that don't yet render per-currency and is itself still a cross-currency sum (documented, not
+  // fixed) — new UI should read `revenueByCurrency`.
+  const [[row], revenueRows] = await Promise.all([
+    db.select({
+      total: sql<number>`count(*)::int`,
+      pending: sql<number>`count(*) FILTER (WHERE ${orders.status} = 'pending')::int`,
+      confirmed: sql<number>`count(*) FILTER (WHERE ${orders.status} = 'confirmed')::int`,
+      delivered: sql<number>`count(*) FILTER (WHERE ${orders.status} = 'delivered')::int`,
+    }).from(orders).where(eq(orders.tenantId, tenantId)),
     db.select({ currency: orders.currency, total: sql<number>`COALESCE(SUM("totalAmount"), 0)` })
       .from(orders)
       .where(and(eq(orders.tenantId, tenantId), eq(orders.paymentStatus, "completed")))
@@ -469,10 +501,10 @@ export async function getOrderStats(tenantId: string) {
   ]);
   const revenueByCurrency = revenueRows.map((r) => ({ currency: r.currency, amount: Number(r.total ?? 0) }));
   return {
-    total: Number(total[0]?.count ?? 0),
-    pending: Number(pending[0]?.count ?? 0),
-    confirmed: Number(confirmed[0]?.count ?? 0),
-    delivered: Number(delivered[0]?.count ?? 0),
+    total: Number(row?.total ?? 0),
+    pending: Number(row?.pending ?? 0),
+    confirmed: Number(row?.confirmed ?? 0),
+    delivered: Number(row?.delivered ?? 0),
     revenue: revenueByCurrency.reduce((sum, r) => sum + r.amount, 0),
     revenueByCurrency,
   };

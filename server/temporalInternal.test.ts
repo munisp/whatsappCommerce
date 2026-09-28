@@ -5,7 +5,7 @@
  * unreachable without the shared internal key, even for a signed-in platform admin; (2) malformed
  * input is rejected at the schema. Behaviour against real data — sync, journey steps, idempotent
  * replay, closure, unknown tenants/runs — runs against a real database in simulation journey
- * J467 (worker's own HTTP client → real server → PGlite); nothing here fakes the database.
+ * J560 (worker's own HTTP client → real server → PGlite); nothing here fakes the database.
  */
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { appRouter } from "./routers";

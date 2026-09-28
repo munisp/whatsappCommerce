@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348019784566",
-      "profileName": "Sim User 4566",
-      "inboundId": "wamid.sim.in.loc.00321",
-      "at": 1790421179142,
+      "phone": "2348012638912",
+      "profileName": "Sim User 8912",
+      "inboundId": "wamid.sim.in.loc.00027",
+      "at": 1790546214927,
       "kind": "location",
       "lat": 6.53,
       "lng": 3.3792,
@@ -20,45 +20,45 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.loc.00321",
-      "at": 1790421179146
+      "wamid": "wamid.sim.in.loc.00027",
+      "at": 1790546214935
     },
     {
       "dir": "out",
-      "phone": "2348019784566",
-      "wamid": "wamid.sim.000548",
+      "phone": "2348012638912",
+      "wamid": "wamid.sim.000103",
       "statuses": [
         "sent"
       ],
-      "at": 1790421179160,
+      "at": 1790546214962,
       "kind": "text",
-      "body": "📍 Businesses near you (within 5 km):\n1. Sim Store — sim · 0.6 km\n\nReply with a category to filter, or tell me what you're looking for."
+      "body": "📍 Businesses near you (within 5 km):\n1. Sim Store — sim · 0.6 km\n   🗺️ https://maps.google.com/?q=6.5244,3.3792\n💡 Share a different location anytime to search around another area.\n\nReply with a category to filter, or tell me what you're looking for."
     },
     {
       "dir": "in",
-      "phone": "2348019784566",
-      "profileName": "Sim User 4566",
-      "inboundId": "wamid.sim.in.text.00322",
-      "at": 1790421179693,
+      "phone": "2348012638912",
+      "profileName": "Sim User 8912",
+      "inboundId": "wamid.sim.in.text.00028",
+      "at": 1790546215474,
       "kind": "text",
       "text": "Sim"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00322",
-      "at": 1790421179698
+      "wamid": "wamid.sim.in.text.00028",
+      "at": 1790546215481
     },
     {
       "dir": "out",
-      "phone": "2348019784566",
-      "wamid": "wamid.sim.000549",
+      "phone": "2348012638912",
+      "wamid": "wamid.sim.000104",
       "statuses": [
         "sent"
       ],
-      "at": 1790421179722,
+      "at": 1790546215531,
       "kind": "text",
-      "body": "📍 Businesses near you (within 5 km):\n1. Sim Store — sim · 0.6 km"
+      "body": "📍 Businesses near you (within 5 km):\n1. Sim Store — sim · 0.6 km\n   🗺️ https://maps.google.com/?q=6.5244,3.3792\n💡 Share a different location anytime to search around another area."
     }
   ]
 }

@@ -23,8 +23,9 @@ import { isProd } from "../_core/env";
 import { customers } from "../../drizzle/schema";
 import type { WaMenuConfig } from "./waMenu";
 
-export type Locale = "en" | "fr" | "ha" | "yo" | "ig" | "sw" | "am";
-export const SUPPORTED_LOCALES: readonly Locale[] = ["en", "fr", "ha", "yo", "ig", "sw", "am"];
+// === W49 I18N-PCM === Nigerian Pidgin (pcm) promoted to first-class locale.
+export type Locale = "en" | "fr" | "ha" | "yo" | "ig" | "sw" | "am" | "pcm";
+export const SUPPORTED_LOCALES: readonly Locale[] = ["en", "fr", "ha", "yo", "ig", "sw", "am", "pcm"];
 export const DEFAULT_LOCALE: Locale = "en";
 
 // ── Locale packs ─────────────────────────────────────────────────────────────
@@ -92,6 +93,12 @@ export const BUREAU_CONSENT_TEXT: Record<Locale, string> = {
     "የብድር ቢሮ ሪፖርት ማድረጊያ፡ በመቀበልዎ፣ የንግድ ብድርዎን እንቅስቃሴዎችን (መወሰድ፣ ክፍያዎች፣ " +
     "መዘግየቶች እና ማስተካከያዎች) ለተፈቀዱ የናይጄሪያ የብድር ቢሮዎች (CRC Credit Bureau / " +
     "CreditRegistry) ማሳወቅ እንድንችል ተስማምተዋል። ማንኛውንም ሪፖርት በማንኛውም ጊዜ መቃወም ይችላሉ።",
+  // === W49 I18N-PCM ===
+  pcm:
+    "Credit bureau mata: as you accept, you agree say we fit report your trade-credit " +
+    "waka (draws, how you dey pay back, any delay and how you settle am) give the licensed " +
+    "Naija credit bureaus (CRC Credit Bureau / CreditRegistry). You fit complain about any " +
+    "report any time.",
 };
 
 export const LOCALE_PACKS: Record<Locale, LocalePack> = {
@@ -296,6 +303,40 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     imageProcessingFailed: "ይቅርታ — ያንን ፎቶ ማስራት አልቻልኩም። እንደገና ይላኩት፣ ወይም የሚፈልጉትን ይጻፉ። 📷",
     ageGatePrompt: "🔞 በጋሪዎ ውስጥ ያሉ አንድ ወይም ተጨማሪ ዕቃዎች{items} የዕድሜ ገደብ አላቸው። ትእዛዝዎን ለማጠናቀቅ {age} ዓመት ወይም ከዚያ በላይ መሆንዎን \"አዎ {age}+\" ብለው ይምለሱ።",
   },
+  // === W49 I18N-PCM === Nigerian Pidgin pack. Tone follows the onboarding
+  // copilot pcm pack (onboardingCopilot/language.ts). consentPrompt MUST keep
+  // the literal word "WhatsApp" — telegramInbound does a WhatsApp→Telegram
+  // string swap on it (I18N-8).
+  pcm: {
+    greeting: "How far! Welcome to {businessName}! Wetin you need today?",
+    menuLabels: {
+      shop: "Buy tins / see products",
+      track: "Track my order",
+      support: "Get help",
+      booking: "Book appointment",
+      handoff: "Talk to person",
+      procurement: "Restock / buy supplies",
+    },
+    consentPrompt:
+      "Before we continue: we wan dey send you order updates and offers for WhatsApp. " +
+      "Under NDPR we need your consent. Reply YES to dey receive order updates, or NO to opt out. " +
+      "You fit change am any time — just message us.",
+    consentGranted: "Thank you! You don opt in for order updates for WhatsApp.",
+    consentDenied:
+      "No wahala — you don opt out of proactive order updates. " +
+      "You fit still message us any time, and reply YES later to opt back in.",
+    cartRecovery: "You leave items for your cart — reply CHECKOUT make you complete your order. 🛒",
+    shortageNote: "Some items no dey stock right now.",
+    tracking: "Track your order",
+    voiceNotEnabled: "Sorry o, voice note no dey work now — abeg type your message instead. 🎤❌",
+    reorderNoPriorOrder: "I no fit find any order wey you don pay before for this number — tell me wetin you want make I add am to your cart.",
+    disputeConfirm: "We don log your complaint and our team don hear am. We go get back to you sharp sharp. 🙏",
+    orderingSuspended: "Ordering don suspend with this supplier{reason}. Pay your outstanding balance{outstanding} make ordering open again.",
+    orderingUnavailable: "We no fit confirm your credit status just now — abeg try again small time. Your cart still dey as e be and we no place any order.",
+    paidViaCredit: "Paid via credit — e due {dueDate}. Pay before the due date make you fit dey order.",
+    imageProcessingFailed: "Sorry — I no fit process dat photo. Send am again, or type wetin you dey find. 📷",
+    ageGatePrompt: "🔞 Some items for your cart{items} na for adults only. Confirm say you don reach {age} years by replying \"YES {age}+\" make you complete your order.",
+  },
 };
 
 export function isLocale(v: unknown): v is Locale {
@@ -311,7 +352,10 @@ export function localeFromSessionLanguage(language: string | null | undefined): 
     case "igbo": case "ig": return "ig";
     case "swahili": case "kiswahili": case "sw": return "sw";
     case "amharic": case "am": return "am";
-    default: return DEFAULT_LOCALE; // english, pidgin, unknown
+    // === W49 I18N-PCM === bridge nlp session language names to pcm locale.
+    case "pidgin": case "pcm": case "naija": case "naija pidgin":
+    case "nigerian pidgin": case "broken": case "broken english": return "pcm";
+    default: return DEFAULT_LOCALE; // english, unknown
   }
 }
 
@@ -358,6 +402,17 @@ const STOPWORDS: Record<Exclude<Locale, "en">, string[]> = {
     "አሁን", "የት", "ስንት", "ክፍያ", "ይክፈሉ", "አዎ", "አይ", "እንኳን", "ሱቅ",
     "እርዳታ", "እፈልጋለሁ", "መክፈል", "ቅናሽ",
   ],
+  // === W49 I18N-PCM === ported from onboardingCopilot/language.ts pcm list.
+  // High-precision markers (abeg/wetin/how far/wahala) carry detection;
+  // multi-word phrases ("i don", "no wahala", …) score 2pts each. The
+  // apostrophe-non-boundary regex below keeps "i don" out of "I don't".
+  pcm: [
+    "abeg", "how far", "dey", "wetin", "wahala", "oga", "sabi", "comot",
+    "waka", "chop", "una", "make i", "no dey", "e dey", "na me",
+    "i don", "e don", "we don", "dem don", "you don",
+    "no wahala", "sha", "wey", "wan", "fit", "dey sell", "na so", "yarn",
+    "padi", "sef", "tori",
+  ],
 };
 
 /** Diacritic bonuses: [regex, locale, points]. */
@@ -378,7 +433,7 @@ const CHAR_HINTS: Array<[RegExp, Locale, number]> = [
 // === W46 platform-p2 (MSG-23) === scoring shared by detectLocale and the
 // confidence-aware detectLocaleDetailed.
 function scoreLocales(lower: string): Record<Locale, number> {
-  const scores: Record<Locale, number> = { en: 0, fr: 0, ha: 0, yo: 0, ig: 0, sw: 0, am: 0 };
+  const scores: Record<Locale, number> = { en: 0, fr: 0, ha: 0, yo: 0, ig: 0, sw: 0, am: 0, pcm: 0 };
   for (const [lang, words] of Object.entries(STOPWORDS) as Array<[Exclude<Locale, "en">, string[]]>) {
     for (const w of words) {
       // W15.1 bugfix: apostrophe is NOT a word boundary — otherwise the Hausa
@@ -697,9 +752,43 @@ export type MessageKey =
   | "orderPlaced" | "orderCancelled" | "askDeliveryAddress"
   // discovery
   | "discoveryAskLocation" | "discoveryEmpty" | "discoveryHeader"
+  // === W50 CHANNELS === discovery channel prompts + radius widening
+  | "discoveryAskLocationTelegram" | "discoveryAskLocationTyped"
+  | "discoveryConfirmStaleLocation" | "discoveryRadiusExpanded" | "discoveryMapsHint"
   // payment
   | "paymentPrompt" | "paymentLinkReady" | "paymentReceived" | "paymentFailed"
-  | "paymentPending";
+  | "paymentPending"
+  // === W51 PROMOS === promo spotlight card + most-ordered chrome
+  | "promoSpotlightBody" | "promoShopNow" | "promoViewDeal" | "promoLine"
+  | "popularBadge" | "popularHeader" | "popularEmpty" | "popularMenuLabel"
+  // === W52 SHARE === share-this-deal bundle + DEAL/REF inbound grammar
+  | "shareDealBlurb" | "shareDealForward" | "shareDealBundleMessage"
+  | "shareButtonLabel" | "shareDealRedeemed" | "shareDealSelfReferral"
+  | "shareDealBadPromo"
+  // === W53 EVENTS === events/ticketing chat + USSD flow
+  | "eventsHeader" | "eventsEmpty" | "eventsPickHint" | "eventsPickInvalid"
+  | "eventTicketTypesHeader" | "eventTicketTypesEmpty" | "eventTicketsLeft"
+  | "eventBuyHint" | "eventTicketPurchaseReady" | "eventTicketLinkPending"
+  | "eventTicketPurchaseFailed" | "eventTicketSoldOut"
+  | "eventMyTicketsHeader" | "eventMyTicketsEmpty"
+  | "eventCheckinNotStaff" | "eventCheckinOk" | "eventCheckinNotFound"
+  | "eventCheckinAlready" | "eventCheckinEventCancelled" | "eventCheckinVoid"
+  | "eventUssdPickEvent" | "eventUssdPickQty"
+  // === W54 disputes === buyer dispute-resolution + merchant-response notices
+  | "disputeResolvedBuyer" | "disputeOutcomeFullRefund" | "disputeOutcomePartialRefund"
+  | "disputeOutcomeRelease" | "disputeOutcomeNoAction" | "disputeOutcomeReplacement"
+  | "disputeMerchantResponded"
+  // === W54 capabilities === CAP-1 membership tiers chat + CAP-2 USSD depth
+  | "membershipPlansHeader" | "membershipPlansEmpty" | "membershipPlanLine"
+  | "membershipJoinHint" | "membershipJoinActive" | "membershipJoinPayment"
+  | "membershipJoinLinkPending" | "membershipJoinAlready" | "membershipJoinFailed"
+  | "membershipPickInvalid" | "membershipBenefitsBoth" | "membershipBenefitsDiscount"
+  | "membershipBenefitsPoints" | "membershipPriceFree"
+  | "membershipStatusActive" | "membershipStatusUntil" | "membershipStatusCancelling"
+  | "membershipStatusNone" | "membershipCancelPeriodEnd" | "membershipCancelImmediate"
+  | "membershipCancelNone"
+  | "ussdSavingsHeader" | "ussdSavingsNone" | "ussdSavingsLine"
+  | "ussdLoyaltyBalance" | "ussdLoyaltyDisabled";
 
 export type MessageCatalog = Record<MessageKey, string>;
 
@@ -722,14 +811,97 @@ const EN_CATALOG: MessageCatalog = {
   orderPlaced: "✅ Order {orderNumber} placed! Total: {total} {currency}.",
   orderCancelled: "Your order has been cancelled — no charge was made.",
   askDeliveryAddress: "Please send your delivery address (street, area, city).",
-  discoveryAskLocation: "📍 Share your location to see businesses near you.",
+  // === W50 MERGER === English WA copy keeps the pre-W50 wording verbatim
+  // ("share your current location" — asserted by J123); the new TG/USSD/SMS
+  // variants live in discoveryAskLocationTelegram / discoveryAskLocationTyped.
+  discoveryAskLocation: "To see businesses near you, tap 📎 → Location and share your current location.",
   discoveryEmpty: "No businesses found near you yet — try a different location.",
   discoveryHeader: "Businesses near you:",
+  // === W50 CHANNELS ===
+  discoveryAskLocationTelegram: "📍 Tap the button below to share your location and see businesses near you.",
+  discoveryAskLocationTyped: "📍 Reply with your area or nearest landmark (e.g. \"Wuse 2\") to find businesses near you.",
+  discoveryConfirmStaleLocation: "📍 I have your saved delivery location on file. Reply USE SAVED to search around it, or share your current location.",
+  discoveryRadiusExpanded: "🔍 Nothing within {fromKm} km — I widened the search to {radiusKm} km.",
+  discoveryMapsHint: "💡 Share a different location anytime to search around another area.",
   paymentPrompt: "💳 Total to pay: {total} {currency}.",
   paymentLinkReady: "Tap to pay securely: {url}",
   paymentReceived: "✅ Payment received — thank you! Your order is being prepared.",
   paymentFailed: "❌ Payment didn't go through — please try again or choose another method.",
   paymentPending: "Your payment is being confirmed — we'll update you shortly.",
+  // === W51 PROMOS ===
+  promoSpotlightBody: "🔥 {title} — {discount} with code {code}",
+  promoShopNow: "🛍️ Shop now",
+  promoViewDeal: "View deal",
+  promoLine: "DEAL: {title} — {discount}. Use code {code}",
+  popularBadge: "⭐ Most ordered",
+  popularHeader: "⭐ Most ordered items:",
+  popularEmpty: "No popular items yet — check back soon.",
+  popularMenuLabel: "⭐ Popular items",
+  // === W52 SHARE ===
+  shareDealBlurb: "🔥 {title} — {discount} at our store! Use code {code}. Referral: {ref}",
+  shareDealForward: "Forward: {blurb} {link}",
+  shareDealBundleMessage: "📤 Share this deal with friends!\n{blurb}\n\nWhatsApp: {waUrl}\nTelegram: {tgUrl}\n\n{forward}",
+  shareButtonLabel: "📤 Share",
+  shareDealRedeemed: "✅ Deal {code} locked in — it applies automatically at checkout. Happy shopping!",
+  shareDealSelfReferral: "Sorry — you can't use your own referral code. Share it with a friend instead!",
+  shareDealBadPromo: "I couldn't find that deal ({code}) — it may have expired. Reply MENU to browse the store.",
+  // === W53 EVENTS ===
+  eventsHeader: "🎟️ Upcoming events:",
+  eventsEmpty: "No upcoming events right now — please check back soon.",
+  eventsPickHint: "Reply TICKET <number> to see ticket types (e.g. TICKET 1).",
+  eventsPickInvalid: "Please reply EVENTS first, then TICKET <number> from the list.",
+  eventTicketTypesHeader: "Ticket types:",
+  eventTicketTypesEmpty: "No ticket types are on sale for that event yet.",
+  eventTicketsLeft: "{count} left",
+  eventBuyHint: "Reply BUY <number> [qty] to get a payment link (e.g. BUY 1 2).",
+  eventTicketPurchaseReady: "🎟️ {qty} × {type} for {event} — total {currency} {total} (order {orderNumber}).",
+  eventTicketLinkPending: "Your payment link is being prepared — the store will follow up shortly.",
+  eventTicketPurchaseFailed: "Sorry, I couldn't start that ticket purchase just now — please try again.",
+  eventTicketSoldOut: "Sorry — that ticket type is sold out.",
+  eventMyTicketsHeader: "Your tickets:",
+  eventMyTicketsEmpty: "You don't have any tickets yet — reply EVENTS to see what's on.",
+  eventCheckinNotStaff: "Sorry, only store staff can check tickets in.",
+  eventCheckinOk: "✅ Checked in: {code} ({event}). Welcome!",
+  eventCheckinNotFound: "I couldn't find a ticket with code {code} for this store.",
+  eventCheckinAlready: "⚠️ Ticket {code} was already checked in at {when}.",
+  eventCheckinEventCancelled: "Ticket {code} belongs to a cancelled event — not valid for entry.",
+  eventCheckinVoid: "Ticket {code} is {status} — not valid for entry.",
+  eventUssdPickEvent: "Reply with the event number.",
+  eventUssdPickQty: "How many tickets? Reply with a number.",
+  // === W54 disputes ===
+  disputeResolvedBuyer: "📋 The dispute on order {orderNumber} has been resolved. Outcome: {outcome}.{notes}",
+  disputeOutcomeFullRefund: "a full refund of {amount} has been issued",
+  disputeOutcomePartialRefund: "a partial refund of {amount} has been issued",
+  disputeOutcomeRelease: "the payment was released to the merchant (no refund)",
+  disputeOutcomeNoAction: "no further action was taken",
+  disputeOutcomeReplacement: "a replacement/return request was opened (ref {rmaRef})",
+  disputeMerchantResponded: "📋 The merchant responded to your dispute on order {orderNumber}. Our team is reviewing it now.",
+  membershipPlansHeader: "💎 Membership plans:",
+  membershipPlansEmpty: "No membership plans are available right now — please check back soon.",
+  membershipPlanLine: "{n}. {name} — {price} ({benefits})",
+  membershipJoinHint: "Reply JOIN MEMBERSHIP <number> to join, or MY MEMBERSHIP to check your status.",
+  membershipJoinActive: "🎉 Welcome to {plan}! Your membership is ACTIVE — {benefits}. It applies automatically at checkout.",
+  membershipJoinPayment: "💎 {plan} membership — total {currency} {total} (order {orderNumber}).",
+  membershipJoinLinkPending: "Your payment link is being prepared — the store will follow up shortly.",
+  membershipJoinAlready: "You already have an active {plan} membership — reply MY MEMBERSHIP to see it.",
+  membershipJoinFailed: "Sorry, I couldn't start that membership just now — please try again.",
+  membershipPickInvalid: "Please reply MEMBERSHIP first, then JOIN MEMBERSHIP <number> from the list.",
+  membershipBenefitsBoth: "{discount}% off orders + {mult}x loyalty points",
+  membershipBenefitsDiscount: "{discount}% off orders",
+  membershipBenefitsPoints: "{mult}x loyalty points",
+  membershipPriceFree: "FREE",
+  membershipStatusActive: "💎 Your membership: {plan} — {benefits}.",
+  membershipStatusUntil: " Active until {date}.",
+  membershipStatusCancelling: " It will end on {date} (cancellation scheduled).",
+  membershipStatusNone: "You don't have an active membership — reply MEMBERSHIP to see the plans.",
+  membershipCancelPeriodEnd: "✅ Your {plan} membership will end on {date} — your benefits stay active until then.",
+  membershipCancelImmediate: "✅ Your {plan} membership is cancelled — thank you for being a member!",
+  membershipCancelNone: "You don't have an active membership to cancel.",
+  ussdSavingsHeader: "Your savings circles:",
+  ussdSavingsNone: "You are not in any savings circle yet.",
+  ussdSavingsLine: "{name}: {amount}/{freq}, cycle {cycle}. Next payout: {next}.",
+  ussdLoyaltyBalance: "Loyalty points balance: {points} pts.",
+  ussdLoyaltyDisabled: "Loyalty rewards are not active at this store.",
 };
 
 /** Partial translations per locale — any missing key falls back to English. */
@@ -757,11 +929,91 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     discoveryAskLocation: "📍 Partagez votre position pour voir les commerces à proximité.",
     discoveryEmpty: "Aucun commerce trouvé à proximité — essayez un autre emplacement.",
     discoveryHeader: "Commerces près de chez vous :",
+    // === W50 CHANNELS ===
+    discoveryAskLocationTelegram: "📍 Touchez le bouton ci-dessous pour partager votre position et voir les commerces à proximité.",
+    discoveryAskLocationTyped: "📍 Répondez avec votre quartier ou un repère (ex. « Wuse 2 ») pour trouver les commerces proches.",
+    discoveryConfirmStaleLocation: "📍 J'ai votre adresse de livraison enregistrée. Répondez USE SAVED pour chercher autour d'elle, ou partagez votre position actuelle.",
+    discoveryRadiusExpanded: "🔍 Rien à moins de {fromKm} km — recherche élargie à {radiusKm} km.",
+    discoveryMapsHint: "💡 Partagez une autre position à tout moment pour chercher ailleurs.",
     paymentPrompt: "💳 Total à payer : {total} {currency}.",
     paymentLinkReady: "Touchez pour payer en toute sécurité : {url}",
     paymentReceived: "✅ Paiement reçu — merci ! Votre commande est en préparation.",
     paymentFailed: "❌ Le paiement n'a pas abouti — réessayez ou choisissez un autre moyen.",
     paymentPending: "Votre paiement est en cours de confirmation — nous vous informerons bientôt.",
+    // === W51 PROMOS ===
+    promoSpotlightBody: "🔥 {title} — {discount} avec le code {code}",
+    promoShopNow: "🛍️ Acheter",
+    promoViewDeal: "Voir l'offre",
+    promoLine: "PROMO : {title} — {discount}. Code : {code}",
+    popularBadge: "⭐ Le plus commandé",
+    popularHeader: "⭐ Articles les plus commandés :",
+    popularEmpty: "Pas encore d'articles populaires — revenez bientôt.",
+    popularMenuLabel: "⭐ Populaires",
+    // === W52 SHARE ===
+    shareDealBlurb: "🔥 {title} — {discount} dans notre boutique ! Code : {code}. Parrainage : {ref}",
+    shareDealForward: "Transférer : {blurb} {link}",
+    shareDealBundleMessage: "📤 Partagez cette offre avec vos amis !\n{blurb}\n\nWhatsApp : {waUrl}\nTelegram : {tgUrl}\n\n{forward}",
+    shareButtonLabel: "📤 Partager",
+    shareDealRedeemed: "✅ Offre {code} activée — elle s'applique automatiquement au paiement. Bon shopping !",
+    shareDealSelfReferral: "Désolé — vous ne pouvez pas utiliser votre propre code de parrainage. Partagez-le avec un ami !",
+    shareDealBadPromo: "Je n'ai pas trouvé cette offre ({code}) — elle a peut-être expiré. Répondez MENU pour parcourir la boutique.",
+    // === W53 EVENTS ===
+    eventsHeader: "🎟️ Événements à venir :",
+    eventsEmpty: "Aucun événement à venir pour le moment — revenez bientôt.",
+    eventsPickHint: "Répondez TICKET <numéro> pour voir les billets (ex. TICKET 1).",
+    eventsPickInvalid: "Répondez d'abord EVENTS, puis TICKET <numéro> de la liste.",
+    eventTicketTypesHeader: "Types de billets :",
+    eventTicketTypesEmpty: "Aucun billet n'est encore en vente pour cet événement.",
+    eventTicketsLeft: "{count} restants",
+    eventBuyHint: "Répondez BUY <numéro> [qté] pour recevoir un lien de paiement (ex. BUY 1 2).",
+    eventTicketPurchaseReady: "🎟️ {qty} × {type} pour {event} — total {currency} {total} (commande {orderNumber}).",
+    eventTicketLinkPending: "Votre lien de paiement est en préparation — la boutique vous contactera.",
+    eventTicketPurchaseFailed: "Désolé, impossible de démarrer cet achat de billet — réessayez.",
+    eventTicketSoldOut: "Désolé — ce type de billet est épuisé.",
+    eventMyTicketsHeader: "Vos billets :",
+    eventMyTicketsEmpty: "Vous n'avez pas encore de billets — répondez EVENTS pour voir les événements.",
+    eventCheckinNotStaff: "Désolé, seul le personnel de la boutique peut valider les billets.",
+    eventCheckinOk: "✅ Entrée validée : {code} ({event}). Bienvenue !",
+    eventCheckinNotFound: "Aucun billet avec le code {code} pour cette boutique.",
+    eventCheckinAlready: "⚠️ Le billet {code} a déjà été validé à {when}.",
+    eventCheckinEventCancelled: "Le billet {code} appartient à un événement annulé — entrée refusée.",
+    eventCheckinVoid: "Le billet {code} est {status} — entrée refusée.",
+    eventUssdPickEvent: "Répondez avec le numéro de l'événement.",
+    eventUssdPickQty: "Combien de billets ? Répondez avec un nombre.",
+    // === W54 disputes ===
+    disputeResolvedBuyer: "📋 Le litige sur la commande {orderNumber} a été résolu. Résultat : {outcome}.{notes}",
+    disputeOutcomeFullRefund: "un remboursement intégral de {amount} a été émis",
+    disputeOutcomePartialRefund: "un remboursement partiel de {amount} a été émis",
+    disputeOutcomeRelease: "le paiement a été reversé au commerçant (pas de remboursement)",
+    disputeOutcomeNoAction: "aucune autre action n'a été prise",
+    disputeOutcomeReplacement: "une demande de remplacement/retour a été ouverte (réf {rmaRef})",
+    disputeMerchantResponded: "📋 Le commerçant a répondu à votre litige sur la commande {orderNumber}. Notre équipe l'examine.",
+    membershipPlansHeader: "💎 Formules d'adhésion :",
+    membershipPlansEmpty: "Aucune formule d'adhésion disponible pour le moment — revenez bientôt.",
+    membershipPlanLine: "{n}. {name} — {price} ({benefits})",
+    membershipJoinHint: "Répondez JOIN MEMBERSHIP <numéro> pour adhérer, ou MY MEMBERSHIP pour voir votre statut.",
+    membershipJoinActive: "🎉 Bienvenue dans {plan} ! Votre adhésion est ACTIVE — {benefits}. Elle s'applique automatiquement au paiement.",
+    membershipJoinPayment: "💎 Adhésion {plan} — total {currency} {total} (commande {orderNumber}).",
+    membershipJoinLinkPending: "Votre lien de paiement est en préparation — la boutique vous contactera bientôt.",
+    membershipJoinAlready: "Vous avez déjà une adhésion {plan} active — répondez MY MEMBERSHIP pour la voir.",
+    membershipJoinFailed: "Désolé, impossible de démarrer cette adhésion pour le moment — réessayez.",
+    membershipPickInvalid: "Répondez d'abord MEMBERSHIP, puis JOIN MEMBERSHIP <numéro> dans la liste.",
+    membershipBenefitsBoth: "{discount}% de remise + points fidélité x{mult}",
+    membershipBenefitsDiscount: "{discount}% de remise sur les commandes",
+    membershipBenefitsPoints: "points fidélité x{mult}",
+    membershipPriceFree: "GRATUIT",
+    membershipStatusActive: "💎 Votre adhésion : {plan} — {benefits}.",
+    membershipStatusUntil: " Active jusqu'au {date}.",
+    membershipStatusCancelling: " Elle prendra fin le {date} (annulation programmée).",
+    membershipStatusNone: "Vous n'avez pas d'adhésion active — répondez MEMBERSHIP pour voir les formules.",
+    membershipCancelPeriodEnd: "✅ Votre adhésion {plan} prendra fin le {date} — vos avantages restent actifs jusque-là.",
+    membershipCancelImmediate: "✅ Votre adhésion {plan} est annulée — merci d'avoir été membre !",
+    membershipCancelNone: "Vous n'avez pas d'adhésion active à annuler.",
+    ussdSavingsHeader: "Vos cercles d'épargne :",
+    ussdSavingsNone: "Vous n'êtes dans aucun cercle d'épargne pour le moment.",
+    ussdSavingsLine: "{name} : {amount}/{freq}, cycle {cycle}. Prochain versement : {next}.",
+    ussdLoyaltyBalance: "Solde de points fidélité : {points} pts.",
+    ussdLoyaltyDisabled: "Les récompenses fidélité ne sont pas actives dans cette boutique.",
   },
   ha: {
     languageMenuPrompt: "🌐 Zaɓi harshenka:",
@@ -785,11 +1037,91 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     discoveryAskLocation: "📍 Aika wurin da ka ke don ganin shaguna kusa da kai.",
     discoveryEmpty: "Ba a sami shaguna kusa da kai ba tukuna — gwada wani wuri.",
     discoveryHeader: "Shaguna kusa da kai:",
+    // === W50 CHANNELS ===
+    discoveryAskLocationTelegram: "📍 Danna maɓallin da ke ƙasa don aika wurin da ka ke kuma ga shaguna kusa da kai.",
+    discoveryAskLocationTyped: "📍 Amsa da unguwarka ko wurin da aka sani (misali \"Wuse 2\") don neman shaguna kusa da kai.",
+    discoveryConfirmStaleLocation: "📍 Ina da adireshin isar da kaya da ka ajiye. Amsa USE SAVED don bincika kewaye da shi, ko aika wurin da ka ke yanzu.",
+    discoveryRadiusExpanded: "🔍 Babu komai a cikin {fromKm} km — na faɗaɗa bincike zuwa {radiusKm} km.",
+    discoveryMapsHint: "💡 Aika wani wuri a kowane lokaci don bincike a wani gari.",
     paymentPrompt: "💳 Jimillar biya: {total} {currency}.",
     paymentLinkReady: "Danna don biya cikin aminci: {url}",
     paymentReceived: "✅ An karɓi biya — na gode! Ana shirin odarka.",
     paymentFailed: "❌ Biya bai yi nasara ba — sake gwadawa ko zaɓi wani hanya.",
     paymentPending: "Ana tabbatar da biyarka — za mu sanar da kai nan ba da jimawa ba.",
+    // === W51 PROMOS ===
+    promoSpotlightBody: "🔥 {title} — {discount} da lambar {code}",
+    promoShopNow: "🛍️ Yi sayayya",
+    promoViewDeal: "Duba tayin",
+    promoLine: "TAYI: {title} — {discount}. Yi amfani da lambar {code}",
+    popularBadge: "⭐ Wanda aka fi oda",
+    popularHeader: "⭐ Kayayyakin da aka fi oda:",
+    popularEmpty: "Babu sanannun kayayyaki tukuna — sake duba nan gaba.",
+    popularMenuLabel: "⭐ Sanannu",
+    // === W52 SHARE ===
+    shareDealBlurb: "🔥 {title} — {discount} a shagonmu! Yi amfani da lambar {code}. Referral: {ref}",
+    shareDealForward: "Tura wa aboki: {blurb} {link}",
+    shareDealBundleMessage: "📤 Tura wannan tayi ga abokanka!\n{blurb}\n\nWhatsApp: {waUrl}\nTelegram: {tgUrl}\n\n{forward}",
+    shareButtonLabel: "📤 Tura",
+    shareDealRedeemed: "✅ An kunna tayin {code} — zai shiga kai tsaye a lokacin biya. Muna maka fatan alheri!",
+    shareDealSelfReferral: "Yi haƙuri — ba za ka iya amfani da lambar referral ɗinka da kanka ba. Tura wa aboki!",
+    shareDealBadPromo: "Ban sami wannan tayin ({code}) ba — wata ƙila ya ƙare. Amsa MENU don duba shagon.",
+    // === W53 EVENTS ===
+    eventsHeader: "🎟️ Abubuwan da za su faru:",
+    eventsEmpty: "Babu wasu abubuwa a yanzu — don Allah sake duba nan gaba.",
+    eventsPickHint: "Amsa TICKET <lamba> don ganin nau'ikan tikiti (misali TICKET 1).",
+    eventsPickInvalid: "Da farko amsa EVENTS, sannan TICKET <lamba> daga jerin.",
+    eventTicketTypesHeader: "Nau'ikan tikiti:",
+    eventTicketTypesEmpty: "Ba a sanya tikitin wannan taron a sayarwa tukuna ba.",
+    eventTicketsLeft: "{count} suka rage",
+    eventBuyHint: "Amsa BUY <lamba> [adadi] don samun hanyar biya (misali BUY 1 2).",
+    eventTicketPurchaseReady: "🎟️ {qty} × {type} na {event} — jimla {currency} {total} (oda {orderNumber}).",
+    eventTicketLinkPending: "Ana shirya hanyar biyanka — shagon zai tuntube ka.",
+    eventTicketPurchaseFailed: "Yi haƙuri, ban iya fara sayen tikitin ba yanzu — sake gwadawa.",
+    eventTicketSoldOut: "Yi haƙuri — an gama sayar da wannan nau'in tikiti.",
+    eventMyTicketsHeader: "Tikitin ka:",
+    eventMyTicketsEmpty: "Ba ka da tikiti tukuna — amsa EVENTS don ganin abin da ke gaba.",
+    eventCheckinNotStaff: "Yi haƙuri, ma'aikatan shago ne kawai za su iya shigar da tikiti.",
+    eventCheckinOk: "✅ An shigar: {code} ({event}). Barka da zuwa!",
+    eventCheckinNotFound: "Ban sami tikiti da lambar {code} a wannan shagon ba.",
+    eventCheckinAlready: "⚠️ An riga an shigar da tikiti {code} da {when}.",
+    eventCheckinEventCancelled: "Tikiti {code} na taron da aka soke ne — ba a shiga da shi.",
+    eventCheckinVoid: "Tikiti {code} {status} ne — ba a shiga da shi.",
+    eventUssdPickEvent: "Amsa da lambar taron.",
+    eventUssdPickQty: "Tikiti nawa? Amsa da lamba.",
+    // === W54 disputes ===
+    disputeResolvedBuyer: "📋 An warware rigimar kan oda {orderNumber}. Sakamako: {outcome}.{notes}",
+    disputeOutcomeFullRefund: "an mayar da dukkan kuɗin {amount}",
+    disputeOutcomePartialRefund: "an mayar da wani ɓangare na kuɗin {amount}",
+    disputeOutcomeRelease: "an saki kuɗin zuwa ga mai sayarwa (babu mayar da kuɗi)",
+    disputeOutcomeNoAction: "ba a ɗauki wani mataki ba",
+    disputeOutcomeReplacement: "an buɗe buƙatar musanya/mayarwa (ref {rmaRef})",
+    disputeMerchantResponded: "📋 Mai sayarwa ya amsa rigimarka kan oda {orderNumber}. Tawagarmu na nazarin shi.",
+    membershipPlansHeader: "💎 Shirye-shiryen zama memba:",
+    membershipPlansEmpty: "Babu shirin zama memba a yanzu — don Allah sake duba nan gaba.",
+    membershipPlanLine: "{n}. {name} — {price} ({benefits})",
+    membershipJoinHint: "Amsa JOIN MEMBERSHIP <lamba> don shiga, ko MY MEMBERSHIP don duba matsayinka.",
+    membershipJoinActive: "🎉 Barka da zuwa {plan}! Membarki ta yi aiki — {benefits}. Ana amfani da ita kai tsaye yayin biya.",
+    membershipJoinPayment: "💎 Membarki {plan} — jimla {currency} {total} (oda {orderNumber}).",
+    membershipJoinLinkPending: "Ana shirya hanyar biyanka — shagon zai tuntube ka nan ba da jimawa ba.",
+    membershipJoinAlready: "Kana da membarki {plan} mai aiki — amsa MY MEMBERSHIP don ganinta.",
+    membershipJoinFailed: "Yi haƙuri, ban iya fara wannan membarki yanzu — sake gwadawa.",
+    membershipPickInvalid: "Da farko amsa MEMBERSHIP, sannan JOIN MEMBERSHIP <lamba> daga jerin.",
+    membershipBenefitsBoth: "rangwame {discount}% + maki x{mult}",
+    membershipBenefitsDiscount: "rangwamen {discount}% akan odoci",
+    membershipBenefitsPoints: "maki x{mult}",
+    membershipPriceFree: "KYAUTA",
+    membershipStatusActive: "💎 Membarki: {plan} — {benefits}.",
+    membershipStatusUntil: " Tana aiki har {date}.",
+    membershipStatusCancelling: " Za ta ƙare ran {date} (an shirya soke).",
+    membershipStatusNone: "Ba ka da membarki mai aiki — amsa MEMBERSHIP don ganin shirye-shirye.",
+    membershipCancelPeriodEnd: "✅ Membarki {plan} za ta ƙare ran {date} — amfaninka yana aiki har sai.",
+    membershipCancelImmediate: "✅ An soke membarki {plan} — mun gode da zama memba!",
+    membershipCancelNone: "Ba ka da membarki mai aiki da za a soke.",
+    ussdSavingsHeader: "Kungiyoyin adashenka:",
+    ussdSavingsNone: "Ba ka cikin kungiyar adashe tukuna.",
+    ussdSavingsLine: "{name}: {amount}/{freq}, zagaye {cycle}. Na gaba biya: {next}.",
+    ussdLoyaltyBalance: "Makin loyalti: {points} pts.",
+    ussdLoyaltyDisabled: "Ba a amfani da kyautar loyalti a wannan shago.",
   },
   yo: {
     languageMenuPrompt: "🌐 Yan èdè rẹ:",
@@ -813,11 +1145,91 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     discoveryAskLocation: "📍 Pín ipò rẹ láti rí àwọn ilé-iṣòwò tó sun mọ́ ọ́.",
     discoveryEmpty: "A kò rí ilé-iṣòwò kankan nítòsí rẹ — gbìyànjú ibòmíì.",
     discoveryHeader: "Àwọn ilé-iṣòwò nítòsí rẹ:",
+    // === W50 CHANNELS ===
+    discoveryAskLocationTelegram: "📍 Tẹ bọtìnnì ìsàlẹ̀ yìí láti pín ipò rẹ kí o rí àwọn ilé-iṣòwò tó sun mọ́ ọ́.",
+    discoveryAskLocationTyped: "📍 Dáhùn pẹ̀lú agbègbè rẹ tàbí ami-ìdílé tó sun mọ́ ọ́ (bíi \"Wuse 2\") láti wá àwọn ilé-iṣòwò nítòsí.",
+    discoveryConfirmStaleLocation: "📍 Mo ní àdírẹ́sì ìfiranṣẹ́ rẹ tó wà nípamọ́. Dáhùn USE SAVED láti wá ní àyíká rẹ̀, tàbí pín ipò rẹ lọ́wọ́lọ́wọ́.",
+    discoveryRadiusExpanded: "🔍 Kò sí ohun kankan laàbò {fromKm} km — mo ti gbé ìwádìí dé {radiusKm} km.",
+    discoveryMapsHint: "💡 Pín ipò míì nígbàkúgbà láti wá ní agbègbè míì.",
     paymentPrompt: "💳 Àpapọ̀ owó tó yẹ kí o san: {total} {currency}.",
     paymentLinkReady: "Tẹ láti sanwó láìní ẹ̀wà: {url}",
     paymentReceived: "✅ A ti gba owó — ẹ ṣeun! A ń ṣe àṣẹ rẹ.",
     paymentFailed: "❌ Owó kò lọ — gbìyànjú lẹ́ẹ̀kansi tàbí yan ọ̀nà míì.",
     paymentPending: "A ń jẹ́rìí sí owó rẹ — a ó sọ fún ọ láìpẹ́.",
+    // === W51 PROMOS ===
+    promoSpotlightBody: "🔥 {title} — {discount} pẹ̀lú kóòdù {code}",
+    promoShopNow: "🛍️ Ra níṣìí",
+    promoViewDeal: "Wo ọ̀pọ̀tọ́ náà",
+    promoLine: "Ọ̀PỌ̀TỌ́: {title} — {discount}. Lo kóòdù {code}",
+    popularBadge: "⭐ Ẹni tí wọ́n pa ọ̀rọ̀ rẹ̀ jùlọ",
+    popularHeader: "⭐ Àwọn ohun tí wọ́n pa ọ̀rọ̀ wọn jùlọ:",
+    popularEmpty: "Kò sí ohun gbajúmọ̀ fún ìsìn — padà wá laìpẹ́.",
+    popularMenuLabel: "⭐ Gbajúmọ̀",
+    // === W52 SHARE ===
+    shareDealBlurb: "🔥 {title} — {discount} ní ìtajà wa! Lo kóòdù {code}. Referral: {ref}",
+    shareDealForward: "Rán ẹ́ sí ọ̀rẹ́: {blurb} {link}",
+    shareDealBundleMessage: "📤 Pín ọ̀pọ̀tọ́ yìí pẹ̀lú àwọn ọ̀rẹ́ rẹ!\n{blurb}\n\nWhatsApp: {waUrl}\nTelegram: {tgUrl}\n\n{forward}",
+    shareButtonLabel: "📤 Pín",
+    shareDealRedeemed: "✅ Ọ̀pọ̀tọ́ {code} ti wọlé — yóò lo ara rẹ̀ nígbà ìsanwó. Kú òwò!",
+    shareDealSelfReferral: "Ma binu — o ò lè lo kóòdù referral tirẹ fún ara rẹ. Rán án sí ọ̀rẹ́!",
+    shareDealBadPromo: "Mi ò rí ọ̀pọ̀tọ́ yẹn ({code}) — ó lè ti parí. Dahun MENU láti wo ìtajà.",
+    // === W53 EVENTS ===
+    eventsHeader: "🎟️ Àwọn ọ̀rọ̀ tí ń bọ̀:",
+    eventsEmpty: "Kò sí ọ̀rọ̀ kankan fún ìsinsinyí — jọ̀wọ́ ṣàyẹ̀wò lẹ́yìn.",
+    eventsPickHint: "Dahun TICKET <nọ́ńbà> láti rí oríṣi ìkówé (bíi TICKET 1).",
+    eventsPickInvalid: "Dahun EVENTS ṣáájú, lẹ́yìn náà TICKET <nọ́ńbà> lára àkópọ̀.",
+    eventTicketTypesHeader: "Oríṣi ìkówé:",
+    eventTicketTypesEmpty: "A kò tíì fi ìkówé ọ̀rọ̀ yìí jábò fún títà.",
+    eventTicketsLeft: "{count} ó kù",
+    eventBuyHint: "Dahun BUY <nọ́ńbà> [iye] láti gba ọ̀nà sánwó (bíi BUY 1 2).",
+    eventTicketPurchaseReady: "🎟️ {qty} × {type} fún {event} — papò {currency} {total} (àṣẹ {orderNumber}).",
+    eventTicketLinkPending: "Ń ṣe ọ̀nà sánwó rẹ — ìtajà á kàn sí ọ.",
+    eventTicketPurchaseFailed: "Pèlé, n kò lè bẹ̀rù rà ìkówé yìí — gbìyànjú lẹ́ẹ̀kan sí i.",
+    eventTicketSoldOut: "Pèlé — oríṣi ìkówé yìí ti tà á.",
+    eventMyTicketsHeader: "Àwọn ìkówé rẹ:",
+    eventMyTicketsEmpty: "Ìwọ kò tíì ní ìkówé — dahun EVENTS láti wo ohun tó wà.",
+    eventCheckinNotStaff: "Pèlé, àwọn òṣìṣẹ́ ìtajà nìkan ló lè ṣe ìforúkọsílẹ̀ ìkówé.",
+    eventCheckinOk: "✅ Ti forúkọsílẹ̀: {code} ({event}). Káàbọ̀!",
+    eventCheckinNotFound: "Mi ò rí ìkówé pẹ̀lú kóòdù {code} fún ìtajà yìí.",
+    eventCheckinAlready: "⚠️ A ti forúkọsílẹ̀ ìkówé {code} ní {when}.",
+    eventCheckinEventCancelled: "Ìkówé {code} jẹ́ ti ọ̀rọ̀ tí a ti fagi lé — kò wọlé.",
+    eventCheckinVoid: "Ìkówé {code} jẹ́ {status} — kò wọlé.",
+    eventUssdPickEvent: "Dahun pẹ̀lú nọ́ńbà ọ̀rọ̀ náà.",
+    eventUssdPickQty: "Ìkówé mélòó? Dahun pẹ̀lú nọ́ńbà.",
+    // === W54 disputes ===
+    disputeResolvedBuyer: "📋 A ti yan ẹjọ́ lórí àṣẹ {orderNumber} pé. Èsì: {outcome}.{notes}",
+    disputeOutcomeFullRefund: "a ti da gbogbo owó {amount} padà",
+    disputeOutcomePartialRefund: "a ti da apá kan nínú owó {amount} padà",
+    disputeOutcomeRelease: "a ti fi owó ránṣẹ́ sí oníṣòwò (kò sí ìpadàbò)",
+    disputeOutcomeNoAction: "kò sí ìgbésẹ̀ mìíràn tí a gbé",
+    disputeOutcomeReplacement: "a ṣí ìbéèrè àròpọ̀/ìpadàsí (ref {rmaRef})",
+    disputeMerchantResponded: "📋 Oníṣòwò ti dáhùn lórí ẹjọ́ rẹ lórí àṣẹ {orderNumber}. Ẹgbẹ́ wa ń ṣàyẹ̀wò rẹ̀.",
+    membershipPlansHeader: "💎 Àwọn ètò ìkówé:",
+    membershipPlansEmpty: "Kò sí ètò ìkówé fún ìsinsinyí — jọ̀wọ́ ṣàyẹ̀wò lẹ́yìn.",
+    membershipPlanLine: "{n}. {name} — {price} ({benefits})",
+    membershipJoinHint: "Dahun JOIN MEMBERSHIP <nọ́ńbà> láti darapọ̀, tàbí MY MEMBERSHIP láti wo ipò rẹ.",
+    membershipJoinActive: "🎉 Káàbọ̀ sí {plan}! Ìkówé rẹ ti ṢIṢẸ́ — {benefits}. Ó ń lo fúnra rẹ̀ nígbà ìsanwó.",
+    membershipJoinPayment: "💎 Ìkówé {plan} — iye {currency} {total} (àṣẹ {orderNumber}).",
+    membershipJoinLinkPending: "A ń ṣètò ọ̀nà ìsanwó rẹ — ilé ìtajà yóò kàn sí ẹ laipẹ́.",
+    membershipJoinAlready: "O ti ní ìkówé {plan} tó ń ṣiṣẹ́ — dahun MY MEMBERSHIP láti wo ò.",
+    membershipJoinFailed: "Pèlé, n kò lè bẹ̀rù ìkówé yìí báyìí — gbìyànjú lẹ́ẹ̀kan sí i.",
+    membershipPickInvalid: "Dahun MEMBERSHIP níṣáájú, lẹ́yìn náà JOIN MEMBERSHIP <nọ́ńbà> láti inú àkójọ.",
+    membershipBenefitsBoth: "ìdínkù {discount}% + àmì x{mult}",
+    membershipBenefitsDiscount: "ìdínkù {discount}% lórí àwọn àṣẹ",
+    membershipBenefitsPoints: "àmì x{mult}",
+    membershipPriceFree: "Ọ̀FẸ́",
+    membershipStatusActive: "💎 Ìkówé rẹ: {plan} — {benefits}.",
+    membershipStatusUntil: " Ó ń ṣiṣẹ́ títí dé {date}.",
+    membershipStatusCancelling: " Yóò parí ní {date} (a ti ṣètò fagi lé).",
+    membershipStatusNone: "Ìwọ kò ní ìkówé tó ń ṣiṣẹ́ — dahun MEMBERSHIP láti wo àwọn ètò.",
+    membershipCancelPeriodEnd: "✅ Ìkówé {plan} rẹ yóò parí ní {date} — àwọn àǹfààní rẹ ń ṣiṣẹ́ títí dé ìgbà náà.",
+    membershipCancelImmediate: "✅ A ti fagi lé ìkówé {plan} rẹ — ẹ ṣeun fún jíjẹ́ ọmọ ẹgbẹ́!",
+    membershipCancelNone: "Ìwọ kò ní ìkówé tó ń ṣiṣẹ́ tí a lè fagi lé.",
+    ussdSavingsHeader: "Àwọn ẹgbẹ́ àdájọ rẹ:",
+    ussdSavingsNone: "Ìwọ kò sí nínú ẹgbẹ́ àdájọ kankan síbò.",
+    ussdSavingsLine: "{name}: {amount}/{freq}, yìí {cycle}. Ènì tó kàn ní ìsanwó tó nbọ̀: {next}.",
+    ussdLoyaltyBalance: "Àmì ìfẹ́rarẹ: {points} pts.",
+    ussdLoyaltyDisabled: "Ẹ̀bùn ìfẹ́rarẹ kò ṣiṣẹ́ ní ilé ìtajà yìí.",
   },
   ig: {
     languageMenuPrompt: "🌐 Họrọ asụsụ gị:",
@@ -841,12 +1253,92 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     discoveryAskLocation: "📍 Kesaa ebe ị nọ iji hụ ụlọ ahịa dị gị nso.",
     discoveryEmpty: "Ahụghị ụlọ ahịa ọ bụla dị gị nso — nwaa ebe ọzọ.",
     discoveryHeader: "Ụlọ ahịa dị gị nso:",
+    // === W50 CHANNELS ===
+    discoveryAskLocationTelegram: "📍 Pịa bọtịnụ dị n'okpuru iji kesaa ebe ị nọ wee hụ ụlọ ahịa dị gị nso.",
+    discoveryAskLocationTyped: "📍 Zaa mpaghara gị ma ọ bụ ama ebe a ma ama (dịka \"Wuse 2\") iji chọta ụlọ ahịa dị nso.",
+    discoveryConfirmStaleLocation: "📍 Enwere m adreesị nnabata gị echekwara. Zaa USE SAVED iji chọọ gburugburu ya, ma ọ bụ kesaa ebe ị nọ ugbu a.",
+    discoveryRadiusExpanded: "🔍 Enweghị ihe ọ bụla n'ime {fromKm} km — agbasaala m ọchụchọ ruo {radiusKm} km.",
+    discoveryMapsHint: "💡 Kesaa ebe ọzọ oge ọ bụla iji chọọ na mpaghara ọzọ.",
     paymentPrompt: "💳 Ngụkọta ị ga-akwụ: {total} {currency}.",
     paymentLinkReady: "Pịa iji kwụọ ụgwọ n'enweghị nsogbu: {url}",
     paymentReceived: "✅ Enwetala ụgwọ — daalụ! Ana m akọzi ihe ị zụrụ.",
     paymentFailed: "❌ Ịkwụ ụgwọ agaghị — nwaa ọzọ ma ọ bụ họrọ ụzọ ọzọ.",
     // paymentPending intentionally untranslated in Igbo — exercises the
     // locale→en fallback chain (see J137).
+    // === W51 PROMOS ===
+    promoSpotlightBody: "🔥 {title} — {discount} site na koodu {code}",
+    promoShopNow: "🛍️ Zụta ugbu a",
+    promoViewDeal: "Lee nkwekọrịta",
+    promoLine: "NKWEKỌRỊTA: {title} — {discount}. Jiri koodu {code}",
+    popularBadge: "⭐ Ihe a na-achọsi ike",
+    popularHeader: "⭐ Ihe ndị a na-achọsi ike:",
+    popularEmpty: "Ọ dịbeghị ihe a ma ama — laghachi ozugbo.",
+    popularMenuLabel: "⭐ Ndị a ma ama",
+    // === W52 SHARE ===
+    shareDealBlurb: "🔥 {title} — {discount} n'ụlọ ahịa anyị! Jiri koodu {code}. Referral: {ref}",
+    shareDealForward: "Ziga enyi gị: {blurb} {link}",
+    shareDealBundleMessage: "📤 Kesaa nkwekọrịta a ndị enyi gị!\n{blurb}\n\nWhatsApp: {waUrl}\nTelegram: {tgUrl}\n\n{forward}",
+    shareButtonLabel: "📤 Kesaa",
+    shareDealRedeemed: "✅ Nkwekọrịta {code} adọbaala — ọ ga-arụ ọrụ ozugbo mgbe ị na-akwụ ụgwọ. Ka ahịa dị gị mma!",
+    shareDealSelfReferral: "Ndo — ị nweghị ike iji koodu referral gị onwe gị. Ziga ya enyi!",
+    shareDealBadPromo: "Ahụghị m nkwekọrịta ahụ ({code}) — ọ nwere ike ịgwụcha. Zaa MENU ịchọrọ ụlọ ahịa.",
+    // === W53 EVENTS ===
+    eventsHeader: "🎟️ Ihe omume na-abịa:",
+    eventsEmpty: "Enweghị ihe omume ugbu a — biko laghachi ozugbo.",
+    eventsPickHint: "Zaa TICKET <nọmba> iji hụ ụdị tiketi (dịk TICKET 1).",
+    eventsPickInvalid: "Burụ ụzọ zaa EVENTS, mgbe ahụ TICKET <nọmba> site na ndepụta.",
+    eventTicketTypesHeader: "Ụdị tiketi:",
+    eventTicketTypesEmpty: "Ejibeghị tiketi maka ihe omume ahụ ere.",
+    eventTicketsLeft: "{count} fọdụrụ",
+    eventBuyHint: "Zaa BUY <nọmba> [ọnụ ọgụgụ] iji nweta njikọ ịkwụ ụgwọ (dịk BUY 1 2).",
+    eventTicketPurchaseReady: "🎟️ {qty} × {type} maka {event} — ngụkọta {currency} {total} (ọrụ {orderNumber}).",
+    eventTicketLinkPending: "A na-akwadebe njikọ ịkwụ ụgwọ gị — ụlọ ahịa ga-akpọtụrụ gị.",
+    eventTicketPurchaseFailed: "Ndo, enweghị m ike ịmalite ịzụta tiketi ahụ — nwaa ọzọ.",
+    eventTicketSoldOut: "Ndo — ereela ụdị tiketi ahụ.",
+    eventMyTicketsHeader: "Tiketi gị:",
+    eventMyTicketsEmpty: "I nwebeghị tiketi — zaa EVENTS iji hụ ihe dị.",
+    eventCheckinNotStaff: "Ndo, naanị ndị ọrụ ụlọ ahịa nwere ike ịdenye tiketi.",
+    eventCheckinOk: "✅ Edebanyela: {code} ({event}). Nnọọ!",
+    eventCheckinNotFound: "Ahụghị m tiketi nwere koodu {code} maka ụlọ ahịa a.",
+    eventCheckinAlready: "⚠️ Edebanyela tiketi {code} na {when}.",
+    eventCheckinEventCancelled: "Tiketi {code} bụ nke ihe omume e kagbuola — ọ naghị arụ ọrụ.",
+    eventCheckinVoid: "Tiketi {code} bụ {status} — ọ naghị arụ ọrụ.",
+    eventUssdPickEvent: "Zaa nọmba ihe omume ahụ.",
+    eventUssdPickQty: "Tiketi ole? Zaa nọmba.",
+    // === W54 disputes ===
+    disputeResolvedBuyer: "📋 E doziela arụmụka na order {orderNumber}. Nsonaazụ: {outcome}.{notes}",
+    disputeOutcomeFullRefund: "a kwụghachịla ego {amount} niile",
+    disputeOutcomePartialRefund: "a kwụghachịla akụkụ nke ego {amount}",
+    disputeOutcomeRelease: "a kwụrụ onye na-ere ahịa (enweghị nkwụghachi)",
+    disputeOutcomeNoAction: "ọ dịghị ihe ọzọ e mere",
+    disputeOutcomeReplacement: "emepechara arịrị nnọchi/nyeghachi (ref {rmaRef})",
+    disputeMerchantResponded: "📋 Onye na-ere ahịa azaghachila arụmụka gị na order {orderNumber}. Otu anyị na-enyocha ya.",
+    membershipPlansHeader: "💎 Atụmatụ otu:",
+    membershipPlansEmpty: "Enweghị atụmatụ otu ugbu a — biko lelee ọzọ.",
+    membershipPlanLine: "{n}. {name} — {price} ({benefits})",
+    membershipJoinHint: "Zaa JOIN MEMBERSHIP <nọmba> iji sonye, ma ọ bụ MY MEMBERSHIP iji hụ otu gị.",
+    membershipJoinActive: "🎉 Nnọọ na {plan}! Otu gị NA-ARỤ ỌRỤ — {benefits}. O na-arụ ọrụ ozugbo mgbe ị kwụrụ ụgwọ.",
+    membershipJoinPayment: "💎 Otu {plan} — mkpokọta {currency} {total} (ọrụ {orderNumber}).",
+    membershipJoinLinkPending: "A na-akwado njikọ ịkwụ ụgwọ gị — ụlọ ahịa ga-akpọtụrụ gị n'oge na-adịghị anya.",
+    membershipJoinAlready: "Ị nwerịrị otu {plan} na-arụ ọrụ — zaa MY MEMBERSHIP iji hụ ya.",
+    membershipJoinFailed: "Ndo, enweghị m ike ịmalite otu ahụ ugbu a — nwaa ọzọ.",
+    membershipPickInvalid: "Biko zaa MEMBERSHIP mbụ, wee zaa JOIN MEMBERSHIP <nọmba> site na ndepụta.",
+    membershipBenefitsBoth: "mbelata {discount}% + isi x{mult}",
+    membershipBenefitsDiscount: "mbelata {discount}% na ọrụ",
+    membershipBenefitsPoints: "isi x{mult}",
+    membershipPriceFree: "N'EFU",
+    membershipStatusActive: "💎 Otu gị: {plan} — {benefits}.",
+    membershipStatusUntil: " Na-arụ ọrụ ruo {date}.",
+    membershipStatusCancelling: " O ga-agwụ na {date} (edoziri ịkagbu).",
+    membershipStatusNone: "Ị nweghị otu na-arụ ọrụ — zaa MEMBERSHIP iji hụ atụmatụ.",
+    membershipCancelPeriodEnd: "✅ Otu {plan} gị ga-agwụ na {date} — uru gị na-arụ ọrụ ruo mgbe ahụ.",
+    membershipCancelImmediate: "✅ Ekagbuola otu {plan} gị — daalụ n'ihi na ị bụ onye otu!",
+    membershipCancelNone: "Ị nweghị otu na-arụ ọrụ iji kagbuo.",
+    ussdSavingsHeader: "Otu ekwote gị:",
+    ussdSavingsNone: "Ị nọbeghị n'otu ekwote ọ bụla ugbu a.",
+    ussdSavingsLine: "{name}: {amount}/{freq}, okirikiri {cycle}. Ịkwụ ụgwọ na-esote: {next}.",
+    ussdLoyaltyBalance: "Isi loyalty: {points} pts.",
+    ussdLoyaltyDisabled: "Onyinye loyalty anaghị arụ ọrụ n'ụlọ ahịa a.",
   },
   sw: {
     languageMenuPrompt: "🌐 Chagua lugha yako:",
@@ -870,11 +1362,91 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     discoveryAskLocation: "📍 Shiriki eneo lako kuona biashara zilizo karibu nawe.",
     discoveryEmpty: "Hakuna biashara zilizopatikana karibu nawe — jaribu eneo lingine.",
     discoveryHeader: "Biashara zilizo karibu nawe:",
+    // === W50 CHANNELS ===
+    discoveryAskLocationTelegram: "📍 Gusa kitufe hapa chini kushiriki eneo lako na kuona biashara zilizo karibu nawe.",
+    discoveryAskLocationTyped: "📍 Jibu kwa eneo lako au alama ya karibu (k.m. \"Wuse 2\") kupata biashara zilizo karibu nawe.",
+    discoveryConfirmStaleLocation: "📍 Nina anwani yako ya kufikishia iliyohifadhiwa. Jibu USE SAVED kutafuta karibu nayo, au shiriki eneo lako la sasa.",
+    discoveryRadiusExpanded: "🔍 Hakuna chochote ndani ya km {fromKm} — nimepanua utafutaji hadi km {radiusKm}.",
+    discoveryMapsHint: "💡 Shiriki eneo tofauti wakati wowote kutafuta sehemu nyingine.",
     paymentPrompt: "💳 Jumla ya kulipa: {total} {currency}.",
     paymentLinkReady: "Gusa kulipa kwa usalama: {url}",
     paymentReceived: "✅ Malipo yamepokea — asante! Agizo lako linaandaliwa.",
     paymentFailed: "❌ Malipo hayakufanikiwa — jaribu tena au chagua njia nyingine.",
     paymentPending: "Malipo yako yanathibitishwa — tutakujulisha hivi karibuni.",
+    // === W51 PROMOS ===
+    promoSpotlightBody: "🔥 {title} — {discount} kwa msimbo {code}",
+    promoShopNow: "🛍️ Nunua sasa",
+    promoViewDeal: "Angalia ofa",
+    promoLine: "OFA: {title} — {discount}. Tumia msimbo {code}",
+    popularBadge: "⭐ Inayoagizwa zaidi",
+    popularHeader: "⭐ Bidhaa zinazoagizwa zaidi:",
+    popularEmpty: "Hakuna bidhaa maarufu bado — rudi hivi karibuni.",
+    popularMenuLabel: "⭐ Maarufu",
+    // === W52 SHARE ===
+    shareDealBlurb: "🔥 {title} — {discount} dukani kwetu! Tumia msimbo {code}. Referral: {ref}",
+    shareDealForward: "Tuma kwa rafiki: {blurb} {link}",
+    shareDealBundleMessage: "📤 Shiriki ofa hii na marafiki!\n{blurb}\n\nWhatsApp: {waUrl}\nTelegram: {tgUrl}\n\n{forward}",
+    shareButtonLabel: "📤 Shiriki",
+    shareDealRedeemed: "✅ Ofa {code} imewekwa — itatumika moja kwa moja unapolipa. Karibu!",
+    shareDealSelfReferral: "Samahani — huwezi kutumia msimbo wako mwenyewe wa referral. Mtumie rafiki!",
+    shareDealBadPromo: "Sikuipata ofa hiyo ({code}) — huenda imeisha. Jibu MENU kuona duka.",
+    // === W53 EVENTS ===
+    eventsHeader: "🎟️ Matukio yajayo:",
+    eventsEmpty: "Hakuna matukio yajayo kwa sasa — rudi hivi karibuni.",
+    eventsPickHint: "Jibu TICKET <namba> kuona aina za tiketi (mf. TICKET 1).",
+    eventsPickInvalid: "Jibu EVENTS kwanza, kisha TICKET <namba> kutoka orodha.",
+    eventTicketTypesHeader: "Aina za tiketi:",
+    eventTicketTypesEmpty: "Hakuna tiketi zinazouzwa kwa tukio hilo bado.",
+    eventTicketsLeft: "{count} zimebaki",
+    eventBuyHint: "Jibu BUY <namba> [idadi] kupata kiungo cha malipo (mf. BUY 1 2).",
+    eventTicketPurchaseReady: "🎟️ {qty} × {type} kwa {event} — jumla {currency} {total} (oda {orderNumber}).",
+    eventTicketLinkPending: "Kiungo chako cha malipo kinatayarishwa — duka litakufuatilia.",
+    eventTicketPurchaseFailed: "Samahani, sikuweza kuanzisha ununuzi huo wa tiketi — jaribu tena.",
+    eventTicketSoldOut: "Samahani — aina hiyo ya tiketi imeisha.",
+    eventMyTicketsHeader: "Tiketi zako:",
+    eventMyTicketsEmpty: "Bado huna tiketi — jibu EVENTS kuona yaliyopo.",
+    eventCheckinNotStaff: "Samahani, wafanyakazi wa duka pekee ndio wanaoweza kukagua tiketi.",
+    eventCheckinOk: "✅ Imekaguliwa: {code} ({event}). Karibu!",
+    eventCheckinNotFound: "Sikuipata tiketi yenye msimbo {code} kwa duka hili.",
+    eventCheckinAlready: "⚠️ Tiketi {code} tayari ilikaguliwa saa {when}.",
+    eventCheckinEventCancelled: "Tiketi {code} ni ya tukio lililofutwa — hairuhusiwi kuingia.",
+    eventCheckinVoid: "Tiketi {code} ni {status} — hairuhusiwi kuingia.",
+    eventUssdPickEvent: "Jibu kwa namba ya tukio.",
+    eventUssdPickQty: "Tiketi ngapi? Jibu kwa namba.",
+    // === W54 disputes ===
+    disputeResolvedBuyer: "📋 Mgogoro wa agizo {orderNumber} umetatuliwa. Matokeo: {outcome}.{notes}",
+    disputeOutcomeFullRefund: "rudisho kamili la {amount} limetolewa",
+    disputeOutcomePartialRefund: "rudisho la sehemu la {amount} limetolewa",
+    disputeOutcomeRelease: "malipo yametolewa kwa muuzaji (hakuna rudisho)",
+    disputeOutcomeNoAction: "hakuna hatua zaidi iliyochukuliwa",
+    disputeOutcomeReplacement: "ombi la badiliko/urejesheji limefunguliwa (ref {rmaRef})",
+    disputeMerchantResponded: "📋 Muuzaji amejibu mgogoro wako wa agizo {orderNumber}. Timu yetu inaukagua.",
+    membershipPlansHeader: "💎 Mpango wa uanachama:",
+    membershipPlansEmpty: "Hakuna mpango wa uanachama kwa sasa — rudi tena baadaye.",
+    membershipPlanLine: "{n}. {name} — {price} ({benefits})",
+    membershipJoinHint: "Jibu JOIN MEMBERSHIP <namba> kujiunga, au MY MEMBERSHIP kuona hali yako.",
+    membershipJoinActive: "🎉 Karibu {plan}! Uanachama wako UMEANZA — {benefits}. Unatumika moja kwa moja unapolipa.",
+    membershipJoinPayment: "💎 Uanachama {plan} — jumla {currency} {total} (oda {orderNumber}).",
+    membershipJoinLinkPending: "Kiungo chako cha malipo kinatayarishwa — duka litakupigia hivi karibuni.",
+    membershipJoinAlready: "Tayari una uanachama {plan} unaofanya kazi — jibu MY MEMBERSHIP kuuona.",
+    membershipJoinFailed: "Samahani, sikuweza kuanzisha uanachama huo sasa — jaribu tena.",
+    membershipPickInvalid: "Tafadhali jibu MEMBERSHIP kwanza, kisha JOIN MEMBERSHIP <namba> kutoka kwenye orodha.",
+    membershipBenefitsBoth: "punguzo la {discount}% + pointi x{mult}",
+    membershipBenefitsDiscount: "punguzo la {discount}% kwa oda",
+    membershipBenefitsPoints: "pointi x{mult}",
+    membershipPriceFree: "BURE",
+    membershipStatusActive: "💎 Uanachama wako: {plan} — {benefits}.",
+    membershipStatusUntil: " Unaofanya kazi hadi {date}.",
+    membershipStatusCancelling: " Utaisha {date} (ughairi umepangwa).",
+    membershipStatusNone: "Huna uanachama unaofanya kazi — jibu MEMBERSHIP kuona mipango.",
+    membershipCancelPeriodEnd: "✅ Uanachama wako {plan} utaisha {date} — manufaa yako yanaendelea hadi wakati huo.",
+    membershipCancelImmediate: "✅ Uanachama wako {plan} umeghairishwa — asante kwa kuwa mwanachama!",
+    membershipCancelNone: "Huna uanachama unaofanya kazi wa kughairi.",
+    ussdSavingsHeader: "Vyama vyako vya akiba:",
+    ussdSavingsNone: "Bado hauko kwenye chama cha akiba.",
+    ussdSavingsLine: "{name}: {amount}/{freq}, mzunguko {cycle}. Malipo yajayo: {next}.",
+    ussdLoyaltyBalance: "Salio la pointi: {points} pts.",
+    ussdLoyaltyDisabled: "Zawadi za uongozi hazijawashwa dukani hapa.",
   },
   am: {
     languageMenuPrompt: "🌐 ቋንቋዎን ይምረጡ:",
@@ -898,12 +1470,202 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     discoveryAskLocation: "📍 በአቅራቢያዊ ያሉ ንግዶችን ለማየት አካባቢዎን ያጋሩ።",
     discoveryEmpty: "በአቅራቢያዊ ምንም ንግድ አልተገኘም — ሌላ ቦታ ይሞክሩ።",
     discoveryHeader: "በአቅራቢያዊ ያሉ ንግዶች:",
+    // === W50 CHANNELS ===
+    discoveryAskLocationTelegram: "📍 አካባቢዎን ለማጋራት እና በአቅራቢያዊ ያሉ ንግዶችን ለማየት ከታች ያለውን ቁልፍ ይንኩ።",
+    discoveryAskLocationTyped: "📍 በአቅራቢያዊ ያሉ ንግዶችን ለማግኘት አካባቢዎን ወይም የቅርብ ምልክት ቦታ (ለምሳሌ \"Wuse 2\") ይመልሱ።",
+    discoveryConfirmStaleLocation: "📍 የተቀመጠ የመላኪያ አድራሻዎ አለኝ። ዙሪያውን ለመፈተሽ USE SAVED ብለው ይመልሱ፣ ወይም የአሁኑን አካባቢዎን ያጋሩ።",
+    discoveryRadiusExpanded: "🔍 በ{fromKm} km ውስጥ ምንም አልተገኘም — ፍለጋውን ወደ {radiusKm} km አሰራዝሬአለሁ።",
+    discoveryMapsHint: "💡 በሌላ አካባቢ ለመፈተሽ በማንኛውም ጊዜ ሌላ አካባቢ ያጋሩ።",
     paymentPrompt: "💳 የሚከፍሉት ጠቅላላ: {total} {currency}።",
     paymentLinkReady: "በደህና ለመክፈል ይንኩ: {url}",
     paymentReceived: "✅ ክፍያ ደርሷል — አመሰግናለሁ! ትእዛዝዎ እየተዘጋጀ ነው።",
     paymentFailed: "❌ ክፍያ አልተሳካም — እባክዎ እንደገና ይሞክሩ ወይም ሌላ መንገድ ይምረጡ።",
+    // === W51 PROMOS ===
+    promoSpotlightBody: "🔥 {title} — {discount} በኮድ {code}",
+    promoShopNow: "🛍️ አሁን ይግዙ",
+    promoViewDeal: "ቅናሹን ይመልከቱ",
+    promoLine: "ቅናሽ: {title} — {discount}. ኮድ {code} ይጠቀሙ",
+    popularBadge: "⭐ በብዛት የሚያዝ",
+    popularHeader: "⭐ በብዛት የሚያዙ እቃዎች:",
+    popularEmpty: "እስካሁን ታዋቂ እቃዎች የሉም — በቅርቡ ይመልሱ።",
+    popularMenuLabel: "⭐ ታዋቂዎች",
+    // === W52 SHARE ===
+    shareDealBlurb: "🔥 {title} — {discount} በሱቃችን! ኮድ {code} ይጠቀሙ። Referral: {ref}",
+    shareDealForward: "ለጓደኛ ያስተላልፉ: {blurb} {link}",
+    shareDealBundleMessage: "📤 ይህንን ቅናሽ ከጓደኞችዎ ጋር ያጋሩ!\n{blurb}\n\nWhatsApp: {waUrl}\nTelegram: {tgUrl}\n\n{forward}",
+    shareButtonLabel: "📤 አጋራ",
+    shareDealRedeemed: "✅ ቅናሽ {code} ተግብሯል — ሲከፍሉ በራስ-ሰር ይተገበራል። ምርጡ ይምረጡ!",
+    shareDealSelfReferral: "ይቅርታ — የራስዎን referral ኮድ መጠቀም አይችሉም። ለጓደኛ ያጋሩት!",
+    shareDealBadPromo: "ያንን ቅናሽ ({code}) ማግኘት አልቻልኩም — ሊያበቃ ይችላል። ሱቁን ለማየት MENU ብለው ይመልሱ።",
+    // === W53 EVENTS ===
+    eventsHeader: "🎟️ የሚመጡ ዝግጅቶች:",
+    eventsEmpty: "በአሁኑ ጊዜ የሚመጡ ዝግጅቶች የሉም — እባክዎ ቆይተው ይመልሱ።",
+    eventsPickHint: "የትኬት ዓይነቶችን ለማየት TICKET <ቁጥር> ይመልሱ (ለምሳሌ TICKET 1)።",
+    eventsPickInvalid: "መጀመሪያ EVENTS ይመልሱ፣ ከዚያ ከዝርዝሩ TICKET <ቁጥር>።",
+    eventTicketTypesHeader: "የትኬት ዓይነቶች:",
+    eventTicketTypesEmpty: "ለዚህ ዝግጅት ገና ሽያጭ ላይ የሚሉ ትኬቶች የሉም።",
+    eventTicketsLeft: "{count} ቀርተዋል",
+    eventBuyHint: "የክፍያ አገናኝ ለማግኘት BUY <ቁጥር> [ብዛት] ይመልሱ (ለምሳሌ BUY 1 2)።",
+    eventTicketPurchaseReady: "🎟️ {qty} × {type} ለ{event} — ድምር {currency} {total} (ትዕዛዝ {orderNumber})።",
+    eventTicketLinkPending: "የክፍያ አገናኝዎ በዝግጅት ላይ ነው — ሱቁ ያግኝዎታል።",
+    eventTicketPurchaseFailed: "ይቅርታ፣ የትኬት ግዢውን መጀመር አልቻልኩም — እባክዎ እንደገና ይሞክሩ።",
+    eventTicketSoldOut: "ይቅርታ — ይህ የትኬት ዓይነት ተሽጦ አልቋል።",
+    eventMyTicketsHeader: "ትኬቶችዎ:",
+    eventMyTicketsEmpty: "ገና ትኬት የሎትም — ያለውን ለማየት EVENTS ይመልሱ።",
+    eventCheckinNotStaff: "ይቅርታ፣ የሱቅ ሰራተኞች ብቻ ትኬት ማረጋገጥ ይችላሉ።",
+    eventCheckinOk: "✅ ገብቷል: {code} ({event}). እንኳን ደህና መጡ!",
+    eventCheckinNotFound: "ለዚህ ሱቅ በኮድ {code} ትኬት አላገኘሁም።",
+    eventCheckinAlready: "⚠️ ትኬት {code} አስቀድሞ በ{when} ገብቷል።",
+    eventCheckinEventCancelled: "ትኬት {code} የተሰረዘ ዝግጅት ነው — መግባት አይችሉም።",
+    eventCheckinVoid: "ትኬት {code} {status} ነው — መግባት አይችሉም።",
+    eventUssdPickEvent: "በዝግጅቱ ቁጥር ይመልሱ።",
+    eventUssdPickQty: "ስንት ትኬት? በቁጥር ይመልሱ።",
+    // === W54 disputes ===
+    disputeResolvedBuyer: "📋 በትእዛዝ {orderNumber} ላይ ያለው አለካክ ተፈትቷል። ውጤት: {outcome}.{notes}",
+    disputeOutcomeFullRefund: "ሙሉ የገንዘብ ተመላሽ {amount} ተሰጥቷል",
+    disputeOutcomePartialRefund: "የከፍል የገንዘብ ተመላሽ {amount} ተሰጥቷል",
+    disputeOutcomeRelease: "ክፍያው ለነጋዴው ተለቋል (ምንም ተመላሽ የለም)",
+    disputeOutcomeNoAction: "ምንም ተጨማሪ እርምጃ አልተወሰደም",
+    disputeOutcomeReplacement: "የምትክ/መመለሻ ጥያቄ ተከፍቷል (ref {rmaRef})",
+    disputeMerchantResponded: "📋 ነጋዴው በትእዛዝ {orderNumber} ላይ ለእርስዎ አለካክ ምላሽ ሰጥቷል። ቡድናችን እያጠናው ነው።",
+    membershipPlansHeader: "💎 የአባልነት እቅዶች:",
+    membershipPlansEmpty: "በአሁኑ ጊዜ የአባልነት እቅድ የለም — እባክዎ ቆይተው ይመልከቱ።",
+    membershipPlanLine: "{n}. {name} — {price} ({benefits})",
+    membershipJoinHint: "ለመቀላቀል JOIN MEMBERSHIP <ቁጥር> ይመልሱ፣ ወይም ሁኔታዎን ለማየት MY MEMBERSHIP።",
+    membershipJoinActive: "🎉 እንኳን ወደ {plan} መጡ! አባልነትዎ ገብቷል — {benefits}። በክፍያ ጊዜ በራሱ ይተገበራል።",
+    membershipJoinPayment: "💎 {plan} አባልነት — ድምር {currency} {total} (ትዕዛዝ {orderNumber})።",
+    membershipJoinLinkPending: "የክፍያ አገናኝዎ በዝግጅት ላይ ነው — ሱቁ በቅርቡ ያግኝዎታል።",
+    membershipJoinAlready: "አስቀድመው ንቁ የ{plan} አባልነት አለዎት — ለማየት MY MEMBERSHIP ይመልሱ።",
+    membershipJoinFailed: "ይቅርታ፣ አሁን ያ አባልነት መጀመር አልቻልኩም — እባክዎ እንደገና ይሞክሩ።",
+    membershipPickInvalid: "እባክዎ መጀመሪያ MEMBERSHIP ይመልሱ፣ ከዚያ ከዝርዝሩ JOIN MEMBERSHIP <ቁጥር>።",
+    membershipBenefitsBoth: "{discount}% ቅናሽ + ነጥብ x{mult}",
+    membershipBenefitsDiscount: "በትዕዛዞች ላይ {discount}% ቅናሽ",
+    membershipBenefitsPoints: "ነጥብ x{mult}",
+    membershipPriceFree: "ነጻ",
+    membershipStatusActive: "💎 አባልነትዎ: {plan} — {benefits}።",
+    membershipStatusUntil: " እስከ {date} ንቁ ነው።",
+    membershipStatusCancelling: " በ {date} ያበቃል (መሰረዝ ተያይዟል)።",
+    membershipStatusNone: "ንቁ አባልነት የለዎትም — እቅዶቹን ለማየት MEMBERSHIP ይመልሱ።",
+    membershipCancelPeriodEnd: "✅ የ{plan} አባልነትዎ በ {date} ያበቃል — ጥቅሞቹ እስከዚያ ይቀጥላሉ።",
+    membershipCancelImmediate: "✅ የ{plan} አባልነትዎ ተሰርዟል — አባል ስለነበሩ እናመሰግናለን!",
+    membershipCancelNone: "የሚሰረዝ ንቁ አባልነት የለዎትም።",
+    ussdSavingsHeader: "የቁጠባ ክቦችዎ:",
+    ussdSavingsNone: "እስካሁን በምንም የቁጠባ ክብ ውስጥ አይደሉም።",
+    ussdSavingsLine: "{name}: {amount}/{freq}፣ ዙር {cycle}። ቀጣይ ክፍያ: {next}።",
+    ussdLoyaltyBalance: "የትጋት ነጥብ ሂሳብ: {points} pts።",
+    ussdLoyaltyDisabled: "የትጋት ሽልማቶች በዚህ ሱቅ አልነቁም።",
     // paymentPending intentionally untranslated in Amharic — exercises the
     // locale→en fallback chain (see J137).
+  },
+  // === W49 I18N-PCM === full catalog (all 27 MessageKeys — complete, not
+  // leaning on the Partial fallback like ig/am paymentPending).
+  pcm: {
+    languageMenuPrompt: "🌐 Choose your language / Wetin you wan speak:",
+    languageSetConfirm: "Language don set to {language}. You fit change am any time — just type LANGUAGE.",
+    languageMenuHint: "Type LANGUAGE any time make you change your language.",
+    mainMenuPrompt: "Reply with number, or tell me wetin you dey find.",
+    backToMenu: "Back to main menu",
+    invalidSelection: "Sorry o, I no understand dat one — reply MENU make you see the options again.",
+    catalogHeader: "🛍️ Wetin we get:",
+    catalogEmpty: "No products dey now — abeg check back small time.",
+    catalogItemOutOfStock: "(e don finish)",
+    catalogItemAdded: "I don add {product} ×{qty} to your cart. 🛒",
+    catalogMoreHint: "Reply with the product name or number make I add am to your cart.",
+    cartSummaryHeader: "🛒 Your cart:",
+    cartEmpty: "Your cart dey empty.",
+    checkoutPrompt: "Reply CHECKOUT make you place your order, or continue shopping.",
+    orderConfirmPrompt: "Confirm your order? Reply YES to confirm or NO to cancel.",
+    orderPlaced: "✅ Order {orderNumber} don place! Total: {total} {currency}.",
+    orderCancelled: "Your order don cancel — dem no charge you.",
+    askDeliveryAddress: "Abeg send your delivery address (street, area, city).",
+    discoveryAskLocation: "📍 Share your location make you see businesses wey dey near you.",
+    discoveryEmpty: "We never see any business near you yet — try another location.",
+    discoveryHeader: "Businesses wey dey near you:",
+    // === W50 CHANNELS ===
+    discoveryAskLocationTelegram: "📍 Tap the button wey dey below make you share your location and see businesses near you.",
+    discoveryAskLocationTyped: "📍 Reply with your area or landmark wey dey near you (like \"Wuse 2\") make you see businesses wey dey near.",
+    discoveryConfirmStaleLocation: "📍 I get your saved delivery location for file. Reply USE SAVED make I search around am, or share where you dey now.",
+    discoveryRadiusExpanded: "🔍 Nothing dey within {fromKm} km — I don widen the search reach {radiusKm} km.",
+    discoveryMapsHint: "💡 Share another location any time make you search another area.",
+    paymentPrompt: "💳 Total wey you go pay: {total} {currency}.",
+    paymentLinkReady: "Tap here make you pay well: {url}",
+    paymentReceived: "✅ Payment don enter — thank you! We dey prepare your order.",
+    paymentFailed: "❌ Payment no go — abeg try again or choose another way.",
+    paymentPending: "Dem dey confirm your payment — we go update you small time.",
+    // === W51 PROMOS ===
+    promoSpotlightBody: "🔥 {title} — {discount} with code {code}",
+    promoShopNow: "🛍️ Shop now",
+    promoViewDeal: "See di deal",
+    promoLine: "DEAL: {title} — {discount}. Use code {code}",
+    popularBadge: "⭐ Wey pipo dey order pass",
+    popularHeader: "⭐ Items wey pipo dey order pass:",
+    popularEmpty: "Popular items never dey yet — check am later.",
+    popularMenuLabel: "⭐ Popular items",
+    // === W52 SHARE ===
+    shareDealBlurb: "🔥 {title} — {discount} for our shop! Use code {code}. Referral: {ref}",
+    shareDealForward: "Forward am: {blurb} {link}",
+    shareDealBundleMessage: "📤 Share dis deal give your padi dem!\n{blurb}\n\nWhatsApp: {waUrl}\nTelegram: {tgUrl}\n\n{forward}",
+    shareButtonLabel: "📤 Share am",
+    shareDealRedeemed: "✅ Deal {code} don lock — e go apply by itself wen you dey checkout. Enjoy!",
+    shareDealSelfReferral: "Sorry o — you no fit use your own referral code by yourself. Share am give your padi!",
+    shareDealBadPromo: "I no fit find dat deal ({code}) — e fit don expire. Reply MENU make you check di shop.",
+    // === W53 EVENTS ===
+    eventsHeader: "🎟️ Events wey dey come:",
+    eventsEmpty: "No event dey for now — abeg check back later.",
+    eventsPickHint: "Reply TICKET <number> to see ticket types (e.g. TICKET 1).",
+    eventsPickInvalid: "Reply EVENTS first, den TICKET <number> from di list.",
+    eventTicketTypesHeader: "Ticket types:",
+    eventTicketTypesEmpty: "Dem never put tickets for dat event on sale yet.",
+    eventTicketsLeft: "{count} remain",
+    eventBuyHint: "Reply BUY <number> [qty] to collect payment link (e.g. BUY 1 2).",
+    eventTicketPurchaseReady: "🎟️ {qty} × {type} for {event} — total {currency} {total} (order {orderNumber}).",
+    eventTicketLinkPending: "Your payment link dey come — di shop go message you.",
+    eventTicketPurchaseFailed: "Sorry, I no fit start dat ticket buy now — try again.",
+    eventTicketSoldOut: "Sorry — dat ticket type don sell finish.",
+    eventMyTicketsHeader: "Your tickets:",
+    eventMyTicketsEmpty: "You never get ticket — reply EVENTS to see wetin dey.",
+    eventCheckinNotStaff: "Sorry, na only shop staff fit check tickets in.",
+    eventCheckinOk: "✅ Checked in: {code} ({event}). Welcome!",
+    eventCheckinNotFound: "I no fit find ticket with code {code} for dis shop.",
+    eventCheckinAlready: "⚠️ Ticket {code} don already check in at {when}.",
+    eventCheckinEventCancelled: "Ticket {code} na for cancelled event — e no valid.",
+    eventCheckinVoid: "Ticket {code} na {status} — e no valid for entry.",
+    eventUssdPickEvent: "Reply with di event number.",
+    eventUssdPickQty: "How many tickets? Reply with number.",
+    // === W54 disputes ===
+    disputeResolvedBuyer: "📋 Dem don settle di dispute for order {orderNumber}. Result: {outcome}.{notes}",
+    disputeOutcomeFullRefund: "dem don return all di money {amount}",
+    disputeOutcomePartialRefund: "dem don return part of di money {amount}",
+    disputeOutcomeRelease: "dem don release di money give di seller (no refund)",
+    disputeOutcomeNoAction: "dem no do anything again",
+    disputeOutcomeReplacement: "dem don open replacement/return request (ref {rmaRef})",
+    disputeMerchantResponded: "📋 Di seller don answer your dispute for order {orderNumber}. Our team dey review am.",
+    membershipPlansHeader: "💎 Membership plans:",
+    membershipPlansEmpty: "No membership plan dey now — check back later.",
+    membershipPlanLine: "{n}. {name} — {price} ({benefits})",
+    membershipJoinHint: "Reply JOIN MEMBERSHIP <number> to join, or MY MEMBERSHIP to check your own.",
+    membershipJoinActive: "🎉 Welcome to {plan}! Your membership don ACTIVE — {benefits}. E go apply by itself when you dey checkout.",
+    membershipJoinPayment: "💎 {plan} membership — total {currency} {total} (order {orderNumber}).",
+    membershipJoinLinkPending: "We dey prepare your payment link — the shop go message you soon.",
+    membershipJoinAlready: "You don already get active {plan} membership — reply MY MEMBERSHIP to see am.",
+    membershipJoinFailed: "Sorry, I no fit start that membership now — try again.",
+    membershipPickInvalid: "Abeg reply MEMBERSHIP first, then JOIN MEMBERSHIP <number> from the list.",
+    membershipBenefitsBoth: "{discount}% off orders + {mult}x points",
+    membershipBenefitsDiscount: "{discount}% off orders",
+    membershipBenefitsPoints: "{mult}x loyalty points",
+    membershipPriceFree: "FREE",
+    membershipStatusActive: "💎 Your membership: {plan} — {benefits}.",
+    membershipStatusUntil: " E dey active till {date}.",
+    membershipStatusCancelling: " E go end on {date} (cancel don dey booked).",
+    membershipStatusNone: "You no get active membership — reply MEMBERSHIP to see the plans.",
+    membershipCancelPeriodEnd: "✅ Your {plan} membership go end on {date} — your benefits still dey active till then.",
+    membershipCancelImmediate: "✅ Your {plan} membership don cancel — thank you for being a member!",
+    membershipCancelNone: "You no get active membership wey you fit cancel.",
+    ussdSavingsHeader: "Your savings circles:",
+    ussdSavingsNone: "You never join any savings circle yet.",
+    ussdSavingsLine: "{name}: {amount}/{freq}, cycle {cycle}. Next payout: {next}.",
+    ussdLoyaltyBalance: "Loyalty points balance: {points} pts.",
+    ussdLoyaltyDisabled: "Loyalty rewards no dey active for this shop.",
   },
 };
 
@@ -940,6 +1702,7 @@ export const LOCALE_NAMES: Record<Locale, string> = {
   ig: "Igbo",
   sw: "Kiswahili",
   am: "አማርኛ (Amharic)",
+  pcm: "Naija (Pidgin)", // === W49 I18N-PCM ===
 };
 
 /** Numbered language-picker menu (rendered in the customer's current locale). */
@@ -967,6 +1730,9 @@ export function parseLanguageChoice(reply: string): Locale | null {
     english: "en", french: "fr", francais: "fr", "français": "fr",
     hausa: "ha", harshen: "ha", yoruba: "yo", "yorùbá": "yo", igbo: "ig",
     swahili: "sw", kiswahili: "sw", amharic: "am", "አማርኛ": "am",
+    // === W49 I18N-PCM === pidgin aliases (mirror copilot LANGUAGE_ALIASES).
+    pidgin: "pcm", naija: "pcm", "naija pidgin": "pcm",
+    "nigerian pidgin": "pcm", "broken english": "pcm", broken: "pcm",
   };
   return realAliases[t] ?? null;
 }
@@ -977,7 +1743,8 @@ export function isLanguageMenuRequest(text: string): boolean {
   return (
     t === "language" || t === "languages" || t === "lang" ||
     t === "change language" || t === "harshe" || t === "èdè" || t === "asụsụ" ||
-    t === "lugha" || t === "langue" || t === "ቋንቋ"
+    t === "lugha" || t === "langue" || t === "ቋንቋ" ||
+    t === "pidgin" // === W49 I18N-PCM === "pidgin" alone opens the picker
   );
 }
 
@@ -1000,6 +1767,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["menu", "mbido"],
     sw: ["menyu", "mwanzo"],
     am: ["ምናሌ", "መነሻ"],
+    pcm: ["menu", "start", "fess"],
   },
   shop: {
     en: ["shop", "buy", "products", "catalog", "browse"],
@@ -1009,6 +1777,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["zụta", "ahịa", "ngwaahịa", "ịzụ"],
     sw: ["nunua", "bidhaa", "duka", "mnunuzi"],
     am: ["ግዛ", "ምርቶች", "ሱቅ", "ግብዣ"],
+    pcm: ["buy", "wetin you get", "wetin dey", "shop", "products"],
   },
   track: {
     en: ["track", "status", "where is my order"],
@@ -1018,6 +1787,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["lelee", "soro"],
     sw: ["fuatilia", "hali"],
     am: ["ከታተል", "ሁኔታ"],
+    pcm: ["wey my order", "track am", "order status"],
   },
   support: {
     en: ["help", "support"],
@@ -1027,6 +1797,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["enyemaka"],
     sw: ["msaada", "saidia"],
     am: ["እርዳታ", "ርዳታ"],
+    pcm: ["help", "abeg help", "support"],
   },
   handoff: {
     en: ["human", "agent", "person"],
@@ -1036,6 +1807,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["nnọchi", "mmadụ"],
     sw: ["mtu", "wakala"],
     am: ["ሰው", "ወኪል"],
+    pcm: ["person", "human being", "talk to person", "oga"],
   },
   booking: {
     en: ["book", "appointment"],
@@ -1045,6 +1817,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["oge njikọ", "hazie"],
     sw: ["miadi", "weka miadi"],
     am: ["ቀጠሮ"],
+    pcm: ["book", "appointment", "book appointment"],
   },
   checkout: {
     en: ["checkout", "cart", "done"],
@@ -1054,6 +1827,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["ngọdo", "mezue"],
     sw: ["kikapu", "maliza", "kamilisha"],
     am: ["ጋሪ", "ጨርስ", "አጠናቅቅ"],
+    pcm: ["checkout", "cart", "finish am", "don finish"],
   },
   pay: {
     en: ["pay", "payment", "pay now"],
@@ -1063,6 +1837,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["kwụọ", "ịkwụ ụgwọ"],
     sw: ["lipa", "malipo"],
     am: ["ክፈል", "ክፍያ", "መክፈል"],
+    pcm: ["pay", "send money", "pay now", "make payment"],
   },
   discover: {
     en: ["near me", "nearby", "around me", "discover"],
@@ -1072,6 +1847,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["dị m nso", "nso"],
     sw: ["karibu nami", "karibu", "jirani"],
     am: ["በአቅራቢያዬ", "አቅራቢያ", "ቅርብ"],
+    pcm: ["near me", "wey dey near me", "around me"],
   },
   language: {
     en: ["language", "change language"],
@@ -1081,6 +1857,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["asụsụ", "gbanwee asụsụ"],
     sw: ["lugha", "badilisha lugha"],
     am: ["ቋንቋ", "ቋንቋ ቀይር"],
+    pcm: ["language", "change language", "pidgin"],
   },
   confirm: {
     en: ["yes", "confirm", "ok"],
@@ -1090,6 +1867,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["ee", "kwado"],
     sw: ["ndiyo", "thibitisha", "sawa"],
     am: ["አዎ", "አረጋግጥ", "እሺ"],
+    pcm: ["yes o", "na so", "sharp", "confirm am", "yes"],
   },
   cancel: {
     en: ["no", "cancel", "stop"],
@@ -1099,6 +1877,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["mba", "kagbuo", "kwụsị"],
     sw: ["hapana", "ghairi", "acha"],
     am: ["አይ", "ሰርዝ", "ተው"],
+    pcm: ["no", "comot", "leave am", "cancel am", "no do"],
   },
 };
 

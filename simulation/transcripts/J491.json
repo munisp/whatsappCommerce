@@ -1,0 +1,22 @@
+{
+  "id": "J491",
+  "title": "order receipt PDF delivered as chat document on WA + TG",
+  "feature": "RICH-6",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348017000491",
+      "wamid": "wamid.sim.000043",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790547729260,
+      "kind": "document",
+      "mediaKind": "document",
+      "caption": "🧾 Receipt for order SO-491",
+      "mediaId": "https://shop.example.com/api/uc-docs/receipts/sim-tenant/receipt-SO-491.pdf"
+    }
+  ]
+}

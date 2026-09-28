@@ -146,6 +146,9 @@ export const SCHEDULE = [
   // === W47 merger === ONB-M-18 abandoned-onboarding nudge/churn sweep (daily).
   { path: "/api/scheduled/onboarding-abandoned-sweep", intervalMin: 1440 },
   // === END W47 merger ===
+  // === W54 capabilities === Consumer membership expiry sweep (hourly).
+  { path: "/api/scheduled/membership-expiry", intervalMin: 60 },
+  // === END W54 capabilities ===
 ];
 
 function b64url(buf) {

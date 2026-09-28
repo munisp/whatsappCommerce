@@ -247,12 +247,12 @@ function DriverDashboard({ token, driver, onLogout }: { token: string; driver: D
                       <Badge variant="outline">{d.status.replace("_", " ")}</Badge>
                       {d.feeCents != null && <span className="text-xs text-muted-foreground">{d.currency} {(d.feeCents / 100).toLocaleString()}</span>}
                     </div>
-                    {d.dropoffAddress && (
+                    {d.dropoffAddress ? (
                       <div className="text-xs text-muted-foreground flex items-start gap-1">
                         <MapPin className="h-3 w-3 mt-0.5 shrink-0" />
                         <span>{(d.dropoffAddress as { raw?: string })?.raw ?? "Delivery address on file"}</span>
                       </div>
-                    )}
+                    ) : null}
                     {next && (
                       <Button
                         size="sm"

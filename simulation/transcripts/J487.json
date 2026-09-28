@@ -1,0 +1,30 @@
+{
+  "id": "J487",
+  "title": "product card: WA image-header interactive + TG photo+keyboard in one message",
+  "feature": "RICH-1",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348017000487",
+      "wamid": "wamid.sim.000038",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790547727630,
+      "kind": "interactive",
+      "body": "Ankara Fabric\n₦4,500",
+      "buttons": [
+        {
+          "id": "cart_add:prod-487",
+          "title": "🛒 Add to cart"
+        },
+        {
+          "id": "buy_now:prod-487",
+          "title": "⚡ Buy now"
+        }
+      ]
+    }
+  ]
+}

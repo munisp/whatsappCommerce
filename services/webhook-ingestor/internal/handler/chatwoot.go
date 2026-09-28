@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -51,16 +52,60 @@ type Publisher interface {
 	Publish(ctx context.Context, topic, key string, payload interface{}) error
 }
 
+// === W48 sidecars (PERF-SC-20) === maxWebhookBodyBytes caps every inbound
+// webhook body (previously io.ReadAll with no limit — OOM vector).
+const maxWebhookBodyBytes = 1 << 20 // 1 MiB
+
+// tenantCacheEntry is a small TTL cache row for slug→tenant lookups
+// (PERF-SC-20: was one DB round-trip per webhook).
+type tenantCacheEntry struct {
+	tenant    *store.TenantRow
+	expiresAt time.Time
+}
+
 // Handler holds dependencies for webhook processing.
 type Handler struct {
 	cfg      *config.Config
 	db       *store.DB
 	producer Publisher
 	logger   *zap.Logger
+
+	tenantMu    sync.Mutex
+	tenantCache map[string]tenantCacheEntry
 }
 
 func New(cfg *config.Config, db *store.DB, producer Publisher, logger *zap.Logger) *Handler {
-	return &Handler{cfg: cfg, db: db, producer: producer, logger: logger}
+	return &Handler{cfg: cfg, db: db, producer: producer, logger: logger, tenantCache: make(map[string]tenantCacheEntry)}
+}
+
+// getTenant resolves a tenant slug with a 30s TTL cache (tenant rows change
+// rarely; webhook traffic per tenant is hot).
+func (h *Handler) getTenant(ctx context.Context, slug string) (*store.TenantRow, error) {
+	h.tenantMu.Lock()
+	if e, ok := h.tenantCache[slug]; ok && time.Now().Before(e.expiresAt) {
+		t := e.tenant
+		h.tenantMu.Unlock()
+		return t, nil
+	}
+	h.tenantMu.Unlock()
+
+	t, err := h.db.GetTenantBySlug(ctx, slug)
+	if err != nil {
+		return nil, err
+	}
+	h.tenantMu.Lock()
+	// Opportunistically bound the cache while we hold the lock.
+	if len(h.tenantCache) > 1024 {
+		now := time.Now()
+		for k, e := range h.tenantCache {
+			if now.After(e.expiresAt) {
+				delete(h.tenantCache, k)
+			}
+		}
+	}
+	h.tenantCache[slug] = tenantCacheEntry{tenant: t, expiresAt: time.Now().Add(30 * time.Second)}
+	h.tenantMu.Unlock()
+	return t, nil
 }
 
 // publishOrFail publishes the event envelope and, on broker failure, writes a
@@ -81,14 +126,14 @@ func (h *Handler) publishOrFail(c *gin.Context, topic, key string, envelope map[
 func (h *Handler) HandleChatwoot(c *gin.Context) {
 	tenantSlug := c.Param("tenant_slug")
 
-	rawBody, err := io.ReadAll(c.Request.Body)
+	rawBody, err := io.ReadAll(io.LimitReader(c.Request.Body, maxWebhookBodyBytes))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot read body"})
 		return
 	}
 
-	// Resolve tenant by slug
-	tenant, err := h.db.GetTenantBySlug(c.Request.Context(), tenantSlug)
+	// Resolve tenant by slug (TTL-cached — PERF-SC-20)
+	tenant, err := h.getTenant(c.Request.Context(), tenantSlug)
 	if err != nil {
 		h.logger.Warn("tenant not found", zap.String("slug", tenantSlug))
 		c.JSON(http.StatusNotFound, gin.H{"error": "tenant not found"})
@@ -118,8 +163,16 @@ func (h *Handler) HandleChatwoot(c *gin.Context) {
 	// Build idempotency key: tenant + conversation + message
 	idempotencyKey := fmt.Sprintf("%s:%d:%d", tenant.ID, payload.Conversation.ID, payload.ID)
 
-	// Check for duplicate delivery
-	if h.db.IsProcessed(c.Request.Context(), idempotencyKey) {
+	// Atomic duplicate claim (PERF-SC-20): single INSERT ... ON CONFLICT DO
+	// NOTHING — no COUNT+INSERT race window, one RTT. If the publish below
+	// fails, the claim is rolled back so the producer's retry is honoured.
+	inserted, err := h.db.TryMarkProcessed(c.Request.Context(), idempotencyKey, 24*time.Hour)
+	if err != nil {
+		h.logger.Error("dedup claim failed", zap.Error(err), zap.String("key", idempotencyKey))
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "dedup store unavailable — retry"})
+		return
+	}
+	if !inserted {
 		c.JSON(http.StatusOK, gin.H{"status": "duplicate", "idempotency_key": idempotencyKey})
 		return
 	}
@@ -150,11 +203,12 @@ func (h *Handler) HandleChatwoot(c *gin.Context) {
 	// Publish to Kafka topic: prd.eu1.chat.message.received.v1
 	topic := fmt.Sprintf("chat.message.received.v1")
 	if !h.publishOrFail(c, topic, tenant.ID.String(), envelope) {
+		// Roll back the dedup claim so Chatwoot's retry is not swallowed.
+		if uerr := h.db.UnmarkProcessed(context.Background(), idempotencyKey); uerr != nil {
+			h.logger.Error("dedup claim rollback failed", zap.Error(uerr), zap.String("key", idempotencyKey))
+		}
 		return
 	}
-
-	// Mark as processed
-	h.db.MarkProcessed(c.Request.Context(), idempotencyKey, 24*time.Hour)
 
 	h.logger.Info("chatwoot webhook processed",
 		zap.String("tenant", tenantSlug),
@@ -171,7 +225,7 @@ func (h *Handler) HandleChatwoot(c *gin.Context) {
 // of the raw body. In production an unset secret fails closed.
 func (h *Handler) HandleMojaloopCallback(c *gin.Context) {
 	tenantSlug := c.Param("tenant_slug")
-	rawBody, _ := io.ReadAll(c.Request.Body)
+	rawBody, _ := io.ReadAll(io.LimitReader(c.Request.Body, maxWebhookBodyBytes))
 
 	sig := c.GetHeader("FSPIOP-Signature")
 	if sig == "" {
@@ -193,7 +247,7 @@ func (h *Handler) HandleMojaloopCallback(c *gin.Context) {
 		h.logger.Warn("MOJALOOP_CALLBACK_SECRET unset — presence check only (dev mode)")
 	}
 
-	tenant, err := h.db.GetTenantBySlug(c.Request.Context(), tenantSlug)
+	tenant, err := h.getTenant(c.Request.Context(), tenantSlug)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "tenant not found"})
 		return
@@ -229,13 +283,13 @@ func (h *Handler) HandleMojaloopCallback(c *gin.Context) {
 // fails closed in production when the secret is unset.
 func (h *Handler) HandleTwentyWebhook(c *gin.Context) {
 	tenantSlug := c.Param("tenant_slug")
-	rawBody, _ := io.ReadAll(c.Request.Body)
+	rawBody, _ := io.ReadAll(io.LimitReader(c.Request.Body, maxWebhookBodyBytes))
 
 	if !h.requireWebhookSignature(c, "twenty", h.cfg.TwentyWebhookSecret, c.GetHeader("X-Twenty-Signature"), rawBody) {
 		return
 	}
 
-	tenant, err := h.db.GetTenantBySlug(c.Request.Context(), tenantSlug)
+	tenant, err := h.getTenant(c.Request.Context(), tenantSlug)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "tenant not found"})
 		return
@@ -265,13 +319,13 @@ func (h *Handler) HandleTwentyWebhook(c *gin.Context) {
 // fails closed in production when the secret is unset.
 func (h *Handler) HandleOdooWebhook(c *gin.Context) {
 	tenantSlug := c.Param("tenant_slug")
-	rawBody, _ := io.ReadAll(c.Request.Body)
+	rawBody, _ := io.ReadAll(io.LimitReader(c.Request.Body, maxWebhookBodyBytes))
 
 	if !h.requireWebhookSignature(c, "odoo", h.cfg.OdooWebhookSecret, c.GetHeader("X-Odoo-Signature"), rawBody) {
 		return
 	}
 
-	tenant, err := h.db.GetTenantBySlug(c.Request.Context(), tenantSlug)
+	tenant, err := h.getTenant(c.Request.Context(), tenantSlug)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "tenant not found"})
 		return

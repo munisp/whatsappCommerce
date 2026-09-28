@@ -1,0 +1,8 @@
+{
+  "id": "J486",
+  "title": "integration smoke budgets (fraud gate, tenant cache, breaker, permify cache)",
+  "feature": "PERF-INT-2/3/5/6 budgets",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

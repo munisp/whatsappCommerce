@@ -1,0 +1,116 @@
+# === W54 CILIUM ===
+# Core Express platform ("server", compose service name `platform`) modeled
+# from docker-compose.yml. Webhook ingress terminates here — see
+# k8s/cilium/network-policies.yaml for the L7 policy restricting internet
+# ingress to /api/webhooks/* and /integrations/* (paths verified against
+# server/_core/index.ts; note /api/wa and /api/tg do NOT exist there).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server
+  namespace: whatsapp-commerce
+  labels: {app: server, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+spec:
+  replicas: 2
+  strategy:
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector:
+    matchLabels: {app: server}
+  template:
+    metadata:
+      labels: {app: server, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+    spec:
+      containers:
+        - name: server
+          # Built from repo-root Dockerfile (same as compose `platform`).
+          image: REPLACE_WITH_REGISTRY/whatsapp-commerce-platform:latest
+          env:
+            - {name: NODE_ENV, value: production}
+            - {name: PORT, value: "3000"}
+            # Cap V8 old-space per replica (docs/PERF.md heap experiment).
+            - {name: NODE_OPTIONS, value: "--max-old-space-size=2048"}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: platform-db, key: database-url}
+            - {name: REDIS_URL, value: "redis://redis:6379"}
+            - name: REDIS_DURABLE_URL
+              value: "redis://redis-durable:6379"
+            - {name: PG_POOL_MAX, value: "10"}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: {name: platform-app, key: jwt-secret}
+            - name: SECRETS_MASTER_KEY
+              valueFrom:
+                secretKeyRef: {name: platform-app, key: secrets-master-key}
+            - name: WHATSAPP_VERIFY_TOKEN
+              valueFrom:
+                secretKeyRef: {name: platform-app, key: whatsapp-verify-token}
+            - name: INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef: {name: platform-app, key: internal-api-key}
+            - name: CRON_JWT
+              valueFrom:
+                secretKeyRef: {name: platform-app, key: cron-jwt}
+            - name: KYC_SERVICE_API_KEY
+              valueFrom:
+                secretKeyRef: {name: platform-app, key: kyc-service-api-key}
+            - {name: KEYCLOAK_URL, value: "http://keycloak:8080"}
+            - {name: APP_URL, value: "https://REPLACE_WITH_PUBLIC_HOST"}
+            - {name: HERMES_BRIDGE_URL, value: "http://hermes-bridge:8096"}
+            - {name: RECON_WORKER_URL, value: "http://recon-worker:8096"}
+            - {name: ML_STACK_URL, value: "http://ml-inference:8099"}
+            - {name: KYC_SERVICE_URL, value: "http://kyc-verifier:8001"}
+            - {name: MOJALOOP_VALIDATE_SIG, value: "true"}
+            # OTel: ship traces/metrics to the in-cluster collector (W34 stack).
+            - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4318"}
+          ports:
+            - {name: http, containerPort: 3000}
+          resources:
+            requests: {cpu: 500m, memory: 1Gi}
+            limits: {cpu: "2", memory: 3Gi}
+          readinessProbe:
+            httpGet: {path: /health/ready, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: server
+  namespace: whatsapp-commerce
+  labels: {app: server}
+spec:
+  selector: {app: server}
+  ports:
+    - {name: http, port: 3000, targetPort: http}
+---
+# Backwards-compat alias: compose consumers use the DNS name `platform`.
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform
+  namespace: whatsapp-commerce
+  labels: {app: server}
+spec:
+  selector: {app: server}
+  ports:
+    - {name: http, port: 3000, targetPort: 3000}
+# === END W54 CILIUM ===

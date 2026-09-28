@@ -7,239 +7,287 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348011157920",
-      "at": 1790421379004,
-      "failed": true,
-      "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
-    },
-    {
-      "dir": "out",
-      "phone": "2348012485870",
-      "at": 1790421379005,
-      "failed": true,
-      "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
-    },
-    {
-      "dir": "out",
-      "phone": "2348014496068",
-      "at": 1790421379006,
-      "failed": true,
-      "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
-    },
-    {
-      "dir": "out",
-      "phone": "2348015016472",
-      "at": 1790421379006,
-      "failed": true,
-      "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
-    },
-    {
-      "dir": "out",
-      "phone": "2348018056259",
-      "at": 1790421379007,
-      "failed": true,
-      "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
-    },
-    {
-      "dir": "out",
-      "phone": "2348017185929",
-      "at": 1790421379008,
-      "failed": true,
-      "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
-    },
-    {
-      "dir": "out",
-      "phone": "2348018126945",
-      "at": 1790421379009,
-      "failed": true,
-      "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
-    },
-    {
-      "dir": "out",
-      "phone": "2348019759884",
-      "at": 1790421379010,
-      "failed": true,
-      "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
-    },
-    {
-      "dir": "out",
-      "phone": "2348013643457",
-      "at": 1790421379010,
-      "failed": true,
-      "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
-    },
-    {
-      "dir": "out",
-      "phone": "2348018611367",
-      "at": 1790421379011,
-      "failed": true,
-      "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
-    },
-    {
-      "dir": "out",
-      "phone": "2348017147319",
-      "at": 1790421379012,
-      "failed": true,
-      "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
-    },
-    {
-      "dir": "out",
-      "phone": "2348016209210",
-      "at": 1790421379013,
+      "phone": "2348011073613",
+      "at": 1790546940853,
       "failed": true,
       "failStatus": 500,
       "kind": "template",
       "templateName": "j284_broadcast",
       "templateLanguage": "en_US",
-      "body": "Sim User 9210"
+      "body": "Breaker 27"
     },
     {
       "dir": "out",
-      "phone": "2348015752410",
-      "at": 1790421379013,
+      "phone": "2348011109617",
+      "at": 1790546940855,
       "failed": true,
       "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 3"
     },
     {
       "dir": "out",
-      "phone": "2348011447418",
-      "at": 1790421379014,
+      "phone": "2348011388445",
+      "at": 1790546940857,
       "failed": true,
       "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 18"
     },
     {
       "dir": "out",
-      "phone": "2348015795543",
-      "at": 1790421379015,
+      "phone": "2348011695940",
+      "at": 1790546940859,
       "failed": true,
       "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 29"
     },
     {
       "dir": "out",
-      "phone": "2348015942740",
-      "at": 1790421379016,
+      "phone": "2348011754653",
+      "at": 1790546940861,
       "failed": true,
       "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 6"
     },
     {
       "dir": "out",
-      "phone": "2348013621345",
-      "at": 1790421379017,
+      "phone": "2348012205718",
+      "at": 1790546940863,
       "failed": true,
       "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 23"
     },
     {
       "dir": "out",
-      "phone": "2348011932803",
-      "at": 1790421379018,
+      "phone": "2348013179117",
+      "at": 1790546940865,
       "failed": true,
       "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 7"
     },
     {
       "dir": "out",
-      "phone": "2348019502886",
-      "at": 1790421379018,
+      "phone": "2348013765879",
+      "at": 1790546940867,
       "failed": true,
       "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 15"
     },
     {
       "dir": "out",
-      "phone": "2348011334525",
-      "at": 1790421379019,
+      "phone": "2348014044269",
+      "at": 1790546940869,
       "failed": true,
       "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 24"
     },
     {
       "dir": "out",
-      "phone": "2348018602315",
-      "at": 1790421379020,
+      "phone": "2348014110911",
+      "at": 1790546940871,
       "failed": true,
       "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 13"
     },
     {
       "dir": "out",
-      "phone": "2348013290579",
-      "at": 1790421379021,
+      "phone": "2348014133496",
+      "at": 1790546940872,
       "failed": true,
       "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 8"
     },
     {
       "dir": "out",
-      "phone": "2348016210007",
-      "at": 1790421379021,
+      "phone": "2348014143918",
+      "at": 1790546940874,
       "failed": true,
       "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 9"
     },
     {
       "dir": "out",
-      "phone": "2348016320572",
-      "at": 1790421379022,
+      "phone": "2348014245704",
+      "at": 1790546940888,
       "failed": true,
       "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 21"
     },
     {
       "dir": "out",
-      "phone": "2348019987781",
-      "at": 1790421379023,
+      "phone": "2348014431984",
+      "at": 1790546940890,
       "failed": true,
       "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 10"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014520447",
+      "at": 1790546940892,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 16"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015127788",
+      "at": 1790546940894,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 11"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015420325",
+      "at": 1790546940896,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 2"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015495738",
+      "at": 1790546940899,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 12"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015794375",
+      "at": 1790546940901,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 26"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016135238",
+      "at": 1790546940902,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 20"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016568096",
+      "at": 1790546940904,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 22"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016711830",
+      "at": 1790546940906,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 17"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016927799",
+      "at": 1790546940908,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 1"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017045491",
+      "at": 1790546940910,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 28"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017445849",
+      "at": 1790546940912,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 4"
     },
     {
       "dir": "out",
       "phone": "2348099900000",
-      "at": 1790421379052,
+      "at": 1790546940965,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
-      "body": "🚨 Broadcast campaign \"J284 Breaker Campaign\" was AUTO-PAUSED by the circuit breaker: 25/25 sends failed (100%). 0 sent, 302 not attempted. Check the dashboard, fix the cause (template/quality), then resume the campaign."
+      "body": "🚨 Broadcast campaign \"J284 Breaker Campaign\" was AUTO-PAUSED by the circuit breaker: 25/25 sends failed (100%). 0 sent, 5 not attempted. Check the dashboard, fix the cause (template/quality), then resume the campaign."
     }
   ]
 }

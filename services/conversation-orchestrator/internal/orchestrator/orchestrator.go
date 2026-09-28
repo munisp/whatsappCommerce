@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -121,15 +122,24 @@ func (o *Orchestrator) ProcessMessage(ctx context.Context, msg InboundMessage) e
 		return nil
 	}
 
-	// 7. Send reply via Chatwoot
-	if reply != "" {
-		if err := o.sendChatwootReply(ctx, msg.TenantID, msg.ChatwootConvID, reply); err != nil {
-			o.logger.Error("failed to send chatwoot reply", zap.Error(err))
+	// === W48 sidecars (PERF-SC-23) === steps 7+8 are independent — run the
+	// Chatwoot reply and the last_message_at update concurrently instead of
+	// sequentially (one less RTT of latency per inbound message).
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		if reply != "" {
+			if err := o.sendChatwootReply(ctx, msg.TenantID, msg.ChatwootConvID, reply); err != nil {
+				o.logger.Error("failed to send chatwoot reply", zap.Error(err))
+			}
 		}
-	}
-
-	// 8. Update conversation last_message_at
-	o.db.UpdateConversationLastMessage(ctx, conv.ID, time.Now())
+	}()
+	go func() {
+		defer wg.Done()
+		o.db.UpdateConversationLastMessage(ctx, conv.ID, time.Now())
+	}()
+	wg.Wait()
 
 	return nil
 }
@@ -155,7 +165,14 @@ func (o *Orchestrator) routeToAI(ctx context.Context, conv *store.ConversationRo
 		"flow_step":       conv.CurrentFlowStep,
 	})
 
-	resp, err := o.client.Post(o.cfg.AIAgentURL+"/intent", "application/json", bytes.NewReader(reqBody))
+	// PERF-SC-23: was o.client.Post — the caller's ctx (cancellation, trace,
+	// deadline) was silently dropped. Now the request runs under ctx.
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.cfg.AIAgentURL+"/intent", bytes.NewReader(reqBody))
+	if err != nil {
+		return o.buildMainMenu(conv.TenantID), false, nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := o.client.Do(req)
 	if err != nil {
 		return o.buildMainMenu(conv.TenantID), false, nil // fallback to menu on AI failure
 	}

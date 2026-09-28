@@ -1,0 +1,89 @@
+{
+  "id": "J507",
+  "title": "USSD discovery-by-text resolves typed areas",
+  "feature": "W50 USSD parity: discovery via area/landmark text",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348012728894",
+      "sessionId": "ussd-w50-1790548073659",
+      "text": "near me",
+      "at": 1790548074010
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348012728894",
+      "sessionId": "ussd-w50-1790548073659",
+      "text": "CON 📍 Reply with your area or nearest landmark (e.g. \"Wuse 2\") to find businesses near you.",
+      "at": 1790548074011
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348012728894",
+      "sessionId": "ussd-w50-1790548073659",
+      "text": "near me*wuse",
+      "at": 1790548074319
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348012728894",
+      "sessionId": "ussd-w50-1790548073659",
+      "text": "END Businesses near you:\n1. Sim Store — 12 Aminu Kano Crescent, Wuse 2",
+      "at": 1790548074320
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348014820528",
+      "sessionId": "ussd-w50-1790548073659-b",
+      "text": "food near me in aminu kano",
+      "at": 1790548074627
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348014820528",
+      "sessionId": "ussd-w50-1790548073659-b",
+      "text": "END Businesses near you:\n1. Sim Store — 12 Aminu Kano Crescent, Wuse 2",
+      "at": 1790548074628
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348014087946",
+      "sessionId": "ussd-w50-1790548073659-c",
+      "text": "near me",
+      "at": 1790548074934
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348014087946",
+      "sessionId": "ussd-w50-1790548073659-c",
+      "text": "CON 📍 Reply with your area or nearest landmark (e.g. \"Wuse 2\") to find businesses near you.",
+      "at": 1790548074935
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348014087946",
+      "sessionId": "ussd-w50-1790548073659-c",
+      "text": "near me*zzzz nowhere",
+      "at": 1790548075243
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348014087946",
+      "sessionId": "ussd-w50-1790548073659-c",
+      "text": "END No businesses found near you yet — try a different location.",
+      "at": 1790548075244
+    }
+  ]
+}

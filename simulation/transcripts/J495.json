@@ -1,0 +1,52 @@
+{
+  "id": "J495",
+  "title": "no-image products still send the uniform card layout (WA + TG)",
+  "feature": "RICH-12",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348017000495",
+      "wamid": "wamid.sim.000047",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790547730813,
+      "kind": "interactive",
+      "body": "Plain Wrapper\n₦1,200",
+      "header": "Plain Wrapper",
+      "buttons": [
+        {
+          "id": "cart_add:prod-495",
+          "title": "🛒 Add to cart"
+        },
+        {
+          "id": "buy_now:prod-495",
+          "title": "⚡ Buy now"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348017000495",
+      "wamid": "wamid.sim.000048",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790547730818,
+      "kind": "interactive",
+      "body": "Plain Wrapper\n₦1,200",
+      "buttons": [
+        {
+          "id": "cart_add:prod-495",
+          "title": "🛒 Add to cart"
+        },
+        {
+          "id": "buy_now:prod-495",
+          "title": "⚡ Buy now"
+        }
+      ]
+    }
+  ]
+}

@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { CheckCircle, XCircle, Zap, Settings, ClipboardList, Activity, RefreshCw, MessageSquare, Smartphone, ShoppingCart, TrendingUp } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { usePollInterval } from "@/hooks/usePollInterval";
 
 // ─── Sparkline SVG ────────────────────────────────────────────────────────────
 type HealthPoint = { online: boolean; latencyMs: number; recordedAt: number };
@@ -69,6 +70,10 @@ function POStatusBadge({ status }: { status: string }) {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 function HermesDashboardInner() {
+  // W48 PERF-FE-5: visibility-gated polling
+  const statusPoll = usePollInterval(30000);
+  // W48 PERF-FE-5: visibility-gated polling
+  const historyPoll = usePollInterval(5 * 60 * 1000);
   const { user } = useAuth();
   const tenantId = user?.tenantId ?? "";
 
@@ -96,8 +101,8 @@ function HermesDashboardInner() {
     setWooKey(d.woocommerceKey ?? "");
     setWooSecret(d.woocommerceSecret ?? "");
   }, [configQ.data]);
-  const healthHistoryQ = trpc.hermes.healthHistory.useQuery(undefined, { refetchInterval: 5 * 60 * 1000 });
-  const statusQ = trpc.hermes.getStatus.useQuery(undefined, { refetchInterval: 30000 });
+  const healthHistoryQ = trpc.hermes.healthHistory.useQuery(undefined, { refetchInterval: historyPoll });
+  const statusQ = trpc.hermes.getStatus.useQuery(undefined, { refetchInterval: statusPoll });
   const eventLogQ = trpc.hermes.getEventLog.useQuery({ tenantId, limit: 50, offset: 0 }, { enabled: !!tenantId });
   const poQueueQ = trpc.hermes.getPOQueue.useQuery({ tenantId }, { enabled: !!tenantId });
 

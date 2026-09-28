@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { usePollInterval } from "@/hooks/usePollInterval";
 import DashboardLayout from "@/components/DashboardLayout";
 import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Badge } from "@/components/ui/badge";
@@ -137,14 +138,18 @@ function IntegrationHealthInner() {
   const utils = trpc.useUtils();
   const [pinging, setPinging] = useState<string | null>(null);
 
+  // W48 PERF-FE-5: raised intervals, paused while the tab is hidden.
+  const integrationsPoll = usePollInterval(60_000);
+  const jobsPoll = usePollInterval(30_000);
+  const syncPoll = usePollInterval(120_000);
   const { data: integrations, isLoading } = trpc.provisioning.listIntegrations.useQuery(undefined, {
-    refetchInterval: 30_000,
+    refetchInterval: integrationsPoll,
   });
   const { data: jobs } = trpc.provisioning.listProvisioningJobs.useQuery(undefined, {
-    refetchInterval: 15_000,
+    refetchInterval: jobsPoll,
   });
   const { data: syncEvents } = trpc.provisioning.getSyncEvents.useQuery(undefined, {
-    refetchInterval: 60_000,
+    refetchInterval: syncPoll,
   });
   const pingMutation = trpc.provisioning.pingIntegration.useMutation({
     onSuccess: () => utils.provisioning.listIntegrations.invalidate(),

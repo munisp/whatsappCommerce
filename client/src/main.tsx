@@ -5,10 +5,39 @@ import { createAppQueryClient } from "@/lib/appQueryClient";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
+// === W48 perf (PERF-FE-6): self-hosted fonts (latin subsets, no italics) ===
+// Replaces the render-blocking Google Fonts stylesheet in index.html.
+import "@fontsource/inter/latin-400.css";
+import "@fontsource/inter/latin-500.css";
+import "@fontsource/inter/latin-600.css";
+import "@fontsource/inter/latin-700.css";
+import "@fontsource/jetbrains-mono/latin-400.css";
+import "@fontsource/jetbrains-mono/latin-500.css";
+// Preload the primary text face so first paint doesn't wait on CSS discovery.
+import inter400Url from "@fontsource/inter/files/inter-latin-400-normal.woff2?url";
 import App from "./App";
 import { isLoggingOut, startLogin } from "./const";
 import "./index.css";
 import { TenantProvider } from "./contexts/TenantContext";
+
+{
+  const pre = document.createElement("link");
+  pre.rel = "preload";
+  pre.as = "font";
+  pre.type = "font/woff2";
+  pre.crossOrigin = "anonymous";
+  pre.href = inter400Url;
+  document.head.appendChild(pre);
+}
+
+// === W48 perf (PERF-FE-1): register the PWA service worker (autoUpdate). ===
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  import("virtual:pwa-register")
+    .then(({ registerSW }) => registerSW({ immediate: true }))
+    .catch(() => {
+      /* SW registration is best-effort telemetry-wise: fail open */
+    });
+}
 
 // Vite fires this when a lazy route chunk fails to load — always true for any
 // tab left open across a deploy, since each deploy replaces /assets/ with a

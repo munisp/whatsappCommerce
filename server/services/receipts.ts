@@ -113,6 +113,44 @@ export async function sendOrderReceipt(
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
   if (!order) return { sent: false, reason: "order-not-found" };
 
+  // === W53 EVENTS === Ticket issuance rides this post-commit seam (the
+  // paymentConfirm caller already runs us fire-and-forget AFTER the money
+  // commit, so tickets only ever issue on a confirmed payment). Idempotent
+  // per order, fail-open — a ticket failure must never break the receipt.
+  if ((order.metadata as Record<string, unknown> | null)?.eventTicket) {
+    void (async () => {
+      try {
+        const { issueAndDeliverTicketsForOrder } = await import("./events");
+        await issueAndDeliverTicketsForOrder(db, orderId);
+      } catch (err: any) {
+        console.error(`[events] ticket issue/deliver failed for order ${orderId}:`, err?.message);
+      }
+    })();
+  }
+  // === END W53 EVENTS ===
+
+  // === W54 capabilities (CAP-1) === Paid membership activation rides the
+  // same post-commit seam: the order carries metadata.membershipJoin, and
+  // the membership only ever activates on a confirmed payment. Idempotent
+  // per order, fail-open — an activation failure must never break the receipt.
+  if ((order.metadata as Record<string, unknown> | null)?.membershipJoin) {
+    void (async () => {
+      try {
+        const { activateMembershipForOrder } = await import("./membershipPlans");
+        const res = await activateMembershipForOrder(db as any, orderId, paymentRef);
+        if (res.activated) {
+          const { sendCustomerText } = await import("./channelParity");
+          await sendCustomerText(order.tenantId, order.customerId, "membership_status",
+            `🎉 Your membership is now ACTIVE — member discounts and bonus points apply from your next order. Reply "my membership" anytime to check it.`,
+            { notifType: "membership_status", orderId });
+        }
+      } catch (err: any) {
+        console.error(`[membership] activation failed for order ${orderId}:`, err?.message);
+      }
+    })();
+  }
+  // === END W54 capabilities ===
+
   // Buyer phone: prefer the customers row; the WhatsApp chat flow stores the
   // phone directly as customerId.
   let buyerPhone = "";
@@ -187,5 +225,22 @@ export async function sendOrderReceipt(
     // === W37 telegram ===
   }
   // === W37 telegram END ===
+  // === W49 RICHMEDIA (RICH-6): receipt PDF follow-up on BOTH channels ===
+  // Fail-open: a PDF failure can never affect the payment-confirm caller.
+  try {
+    const { sendOrderReceiptPdf } = await import("./richMedia");
+    const lines = parseReceiptItems(order.items).map(
+      (it) => `${it.qty} × ${it.name} — ${fmtMoney(it.unitPrice * it.qty, order.currency)}`,
+    );
+    lines.push(`Total: ${fmtMoney(Number(order.totalAmount), order.currency)}`);
+    await sendOrderReceiptPdf(order.tenantId, buyerPhone, {
+      businessName,
+      orderNumber: order.orderNumber,
+      lines,
+    });
+  } catch (e: any) {
+    console.warn("[receipts] PDF receipt failed (fail-open):", e?.message);
+  }
+  // === END W49 RICHMEDIA ===
   return { sent: true };
 }

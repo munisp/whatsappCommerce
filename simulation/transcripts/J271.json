@@ -8,35 +8,35 @@
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000733",
+      "wamid": "wamid.sim.000001",
       "statuses": [
         "sent"
       ],
-      "at": 1790421358720,
+      "at": 1790546909560,
       "kind": "text",
-      "body": "🚨 *Payment dispute* (open): paystack ref w39-j271-i6pd7tfd for 1250.00 NGN on order ord-j271-i6pd7tfd. The order is flagged; review the dispute in your PSP dashboard."
+      "body": "🚨 *Payment dispute* (open): paystack ref w39-j271-nngy628x for 1250.00 NGN on order ord-j271-nngy628x. The order is flagged; review the dispute in your PSP dashboard."
     },
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000734",
+      "wamid": "wamid.sim.000002",
       "statuses": [
         "sent"
       ],
-      "at": 1790421359161,
+      "at": 1790546910034,
       "kind": "text",
-      "body": "🚨 *Payment dispute* (open): paystack ref w39-j271-i6pd7tfd for 1250.00 NGN on order ord-j271-i6pd7tfd. The order is flagged; review the dispute in your PSP dashboard."
+      "body": "🚨 *Payment dispute* (open): paystack ref w39-j271-nngy628x for 1250.00 NGN on order ord-j271-nngy628x. The order is flagged; review the dispute in your PSP dashboard."
     },
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000735",
+      "wamid": "wamid.sim.000003",
       "statuses": [
         "sent"
       ],
-      "at": 1790421360030,
+      "at": 1790546910912,
       "kind": "text",
-      "body": "🚨 *Refund FAILED at provider*: paystack ref w39-j271-i6pd7tfd-refund-bad (750.00 NGN) for order ord-j271-i6pd7tfd. The customer has NOT been refunded — retry the refund or reconcile manually."
+      "body": "🚨 *Refund FAILED at provider*: paystack ref w39-j271-nngy628x-refund-bad (750.00 NGN) for order ord-j271-nngy628x. The customer has NOT been refunded — retry the refund or reconcile manually."
     }
   ]
 }

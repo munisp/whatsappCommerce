@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
+import { VitePWA } from "vite-plugin-pwa";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 
 // vitePluginManusRuntime injects a ~360KB dev-preview overlay (bundles its
@@ -158,6 +159,34 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
+// === W48 perf (PERF-FE-1): PWA service worker via vite-plugin-pwa ===
+// autoUpdate: new SW activates immediately once downloaded (pairs with the
+// vite:preloadError reload guard in main.tsx). offline.html (in client/public)
+// is the navigation fallback; static assets/icons/fonts are precached.
+const pwaPlugin = VitePWA({
+  registerType: "autoUpdate",
+  injectRegister: false, // registered explicitly in client/src/main.tsx
+  includeAssets: ["offline.html", "icons/*.png"],
+  manifest: false, // client/public/manifest.json is served as-is
+  workbox: {
+    navigateFallback: "/offline.html",
+    navigateFallbackDenylist: [/^\/api\//, /^\/__manus__\//],
+    globPatterns: ["**/*.{js,css,html,png,svg,woff2}"],
+    // Self-hosted woff2 fonts + hashed assets are immutable: cache-first.
+    runtimeCaching: [
+      {
+        urlPattern: /\/assets\/.*\.(?:woff2|js|css)$/,
+        handler: "CacheFirst",
+        options: {
+          cacheName: "w48-static-assets",
+          expiration: { maxEntries: 64, maxAgeSeconds: 30 * 24 * 60 * 60 },
+        },
+      },
+    ],
+  },
+  devOptions: { enabled: false },
+});
+
 export default defineConfig(({ command }) => ({
   plugins: [
     react(),
@@ -165,6 +194,7 @@ export default defineConfig(({ command }) => ({
     jsxLocPlugin(),
     ...(command === "build" ? [] : [vitePluginManusRuntime()]),
     vitePluginManusDebugCollector(),
+    pwaPlugin,
   ],
   resolve: {
     alias: {
@@ -188,6 +218,14 @@ export default defineConfig(({ command }) => ({
           if (id.includes("maplibre-gl") || id.includes("@maplibre")) return "vendor-map";
           if (id.includes("recharts") || id.includes("d3-")) return "vendor-charts";
           if (/node_modules\/(react|react-dom|scheduler|wouter)\//.test(id)) return "vendor-react";
+          // === W48 perf (PERF-FE-8): shared vendor chunk for the shell-common
+          // stack (queried on every page). Route-only deps stay in their route
+          // chunks so the initial payload doesn't regress.
+          if (
+            /node_modules\/(@tanstack|@trpc|superjson|lucide-react|@radix-ui|sonner|clsx|tailwind-merge|class-variance-authority|date-fns)\//.test(id)
+          ) {
+            return "vendor";
+          }
           return undefined;
         },
       },

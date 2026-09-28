@@ -7,62 +7,62 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017147319",
-      "profileName": "Sim User 7319",
+      "phone": "2348016315349",
+      "profileName": "Sim User 5349",
       "inboundId": "wamid.sim.in.text.00042",
-      "at": 1790420913718,
+      "at": 1790545541895,
       "kind": "text",
-      "text": "i want these [2fd94bcc]"
+      "text": "i want these [349971d1]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00042",
-      "at": 1790420913723
+      "at": 1790545541910
     },
     {
       "dir": "out",
-      "phone": "2348017147319",
-      "wamid": "wamid.sim.000053",
+      "phone": "2348016315349",
+      "wamid": "wamid.sim.000061",
       "statuses": [
         "sent"
       ],
-      "at": 1790420913748,
+      "at": 1790545541941,
       "kind": "text",
       "body": "✅ 1 × Grilled Chicken\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348017147319",
-      "profileName": "Sim User 7319",
+      "phone": "2348016315349",
+      "profileName": "Sim User 5349",
       "inboundId": "wamid.sim.in.text.00043",
-      "at": 1790420914270,
+      "at": 1790545542441,
       "kind": "text",
-      "text": "confirm please [2fd94bcc]"
+      "text": "confirm please [349971d1]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00043",
-      "at": 1790420914276
+      "at": 1790545542448
     },
     {
       "dir": "out",
-      "phone": "2348017147319",
-      "wamid": "wamid.sim.000054",
+      "phone": "2348016315349",
+      "wamid": "wamid.sim.000062",
       "statuses": [
         "sent"
       ],
-      "at": 1790420914299,
+      "at": 1790545542477,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Grilled Chicken — ₦3,000.00 each\nSubtotal: ₦3,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348017147319",
-      "profileName": "Sim User 7319",
+      "phone": "2348016315349",
+      "profileName": "Sim User 5349",
       "inboundId": "wamid.sim.in.text.00044",
-      "at": 1790420914828,
+      "at": 1790545542989,
       "kind": "text",
       "text": "1"
     },
@@ -70,179 +70,196 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00044",
-      "at": 1790420914834
+      "at": 1790545542997
     },
     {
       "dir": "out",
-      "phone": "2348017147319",
-      "wamid": "wamid.sim.000055",
+      "phone": "2348016315349",
+      "wamid": "wamid.sim.000063",
       "statuses": [
         "sent"
       ],
-      "at": 1790420914881,
+      "at": 1790545543054,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MUIADVHM*\n1 × Grilled Chicken — ₦3,000.00 each\n*Total: ₦3,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/20dfdd10-abc5-44a2-a666-a019780a7a38\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/7790e8b9-fa07-4402-94b4-4ae71104f00e.6yyyRylB7OybpE9m4Vcmpxu-"
+      "body": "🧾 *Pickup Order ORD-MUKCL37A*\n1 × Grilled Chicken — ₦3,000.00 each\n*Total: ₦3,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/59160511-198c-40d3-8503-0c23a63abddf\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/e3a2824c-cd6f-4a0d-8f6a-8f4cc3224465.84s55SfVX1RzH7TrOStb1tTp"
     },
     {
       "dir": "out",
-      "phone": "2348017147319",
-      "wamid": "wamid.sim.000056",
+      "phone": "2348016315349",
+      "wamid": "wamid.sim.000064",
       "statuses": [
         "sent"
       ],
-      "at": 1790420914886,
+      "at": 1790545543058,
       "kind": "interactive",
-      "body": "Order ORD-MUIADVHM — manage it here:",
+      "body": "💳 Order ORD-MUKCL37A is awaiting payment. Tap below to pay securely.",
+      "buttons": [
+        {
+          "id": "https://checkout.paystack.com/sim/59160511-198c-40d3-8503-0c23a63abddf",
+          "title": "cta_url"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348016315349",
+      "wamid": "wamid.sim.000065",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790545543061,
+      "kind": "interactive",
+      "body": "Order ORD-MUKCL37A — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:7790e8b9-fa07-4402-94b4-4ae71104f00e",
-          "title": "Track Order"
+          "id": "order_track:e3a2824c-cd6f-4a0d-8f6a-8f4cc3224465",
+          "title": "📦 Track Order"
         },
         {
-          "id": "order_pay:7790e8b9-fa07-4402-94b4-4ae71104f00e",
-          "title": "Pay Now"
+          "id": "order_pay:e3a2824c-cd6f-4a0d-8f6a-8f4cc3224465",
+          "title": "💳 Pay Now"
         },
         {
-          "id": "order_cancel:7790e8b9-fa07-4402-94b4-4ae71104f00e",
-          "title": "Cancel Order"
+          "id": "order_cancel:e3a2824c-cd6f-4a0d-8f6a-8f4cc3224465",
+          "title": "❌ Cancel"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348017147319",
-      "profileName": "Sim User 7319",
+      "phone": "2348016315349",
+      "profileName": "Sim User 5349",
       "inboundId": "wamid.sim.in.btn.00045",
-      "at": 1790420915383,
+      "at": 1790545543545,
       "kind": "button_reply",
       "text": "Track Order",
-      "payloadId": "order_track:7790e8b9-fa07-4402-94b4-4ae71104f00e"
+      "payloadId": "order_track:e3a2824c-cd6f-4a0d-8f6a-8f4cc3224465"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.btn.00045",
-      "at": 1790420915389
+      "at": 1790545543555
     },
     {
       "dir": "out",
-      "phone": "2348017147319",
-      "wamid": "wamid.sim.000057",
+      "phone": "2348016315349",
+      "wamid": "wamid.sim.000066",
       "statuses": [
         "sent"
       ],
-      "at": 1790420915401,
+      "at": 1790545543573,
       "kind": "text",
-      "body": "Order ORD-MUIADVHM is currently pending.\nTrack it here: http://localhost:4173/track/7790e8b9-fa07-4402-94b4-4ae71104f00e.6yyyRylB7OybpE9m4Vcmpxu-"
+      "body": "Order ORD-MUKCL37A is currently pending.\nTrack it here: http://localhost:4173/track/e3a2824c-cd6f-4a0d-8f6a-8f4cc3224465.84s55SfVX1RzH7TrOStb1tTp"
     },
     {
       "dir": "in",
-      "phone": "2348017147319",
-      "profileName": "Sim User 7319",
+      "phone": "2348016315349",
+      "profileName": "Sim User 5349",
       "inboundId": "wamid.sim.in.btn.00046",
-      "at": 1790420915937,
+      "at": 1790545544090,
       "kind": "button_reply",
       "text": "Pay Now",
-      "payloadId": "order_pay:7790e8b9-fa07-4402-94b4-4ae71104f00e"
+      "payloadId": "order_pay:e3a2824c-cd6f-4a0d-8f6a-8f4cc3224465"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.btn.00046",
-      "at": 1790420915943
+      "at": 1790545544097
     },
     {
       "dir": "out",
-      "phone": "2348017147319",
-      "wamid": "wamid.sim.000058",
+      "phone": "2348016315349",
+      "wamid": "wamid.sim.000067",
       "statuses": [
         "sent"
       ],
-      "at": 1790420915954,
+      "at": 1790545544109,
       "kind": "text",
-      "body": "💳 Complete payment for order ORD-MUIADVHM (3000.00 NGN):\nhttps://checkout.paystack.com/sim/20dfdd10-abc5-44a2-a666-a019780a7a38"
+      "body": "💳 Complete payment for order ORD-MUKCL37A (3000.00 NGN):\nhttps://checkout.paystack.com/sim/59160511-198c-40d3-8503-0c23a63abddf"
     },
     {
       "dir": "in",
-      "phone": "2348016209210",
-      "profileName": "Sim User 9210",
+      "phone": "2348017823665",
+      "profileName": "Sim User 3665",
       "inboundId": "wamid.sim.in.btn.00047",
-      "at": 1790420916490,
+      "at": 1790545544639,
       "kind": "button_reply",
       "text": "Cancel Order",
-      "payloadId": "order_cancel:7790e8b9-fa07-4402-94b4-4ae71104f00e"
+      "payloadId": "order_cancel:e3a2824c-cd6f-4a0d-8f6a-8f4cc3224465"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.btn.00047",
-      "at": 1790420916496
+      "at": 1790545544646
     },
     {
       "dir": "out",
-      "phone": "2348016209210",
-      "wamid": "wamid.sim.000059",
+      "phone": "2348017823665",
+      "wamid": "wamid.sim.000068",
       "statuses": [
         "sent"
       ],
-      "at": 1790420916509,
+      "at": 1790545544658,
       "kind": "text",
       "body": "Sorry, I couldn't find that order for this number."
     },
     {
       "dir": "in",
-      "phone": "2348017147319",
-      "profileName": "Sim User 7319",
+      "phone": "2348016315349",
+      "profileName": "Sim User 5349",
       "inboundId": "wamid.sim.in.btn.00048",
-      "at": 1790420917044,
+      "at": 1790545545187,
       "kind": "button_reply",
       "text": "Cancel Order",
-      "payloadId": "order_cancel:7790e8b9-fa07-4402-94b4-4ae71104f00e"
+      "payloadId": "order_cancel:e3a2824c-cd6f-4a0d-8f6a-8f4cc3224465"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.btn.00048",
-      "at": 1790420917049
+      "at": 1790545545194
     },
     {
       "dir": "out",
-      "phone": "2348017147319",
-      "wamid": "wamid.sim.000060",
+      "phone": "2348016315349",
+      "wamid": "wamid.sim.000069",
       "statuses": [
         "sent"
       ],
-      "at": 1790420917071,
+      "at": 1790545545219,
       "kind": "text",
-      "body": "✅ Order ORD-MUIADVHM has been cancelled. Any reserved items are back in stock."
+      "body": "✅ Order ORD-MUKCL37A has been cancelled. Any reserved items are back in stock."
     },
     {
       "dir": "in",
-      "phone": "2348017147319",
-      "profileName": "Sim User 7319",
+      "phone": "2348016315349",
+      "profileName": "Sim User 5349",
       "inboundId": "wamid.sim.in.btn.00049",
-      "at": 1790420917602,
+      "at": 1790545545735,
       "kind": "button_reply",
       "text": "Pay Now",
-      "payloadId": "order_pay:7790e8b9-fa07-4402-94b4-4ae71104f00e"
+      "payloadId": "order_pay:e3a2824c-cd6f-4a0d-8f6a-8f4cc3224465"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.btn.00049",
-      "at": 1790420917608
+      "at": 1790545545741
     },
     {
       "dir": "out",
-      "phone": "2348017147319",
-      "wamid": "wamid.sim.000061",
+      "phone": "2348016315349",
+      "wamid": "wamid.sim.000070",
       "statuses": [
         "sent"
       ],
-      "at": 1790420917618,
+      "at": 1790545545751,
       "kind": "text",
-      "body": "Order ORD-MUIADVHM was cancelled — no payment is due. Type \"menu\" to start a new order."
+      "body": "Order ORD-MUKCL37A was cancelled — no payment is due. Type \"menu\" to start a new order."
     }
   ]
 }

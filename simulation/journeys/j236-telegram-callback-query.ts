@@ -49,17 +49,35 @@ export const journey: Journey = {
     const { recordConsent } = await import("../../server/services/consent");
     const db = world.db;
     await recordConsent(db, { tenantId: TENANT_ID, phone: `telegram:${chatId}`, channel: "telegram", granted: true });
+    // === W50 CHANNELS === the tap first passes the menu engine's consent
+    // gate (global, channel-agnostic) before falling through to NLP.
+    await recordConsent(db, { tenantId: TENANT_ID, phone: `telegram:${chatId}`, granted: true });
 
     // 2 + 3. Live webhook: ack + keyboard cleared + dispatch.
+    // === W50 CHANNELS === menu_<n> ids now route through the menu engine
+    // (handleInteractiveInbound — see J500); use a non-menu id here so the
+    // tap still falls through to the raw NLP dispatch this journey asserts.
+    // === W53 RESIDUALS (J237 DEFLAKE root cause) === the live update_id
+    // MUST stay inside J236's own id namespace: the webhook dedupe ledger
+    // (processed_webhook_events, keyed `tg:<update_id>`) persists across
+    // journeys in a shared world, and 970237 collided with J237's first
+    // contact-share update — J237's update was then dropped as a duplicate
+    // and its "binding confirmation" waitFor timed out under full-suite
+    // ordering (J236 always runs immediately before J237).
+    const liveUpdate = {
+      ...update,
+      update_id: 960236,
+      callback_query: { ...update.callback_query, id: "cbq-960236", data: "catalog_ai:noop-236" },
+    };
     const ackBefore = tg.callsFor("answerCallbackQuery").length;
     const editBefore = tg.callsFor("editMessageReplyMarkup").length;
     const msgBefore = tg.callsFor("sendMessage").length;
-    const res = await tgPost(world, TENANT_ID, TG_SECRET, update);
+    const res = await tgPost(world, TENANT_ID, TG_SECRET, liveUpdate);
     assert(res.status === 200, `webhook must ack 200, got ${res.status}`);
 
     await world.waitFor(() => tg.callsFor("answerCallbackQuery").length > ackBefore, 5000, "answerCallbackQuery ack");
     const ack = tg.callsFor("answerCallbackQuery").at(-1)!;
-    assert(ack.body?.callback_query_id === "cbq-970236", "answerCallbackQuery must reference the query id");
+    assert(ack.body?.callback_query_id === "cbq-960236", "answerCallbackQuery must reference the query id");
 
     await world.waitFor(() => tg.callsFor("editMessageReplyMarkup").length > editBefore, 5000, "keyboard clear");
     const edit = tg.callsFor("editMessageReplyMarkup").at(-1)!;

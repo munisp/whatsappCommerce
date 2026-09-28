@@ -1,0 +1,47 @@
+{
+  "id": "J496",
+  "title": "video/audio media types + template image headers",
+  "feature": "RICH-13/RICH-14",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348017000496",
+      "wamid": "wamid.sim.000049",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790547731203,
+      "kind": "video",
+      "mediaKind": "video",
+      "caption": "How to tie gele",
+      "mediaId": "https://cdn.example.com/howto.mp4"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017000496",
+      "wamid": "wamid.sim.000050",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790547731206,
+      "kind": "audio",
+      "mediaKind": "audio",
+      "mediaId": "mid-496"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017000496",
+      "wamid": "wamid.sim.000051",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790547731208,
+      "kind": "template",
+      "templateName": "wac_cart_recovery",
+      "templateLanguage": "en_US",
+      "body": "Sim Store"
+    }
+  ]
+}

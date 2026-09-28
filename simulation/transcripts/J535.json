@@ -1,0 +1,41 @@
+{
+  "id": "J535",
+  "title": "USSD promo line appends the forward text",
+  "feature": "W52 share: USSD forward line",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348013765033",
+      "sessionId": "ussd-j535-1790548092136",
+      "text": "(dial)",
+      "at": 1790548092445
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348013765033",
+      "sessionId": "ussd-j535-1790548092136",
+      "text": "CON Big menu — pick one:\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n4. Extra Service 1\n5. Extra Service 2\n6. Extra Service 3\n7. Extra Service 4\n8. Extra Service 5\n9. Extra Service 6\n10. Extra Service 7\n11. Extra Service 8",
+      "at": 1790548092446
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348013765033",
+      "sessionId": "ussd-j535-1790548092136",
+      "text": "1",
+      "at": 1790548092764
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348013765033",
+      "sessionId": "ussd-j535-1790548092136",
+      "text": "END DEAL: Promo USSDSHARE — 5% off. Use code USSDSHARE\nForward: 🔥 Promo USSDSHARE — 5% off at our store! Use code USSDSHARE. https://wa.me/2349000000535?text=DEAL%20USSDSHARE\nSorry, I didn't quite get that — type 'menu' to see options.",
+      "at": 1790548092765
+    }
+  ]
+}

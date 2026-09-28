@@ -7,42 +7,42 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018271385",
-      "profileName": "Sim User 1385",
-      "inboundId": "wamid.sim.in.text.00543",
-      "at": 1790421462849,
+      "phone": "2348015926113",
+      "profileName": "Sim User 6113",
+      "inboundId": "wamid.sim.in.text.00024",
+      "at": 1790547317461,
       "kind": "text",
       "text": "is anyone there? j353"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00543",
-      "at": 1790421462853
+      "wamid": "wamid.sim.in.text.00024",
+      "at": 1790547317473
     },
     {
       "dir": "in",
-      "phone": "2348018271385",
-      "profileName": "Sim User 1385",
-      "inboundId": "wamid.sim.in.text.00544",
-      "at": 1790421463404,
+      "phone": "2348015926113",
+      "profileName": "Sim User 6113",
+      "inboundId": "wamid.sim.in.text.00025",
+      "at": 1790547318007,
       "kind": "text",
       "text": "hello again j353"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00544",
-      "at": 1790421463409
+      "wamid": "wamid.sim.in.text.00025",
+      "at": 1790547318013
     },
     {
       "dir": "out",
-      "phone": "2348018271385",
-      "wamid": "wamid.sim.000930",
+      "phone": "2348015926113",
+      "wamid": "wamid.sim.000070",
       "statuses": [
         "sent"
       ],
-      "at": 1790421463428,
+      "at": 1790547318049,
       "kind": "text",
       "body": "Sorry, I didn't quite get that — type 'menu' to see options."
     }

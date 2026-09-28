@@ -14,6 +14,7 @@ import { trpc } from "@/lib/trpc";
 import { AlertTriangle, CheckCircle2, Download, ImageIcon, Package, Pencil, Plus, RefreshCw, TrendingUp, Upload, X, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useTableVirtualizer, VirtualTableBody } from "@/components/VirtualTable";
 
 const statusColors: Record<string, string> = {
   active: "bg-green-500/20 text-green-400 border-green-500/30",
@@ -106,14 +107,15 @@ function ProductsInner() {
         p.sku.toLowerCase().includes(q) ||
         (p.category ?? "").toLowerCase().includes(q)
       );
+  // === W48 perf (PERF-FE-4): virtualized product rows ===
+  const { scrollRef, virtualizer } = useTableVirtualizer(filteredProducts.length, 53);
   const createMutation = trpc.product.create.useMutation({
     onSuccess: () => { toast.success("Product created"); setOpen(false); refetch(); },
     onError: (e) => toast.error(e.message),
   });
-  const validateCsvQuery = trpc.product.validateCsv.useQuery(
-    { rows: csvRows.map(r => ({ sku: r.sku ?? "", name: r.name ?? "", price: r.price ?? "" })) },
-    { enabled: csvRows.length > 0 && csvStep === "preview" }
-  );
+  // === W48 perf (PERF-FE-12): validation is a mutation, not a query — the
+  // CSV payload is no longer serialized into a query key / refetched.
+  const validateCsvMutation = trpc.product.validateCsv.useMutation();
   const importMutation = trpc.product.importCsv.useMutation({
     onSuccess: (result) => {
       setImportResult(result);
@@ -136,6 +138,9 @@ function ProductsInner() {
         return Object.fromEntries(headers.map((h, i) => [h, vals[i] ?? ""])) as Record<string, string>;
       });
       setCsvRows(rows);
+      validateCsvMutation.mutate({
+        rows: rows.map(r => ({ sku: r.sku ?? "", name: r.name ?? "", price: r.price ?? "" })),
+      });
       setCsvStep("preview");
     };
     reader.readAsText(file);
@@ -159,7 +164,7 @@ function ProductsInner() {
           </div>
           <div className="flex gap-2">
             {/* CSV Import Dialog */}
-            <Dialog open={csvOpen} onOpenChange={(v) => { setCsvOpen(v); if (!v) { setCsvStep("upload"); setCsvRows([]); setImportResult(null); } }}>
+            <Dialog open={csvOpen} onOpenChange={(v) => { setCsvOpen(v); if (!v) { setCsvStep("upload"); setCsvRows([]); setImportResult(null); validateCsvMutation.reset(); } }}>
               <DialogTrigger asChild>
                 <Button
                   variant="outline"
@@ -194,16 +199,16 @@ function ProductsInner() {
                   <div className="space-y-4 mt-2">
                     <div className="flex items-center justify-between">
                       <p className="text-sm text-muted-foreground">{csvRows.length} rows detected</p>
-                      {validateCsvQuery.data && (
-                        <Badge variant="outline" className={validateCsvQuery.data.valid ? "text-green-400 border-green-500/30" : "text-red-400 border-red-500/30"}>
-                          {validateCsvQuery.data.valid ? <CheckCircle2 className="w-3 h-3 mr-1 inline" /> : <XCircle className="w-3 h-3 mr-1 inline" />}
-                          {validateCsvQuery.data.valid ? "All rows valid" : `${validateCsvQuery.data.issues.length} issue(s)`}
+                      {validateCsvMutation.data && (
+                        <Badge variant="outline" className={validateCsvMutation.data.valid ? "text-green-400 border-green-500/30" : "text-red-400 border-red-500/30"}>
+                          {validateCsvMutation.data.valid ? <CheckCircle2 className="w-3 h-3 mr-1 inline" /> : <XCircle className="w-3 h-3 mr-1 inline" />}
+                          {validateCsvMutation.data.valid ? "All rows valid" : `${validateCsvMutation.data.issues.length} issue(s)`}
                         </Badge>
                       )}
                     </div>
-                    {validateCsvQuery.data && !validateCsvQuery.data.valid && (
+                    {validateCsvMutation.data && !validateCsvMutation.data.valid && (
                       <div className="bg-red-500/10 border border-red-500/20 rounded p-3 max-h-32 overflow-y-auto">
-                        {validateCsvQuery.data.issues.slice(0, 10).map((issue, i) => (
+                        {validateCsvMutation.data.issues.slice(0, 10).map((issue, i) => (
                           <p key={i} className="text-xs text-red-400">Row {issue.row} — {issue.field}: {issue.message}</p>
                         ))}
                       </div>
@@ -230,7 +235,7 @@ function ProductsInner() {
                       <Button variant="outline" className="border-border bg-transparent" onClick={() => setCsvStep("upload")}>Back</Button>
                       <Button
                         className="bg-primary text-primary-foreground"
-                        disabled={importMutation.isPending || (validateCsvQuery.data ? !validateCsvQuery.data.valid : false)}
+                        disabled={importMutation.isPending || (validateCsvMutation.data ? !validateCsvMutation.data.valid : false)}
                         onClick={() => importMutation.mutate({
                           tenantId: DEMO_TENANT,
                           rows: csvRows.map(r => ({
@@ -331,7 +336,7 @@ function ProductsInner() {
                     <Label>Photo</Label>
                     {form.imageUrl ? (
                       <div className="flex items-center gap-2 p-2 border border-border rounded-lg bg-muted/50">
-                        <img src={form.imageUrl} alt="Product preview" className="w-10 h-10 object-contain rounded" />
+                        <img src={form.imageUrl} alt="Product preview" width={40} height={40} loading="lazy" decoding="async" className="w-10 h-10 object-contain rounded" />
                         <span className="text-xs text-muted-foreground truncate flex-1">Photo set</span>
                         <button type="button" onClick={() => setForm({ ...form, imageUrl: "" })} className="text-muted-foreground hover:text-destructive">
                           <X className="w-3.5 h-3.5" />
@@ -391,8 +396,9 @@ function ProductsInner() {
         <Card className="bg-card border-border">
           <CardHeader><CardTitle className="text-sm font-medium text-muted-foreground">Product Catalog</CardTitle></CardHeader>
           <CardContent className="p-0">
+            <div ref={scrollRef} className="max-h-[560px] overflow-y-auto">
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow className="border-border hover:bg-transparent">
                   <TableHead className="w-12"></TableHead>
                   <TableHead>SKU</TableHead>
@@ -404,14 +410,18 @@ function ProductsInner() {
                   <TableHead className="w-12"></TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
-                {filteredProducts.length === 0 ? (
-                  <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">{q ? `No products match "${search}".` : "No products yet. Add your first product or import via CSV."}</TableCell></TableRow>
-                ) : filteredProducts.map((p) => (
+              <VirtualTableBody
+                rows={filteredProducts}
+                virtualizer={virtualizer}
+                colSpan={8}
+                emptyState={
+                  <div className="text-center text-muted-foreground py-8">{q ? `No products match "${search}".` : "No products yet. Add your first product or import via CSV."}</div>
+                }
+                renderRow={(p) => (
                   <TableRow key={p.id} className="border-border hover:bg-accent/30">
                     <TableCell>
                       {p.imageUrl ? (
-                        <img src={p.imageUrl} alt={p.name} className="w-8 h-8 object-contain rounded border border-border bg-muted" />
+                        <img src={p.imageUrl} alt={p.name} width={32} height={32} loading="lazy" decoding="async" className="w-8 h-8 object-contain rounded border border-border bg-muted" />
                       ) : (
                         <div className="w-8 h-8 rounded border border-border bg-muted flex items-center justify-center">
                           <ImageIcon className="w-3.5 h-3.5 text-muted-foreground/40" />
@@ -438,9 +448,10 @@ function ProductsInner() {
                       </Button>
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
+                )}
+              />
             </Table>
+            </div>
           </CardContent>
         </Card>
       </div>

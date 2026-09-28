@@ -292,7 +292,9 @@ impl AppState {
 
 async fn route_event(state: AppState, event: EventEnvelope) {
     let _permit = state.semaphore.acquire().await.expect("semaphore");
-    let routes = state.routes.read().await.clone();
+    // PERF-SC-14: hold the read guard and iterate by reference (was
+    // `.clone()` of the entire route table per event).
+    let routes = state.routes.read().await;
 
     let matching_routes: Vec<&RouteTarget> = routes
         .iter()
@@ -449,16 +451,31 @@ async fn deliver_once(
 
 async fn write_to_dlq(dlq_dir: &str, event: &EventEnvelope, target: &str, error: &Option<String>) {
     let _ = tokio::fs::create_dir_all(dlq_dir).await;
-    let filename = format!("{}/{}-{}.json", dlq_dir, Utc::now().timestamp_millis(), &event.id[..8]);
+    // PERF-SC-14: (a) `&event.id[..8]` panicked on ids shorter than 8 bytes
+    // (ids come from unconstrained inbound JSON, inside a spawned task —
+    // silent task death); (b) one pretty-printed FILE PER EVENT was an
+    // fsync-per-event disk storm under DLQ bursts. Now: safe slice + a single
+    // append-only JSONL file per day, serialised through a global mutex.
+    static DLQ_LOCK: tokio::sync::OnceCell<tokio::sync::Mutex<()>> = tokio::sync::OnceCell::const_new();
+    let _guard = DLQ_LOCK.get_or_init(|| async { tokio::sync::Mutex::new(()) }).await.lock().await;
+    let short_id = event.id.get(..8).unwrap_or(event.id.as_str());
+    let filename = format!("{}/dlq-{}.jsonl", dlq_dir, Utc::now().format("%Y%m%d"));
     let entry = serde_json::json!({
         "event": event,
         "target": target,
         "error": error,
         "dlq_at": Utc::now().to_rfc3339(),
     });
-    if let Ok(content) = serde_json::to_string_pretty(&entry) {
-        let _ = tokio::fs::write(&filename, content).await;
-        error!(event_id = %event.id, target, dlq_file = %filename, "event sent to DLQ");
+    if let Ok(mut content) = serde_json::to_string(&entry) {
+        content.push('\n');
+        match tokio::fs::OpenOptions::new().create(true).append(true).open(&filename).await {
+            Ok(mut f) => {
+                use tokio::io::AsyncWriteExt;
+                let _ = f.write_all(content.as_bytes()).await;
+                error!(event_id = %event.id, short_id, target, dlq_file = %filename, "event sent to DLQ");
+            }
+            Err(e) => error!(event_id = %event.id, error = %e, "DLQ append failed"),
+        }
     }
 }
 

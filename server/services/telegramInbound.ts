@@ -144,7 +144,7 @@ async function tgDownloadFile(tenantId: string, fileId: string): Promise<{ buffe
 
 export type NormalizedTelegramEvent =
   | { kind: "text"; updateId: number; chatId: string; fromId: number; username: string | null; name: string; text: string }
-  | { kind: "command"; updateId: number; chatId: string; fromId: number; username: string | null; name: string; command: "start" | "stop" }
+  | { kind: "command"; updateId: number; chatId: string; fromId: number; username: string | null; name: string; command: "start" | "stop" | "menu" }
   | {
       kind: "callback";
       updateId: number;
@@ -225,9 +225,10 @@ export function normalizeUpdate(update: any): NormalizedTelegramEvent | null {
 
   if (typeof msg.text === "string" && msg.text.length > 0) {
     const text = msg.text;
-    const cmdMatch = /^\/(start|stop)(?:@\w+)?\s*$/i.exec(text.trim());
+    // === W50 CHANNELS === /menu joins start/stop as a first-class command.
+    const cmdMatch = /^\/(start|stop|menu)(?:@\w+)?\s*$/i.exec(text.trim());
     if (cmdMatch) {
-      return { kind: "command", updateId, chatId, ...meta, command: cmdMatch[1].toLowerCase() as "start" | "stop" };
+      return { kind: "command", updateId, chatId, ...meta, command: cmdMatch[1].toLowerCase() as "start" | "stop" | "menu" };
     }
     return { kind: "text", updateId, chatId, ...meta, text };
   }
@@ -552,39 +553,127 @@ async function dispatchToNlp(
     channel: CHANNEL_TELEGRAM,
   });
   let reply: string = typeof result?.reply === "string" ? result.reply : "";
+  // === W49 RICHMEDIA (RICH-2) ===
+  // Mirror the WA webhook rich delivery (server/_core/index.ts:960-979):
+  // orderCard → inline keyboard (URL pay button when a payment link exists);
+  // productImage → photo card with action buttons. Fail-open per send so a
+  // rich-delivery error never eats the text reply.
+  const richResult = {
+    orderCard: result?.orderCard as { orderId?: string; orderNumber?: string; paymentUrl?: string | null } | undefined,
+    productImage: result?.productImage as { link?: string; caption?: string; productId?: string } | undefined,
+    browseProducts: result?.browseProducts as
+      | Array<{ id: string; name: string; priceText: string; imageUrl?: string | null }>
+      | undefined,
+    // === W51 PROMOS ===
+    promoCard: result?.promoCard as
+      | { kind?: string; title?: string; discountText?: string; code?: string; imageUrl?: string | null }
+      | undefined,
+    language: result?.language as string | undefined,
+  };
+  const paymentUrl: string | null = richResult.orderCard?.paymentUrl ?? null;
   // The payment link stays in the text as well as behind the card's Pay button, so it is never one tap away only.
-  const paymentUrl: string | null = result?.orderCard?.paymentUrl ?? null;
   if (paymentUrl && !reply.includes(paymentUrl)) {
     reply = `${reply}\n\nPay here: ${paymentUrl}`.trim();
   }
   if (reply) {
-    await sendTelegramTextReply(cfg.tenantId, ev.chatId, waMarkdownToTelegramHtml(reply));
+    // === W50 CHANNELS (A3) === channel-aware discovery prompt: the NLP
+    // engine flags location asks with `locationRequest` so Telegram renders
+    // the native request_location reply keyboard instead of the WA-only
+    // "tap 📎 → Location" instruction.
+    if (result?.locationRequest === true) {
+      const { sendTelegramLocationRequest } = await import("./telegramSender");
+      await sendTelegramLocationRequest(cfg.tenantId, String(ev.chatId), waMarkdownToTelegramHtml(reply));
+    } else {
+      await sendTelegramTextReply(cfg.tenantId, ev.chatId, waMarkdownToTelegramHtml(reply));
+    }
   }
-  // WhatsApp follow-ups, sent the same way here (each best-effort, like the WhatsApp webhook).
-  const orderCard = result?.orderCard as { orderId?: string; orderNumber?: string } | undefined;
-  if (orderCard?.orderId && orderCard?.orderNumber) {
+  // === W49 RICHMEDIA (RICH-9 TG parity): welcome banner w/ tenant logo ===
+  if (result?.intent === "greeting") {
     try {
-      const { buildOrderActionCard } = await import("./useCases");
-      await deliverInboundOutcome(cfg, ev.chatId, { interactive: buildOrderActionCard({ orderId: orderCard.orderId, orderNumber: orderCard.orderNumber }) });
+      const { sendTelegramWelcomeBanner } = await import("./richMedia");
+      await sendTelegramWelcomeBanner(cfg.tenantId, ev.chatId, "Welcome! 👋");
+    } catch { /* banner is cosmetic — fail open */ }
+  }
+  await deliverTelegramRichAnnotations(cfg.tenantId, ev.chatId, richResult);
+}
+
+/**
+ * RICH-2: deliver the NLP rich annotations on Telegram exactly like the WA
+ * webhook does on WhatsApp. Exported for direct simulation coverage.
+ * Never throws — every send is individually fail-open.
+ */
+export async function deliverTelegramRichAnnotations(
+  tenantId: string,
+  chatId: string,
+  result: {
+    orderCard?: { orderId?: string; orderNumber?: string; paymentUrl?: string | null };
+    productImage?: { link?: string; caption?: string; productId?: string };
+    browseProducts?: Array<{ id: string; name: string; priceText: string; imageUrl?: string | null }>;
+    // === W51 PROMOS ===
+    promoCard?: { kind?: string; title?: string; discountText?: string; code?: string; imageUrl?: string | null };
+    language?: string;
+  },
+): Promise<void> {
+  // W51: promo spotlight card LAST on inquiry turns (confirm_order turns
+  // never annotate it, so the order action card keeps its pin position).
+  if (result.promoCard?.title) {
+    try {
+      const { sendTelegramPromoCard } = await import("./promoSpotlight");
+      const { localeFromSessionLanguage } = await import("./i18n");
+      await sendTelegramPromoCard(tenantId, String(chatId), result.promoCard as any, {
+        locale: localeFromSessionLanguage(result.language),
+      });
+    } catch (e: any) {
+      console.error("[telegram-inbound] promo card send error:", e?.message);
+    }
+  }
+  // RICH-5: browse → media-group album (TG approximation of WA product_list).
+  if (result.browseProducts?.length) {
+    try {
+      const { sendTelegramBrowseAlbum } = await import("./richMedia");
+      await sendTelegramBrowseAlbum(tenantId, chatId, result.browseProducts);
+    } catch (e: any) {
+      console.error("[telegram-inbound] browse album send error:", e?.message);
+    }
+  }
+  const card = result.orderCard;
+  if (card?.orderId && card?.orderNumber) {
+    try {
+      const { orderActionReplyId } = await import("./useCases");
+      const { sendTelegramKeyboard } = await import("./telegramSender");
+      const buttons = [
+        { id: orderActionReplyId("track", card.orderId), title: "📦 Track Order" },
+        ...(card.paymentUrl
+          ? [{ id: card.paymentUrl, title: "💳 Pay Now", url: card.paymentUrl }]
+          : [{ id: orderActionReplyId("pay", card.orderId), title: "💳 Pay Now" }]),
+        { id: orderActionReplyId("cancel", card.orderId), title: "❌ Cancel Order" },
+      ];
+      await sendTelegramKeyboard(
+        tenantId,
+        chatId,
+        `Order ${card.orderNumber} — manage it here:`,
+        buttons,
+        { notifType: "order_action_card" },
+      );
     } catch (e: any) {
       console.error("[telegram-inbound] order action card send error:", e?.message);
     }
   }
-  const productImage = result?.productImage as { link?: string; caption?: string } | undefined;
+  const productImage = result.productImage;
   if (productImage?.link) {
     try {
-      const { sendTelegramMedia } = await import("./telegramSender");
-      await sendTelegramMedia(
-        cfg.tenantId,
-        ev.chatId,
-        { type: "photo", url: productImage.link, caption: productImage.caption ? waMarkdownToTelegramHtml(productImage.caption) : undefined },
-        { notifType: "product_image" },
-      );
+      const { sendTelegramProductCard } = await import("./richMedia");
+      await sendTelegramProductCard(tenantId, chatId, {
+        productId: productImage.productId ?? "unknown",
+        name: productImage.caption ? waMarkdownToTelegramHtml(productImage.caption) : "Product",
+        imageUrl: productImage.link,
+      });
     } catch (e: any) {
-      console.error("[telegram-inbound] product image send error:", e?.message);
+      console.error("[telegram-inbound] product card send error:", e?.message);
     }
   }
 }
+// === END W49 RICHMEDIA ===
 
 /**
  * Consent gate mirroring useCases.handleConversationalInbound:
@@ -710,6 +799,14 @@ export async function processTelegramUpdate(
           if (await safeChannelOptIn(db, cfg, sessionKey, ev.chatId)) {
             await runMenuEngine(db, cfg, ev, "menu").catch((e: any) => console.error("[telegram-inbound] post-/start menu error:", e?.message));
           }
+        } else if (ev.command === "menu") {
+          // === W50 CHANNELS (A2) === /menu renders the tenant menu engine
+          // config as an inline-keyboard list (mirrors the WA "menu"
+          // keyword). A revoked identity stays silent (W40 contract).
+          const { wasRevoked } = await import("./optOut");
+          const consent = await getChannelConsent(db, cfg.tenantId, sessionKey, CONSENT_CHANNEL_TELEGRAM);
+          if (wasRevoked(consent)) return;
+          await runMenuEngine(db, cfg, ev, "menu").catch((e: any) => console.error("[telegram-inbound] /menu error:", e?.message));
         } else {
           await recordChannelRevocation(db, { tenantId: cfg.tenantId, sessionKey, channel: CONSENT_CHANNEL_TELEGRAM });
           await propagateRevocationToLinkedChannels(db, cfg, sessionKey); // W47 ONB-B-6

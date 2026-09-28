@@ -3,7 +3,7 @@ import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import * as db from "../db";
 import { getDb } from "../db";
 import { channelMessages, conversations } from "../../drizzle/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, or } from "drizzle-orm";
 
 export const conversationRouter = router({
   list: protectedProcedure
@@ -46,15 +46,20 @@ export const conversationRouter = router({
       const rows = await dbConn
         .select()
         .from(channelMessages)
-        .where(eq(channelMessages.tenantId, input.tenantId))
+        // === W48 PERF-API-11 (api-db): phone predicate pushed INTO SQL —
+        // previously fetched the tenant's latest 60 rows and filtered by
+        // phone in JS (wrong page contents + wasted transfer). ===
+        .where(input.customerPhone
+          ? and(
+              eq(channelMessages.tenantId, input.tenantId),
+              or(
+                eq(channelMessages.fromAddress, input.customerPhone),
+                eq(channelMessages.toAddress, input.customerPhone),
+              ))
+          : eq(channelMessages.tenantId, input.tenantId))
         .orderBy(desc(channelMessages.createdAt))
         .limit(input.limit);
-      const realRows = input.customerPhone
-        ? rows.filter(r => r.fromAddress === input.customerPhone || r.toAddress === input.customerPhone)
-        : rows;
-
       const { nlpSessions } = await import("../../drizzle/schema");
-      const { or } = await import("drizzle-orm");
       const sessionConds = [eq(nlpSessions.tenantId, input.tenantId)];
       if (input.customerPhone) {
         // A session key is either the raw phone (whatsapp) or "telegram:<chat_id>" — match either form.
@@ -94,7 +99,7 @@ export const conversationRouter = router({
         });
       }
 
-      return [...realRows, ...synthRows]
+      return [...rows, ...synthRows]
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, input.limit);
     }),
@@ -117,7 +122,10 @@ export const conversationRouter = router({
       assertTenantAccess(ctx.user, input.tenantId);
       try {
         const { sendChannelMessage } = await import("../services/channelSender");
-        const result = await sendChannelMessage(input.tenantId, input.channel, input.toPhone, { kind: "text", text: input.body });
+        const result = await sendChannelMessage(input.tenantId, input.channel, input.toPhone, { kind: "text", text: input.body }, {
+          notifType: "portal_agent_reply",
+          userId: ctx.user?.id ?? null,
+        });
         if (!result.sent && !result.simulated) {
           return { sent: false, error: "Message could not be delivered — check the channel's credentials are configured for this tenant." };
         }
@@ -134,7 +142,7 @@ export const conversationRouter = router({
             processed: true,
           });
         }
-        return { sent: true };
+        return { sent: true, simulated: result.simulated, wamids: result.messageIds };
       } catch (e: any) {
         return { sent: false, error: e.message };
       }

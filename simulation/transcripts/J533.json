@@ -1,0 +1,35 @@
+{
+  "id": "J533",
+  "title": "recipient redeems DEAL/REF grammar → promo sticky + referral attributed",
+  "feature": "W52 share: inbound grammar",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348018682445",
+      "profileName": "Sim User 2445",
+      "inboundId": "wamid.sim.in.text.00004",
+      "at": 1790548090219,
+      "kind": "text",
+      "text": "DEAL DEAL33 REF REF-7MRUBE"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00004",
+      "at": 1790548090227
+    },
+    {
+      "dir": "out",
+      "phone": "2348018682445",
+      "wamid": "wamid.sim.000022",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548090273,
+      "kind": "text",
+      "body": "✅ Deal DEAL33 locked in — it applies automatically at checkout. Happy shopping!"
+    }
+  ]
+}

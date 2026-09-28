@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { usePollInterval } from "@/hooks/usePollInterval";
 import DashboardLayout from "@/components/DashboardLayout";
 import { AdminGuard } from "@/components/AdminGuard";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,10 +24,13 @@ function WebhookDLQInner() {
   const [filter, setFilter] = useState<EventStatus>("all");
   const utils = trpc.useUtils();
 
-  const { data: stats } = trpc.webhookDlq.stats.useQuery(undefined, { refetchInterval: 15000 });
+  // W48 PERF-FE-5: raised intervals, paused while the tab is hidden.
+  const statsPoll = usePollInterval(60_000);
+  const eventsPoll = usePollInterval(60_000);
+  const { data: stats } = trpc.webhookDlq.stats.useQuery(undefined, { refetchInterval: statsPoll });
   const { data: events, refetch } = trpc.webhookDlq.listEvents.useQuery(
     { status: filter, limit: 100 },
-    { refetchInterval: 30000 }
+    { refetchInterval: eventsPoll }
   );
 
   const retryEvent = trpc.webhookDlq.retryEvent.useMutation({

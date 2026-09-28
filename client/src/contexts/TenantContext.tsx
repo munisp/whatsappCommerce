@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useState, ReactNode } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { resolveActiveTenant } from "@/lib/tenantAccess";
 
@@ -33,19 +33,26 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     }
   });
 
-  const setActiveTenantId = (id: string) => {
+  const setActiveTenantId = useCallback((id: string) => {
     setSelected(id);
     try {
       localStorage.setItem(TENANT_STORAGE_KEY, id);
     } catch { /* storage unavailable */ }
-  };
+  }, []);
 
   // Derived on every render from who is signed in — not set from an effect after the first paint, which is what let pages
   // fire their first queries with the wrong tenant (and get a 403) before the layout corrected it.
   const activeTenantId = resolveActiveTenant(user, selected);
 
+  // === W48 perf (PERF-FE-11): memoized context value — consumers only
+  // re-render when the tenant actually changes, not on provider re-renders.
+  const value = useMemo<TenantContextType>(
+    () => ({ activeTenantId, setActiveTenantId }),
+    [activeTenantId, setActiveTenantId]
+  );
+
   return (
-    <TenantContext.Provider value={{ activeTenantId, setActiveTenantId }}>
+    <TenantContext.Provider value={value}>
       {children}
     </TenantContext.Provider>
   );

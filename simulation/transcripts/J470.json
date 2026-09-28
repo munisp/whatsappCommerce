@@ -1,7 +1,7 @@
 {
   "id": "J470",
-  "title": "telegram settings card: encrypted token, test connection, register webhook, gated",
-  "feature": "tenant.updateTelegramConfig (optional token) + testTelegramConnection + registerTelegramWebhook",
+  "title": "composite indexes present + stats aggregates correct (PERF-API-4/17/18)",
+  "feature": "migrations 0171-0172 additive indexes; getOrderStats/getProductStats single-scan aggregates",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
   "messages": []

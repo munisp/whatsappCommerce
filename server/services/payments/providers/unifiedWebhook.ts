@@ -161,98 +161,122 @@ export async function handleUnifiedPaymentWebhook(req: Request, res: Response): 
       return void res.status(401).json({ error: "invalid-signature" });
     }
 
-    // ── Feed the EXISTING claim-first confirm path ────────────────────────
-    // Currency extraction mirrors the adapters' body shapes: paystack/
-    // flutterwave put it at data.currency, stripe at data.object.currency,
-    // monnify at eventData.currency, customHttp configs commonly nest under
-    // payload.currency. A missing currency fails the confirm path's
-    // amount/currency verification (fail closed) just like before.
-    const currency =
-      ((payload?.data?.currency ??
-        payload?.data?.object?.currency ??
-        payload?.eventData?.currency ??
-        payload?.payload?.currency) as string | undefined) ?? null;
-    const result = await confirmProviderPayment(db, {
-      provider: providerId,
-      reference: norm.reference,
-      amountMajor: norm.amountCents / 100,
-      currency,
-      rawPayload: payload?.data ?? payload,
-    });
-    if (!result.ok) {
-      console.warn(
-        `[unified-payment-webhook] ${providerId} ref=${norm.reference} → ${result.action}${result.detail ? `: ${result.detail}` : ""}`,
-      );
-    }
-
-    // Same PAY-13 / AF-01 seam as the dedicated Paystack/Flutterwave routes:
-    // money collected at the wrong amount, or for an order that can no longer
-    // be fulfilled, is quarantined and auto-refunded. Never throws.
-    {
-      const { runPaymentMismatchQuarantineHook } = await import("../paymentMismatchQuarantine");
-      await runPaymentMismatchQuarantineHook(db, {
+    // === W48 PERF-API-1/INT-1 (api-db): ack 200 FIRST — the signature is
+    // verified (fail-closed) above, so the PSP gets its ack immediately and
+    // never retry-storms on slow confirm/hook work. Processing below runs
+    // POST-ACK; confirmProviderPayment is claim-first/idempotent so a PSP
+    // retry can never double-confirm. ===
+    res.status(200).json({ received: true });
+    try {
+      // ── Feed the EXISTING claim-first confirm path ────────────────────────
+      // Currency extraction mirrors the adapters' body shapes: paystack/
+      // flutterwave put it at data.currency, stripe at data.object.currency,
+      // monnify at eventData.currency, customHttp configs commonly nest under
+      // payload.currency. A missing currency fails the confirm path's
+      // amount/currency verification (fail closed) just like before.
+      const currency =
+        ((payload?.data?.currency ??
+          payload?.data?.object?.currency ??
+          payload?.eventData?.currency ??
+          payload?.payload?.currency) as string | undefined) ?? null;
+      const result = await confirmProviderPayment(db, {
         provider: providerId,
         reference: norm.reference,
-        result,
         amountMajor: norm.amountCents / 100,
         currency,
         rawPayload: payload?.data ?? payload,
       });
-    }
-
-    // === W31 AR webhook hook ===
-    // After the pinned confirmProviderPayment verified + completed the
-    // payment, record any AR-invoice payment keyed by this reference
-    // (ar_invoices.payment_link_ref). Exactly-once (unique psp_reference),
-    // never throws into the webhook ack.
-    if (result.ok) {
-      try {
-        const { runArInvoiceWebhookHook } = await import("../../arInvoices");
-        await runArInvoiceWebhookHook(db, { provider: providerId, reference: norm.reference });
-        // === W41 buyer-credit hook (adjacent seam — plan activation +
-        // consented token save; exactly-once, never throws) ===
-        try {
-          const { runBuyerCreditWebhookHook } = await import("../../buyerInstallments");
-          await runBuyerCreditWebhookHook(db, { provider: providerId, reference: norm.reference, rawPayload: payload?.data ?? payload });
-        } catch (hookErr: any) {
-          console.warn(`[unified-payment-webhook] buyer-credit hook ${norm.reference}: ${hookErr?.message}`);
-        }
-        // === END W41 buyer-credit hook ===
-      } catch (err: any) {
-        console.warn(`[unified-payment-webhook] AR hook ${norm.reference}: ${err?.message}`);
+      if (!result.ok) {
+        console.warn(
+          `[unified-payment-webhook] ${providerId} ref=${norm.reference} → ${result.action}${result.detail ? `: ${result.detail}` : ""}`,
+        );
       }
-    }
-    // === END W31 AR webhook hook ===
 
-    // W23 (additive): a fresh webhook confirmation also lands on the
-    // compliance audit trail — previously only the admin payment.confirm
-    // procedure wrote one, leaving webhook-confirmed payments unaudited.
-    // Best-effort; NEVER fails the webhook ack.
-    if (result.ok && result.action === "confirmed" && tenantId) {
-      try {
-        const { writeAuditLog } = await import("../../../routers/audit");
-        const [confirmedIntent] = await db
-          .select({ id: paymentIntents.id, amount: paymentIntents.amount, currency: paymentIntents.currency, provider: paymentIntents.provider })
-          .from(paymentIntents)
-          .where(eq(paymentIntents.providerPaymentId, norm.reference))
-          .limit(1);
-        await writeAuditLog({
-          actorId: null,
-          actorRole: "system",
-          action: "payment.confirm",
-          entityType: "payment_intent",
-          entityId: confirmedIntent?.id ?? norm.reference,
-          tenantId,
-          summary: `Payment ${norm.reference} confirmed via ${providerId} webhook`,
-          after: confirmedIntent
-            ? { status: "completed", amount: confirmedIntent.amount, currency: confirmedIntent.currency, provider: confirmedIntent.provider }
-            : { status: "completed", provider: providerId },
+      // Same PAY-13 / AF-01 seam as the dedicated Paystack/Flutterwave routes:
+      // money collected at the wrong amount, or for an order that can no longer
+      // be fulfilled, is quarantined and auto-refunded. Never throws.
+      {
+        const { runPaymentMismatchQuarantineHook } = await import("../paymentMismatchQuarantine");
+        await runPaymentMismatchQuarantineHook(db, {
+          provider: providerId,
+          reference: norm.reference,
+          result,
+          amountMajor: norm.amountCents / 100,
+          currency,
+          rawPayload: payload?.data ?? payload,
         });
-      } catch (auditErr: any) {
-        console.warn("[unified-payment-webhook] audit write failed:", auditErr?.message);
       }
+
+      // === W31 AR webhook hook ===
+      // After the pinned confirmProviderPayment verified + completed the
+      // payment, record any AR-invoice payment keyed by this reference
+      // (ar_invoices.payment_link_ref). Exactly-once (unique psp_reference),
+      // never throws into the webhook ack.
+      // === W48 PERF-API-1: the AR + buyer-credit hooks are independent —
+      // run them in PARALLEL (Promise.allSettled) instead of nested-serial. ===
+      if (result.ok) {
+        const settled = await Promise.allSettled([
+          (async () => {
+            const { runArInvoiceWebhookHook } = await import("../../arInvoices");
+            await runArInvoiceWebhookHook(db, { provider: providerId, reference: norm.reference });
+          })(),
+          // === W41 buyer-credit hook (adjacent seam — plan activation +
+          // consented token save; exactly-once, never throws) ===
+          (async () => {
+            const { runBuyerCreditWebhookHook } = await import("../../buyerInstallments");
+            await runBuyerCreditWebhookHook(db, { provider: providerId, reference: norm.reference, rawPayload: payload?.data ?? payload });
+          })(),
+          // === END W41 buyer-credit hook ===
+        ]);
+        for (const s of settled) {
+          if (s.status === "rejected") {
+            console.warn(`[unified-payment-webhook] post-confirm hook ${norm.reference}: ${(s.reason as any)?.message ?? s.reason}`);
+          }
+        }
+      }
+      // === END W31 AR webhook hook ===
+
+      // W23 (additive): a fresh webhook confirmation also lands on the
+      // compliance audit trail — previously only the admin payment.confirm
+      // procedure wrote one, leaving webhook-confirmed payments unaudited.
+      // Best-effort; NEVER fails the webhook ack.
+      if (result.ok && result.action === "confirmed" && tenantId) {
+        try {
+          const { writeAuditLog } = await import("../../../routers/audit");
+          const [confirmedIntent] = await db
+            .select({ id: paymentIntents.id, amount: paymentIntents.amount, currency: paymentIntents.currency, provider: paymentIntents.provider })
+            .from(paymentIntents)
+            .where(eq(paymentIntents.providerPaymentId, norm.reference))
+            .limit(1);
+          await writeAuditLog({
+            actorId: null,
+            actorRole: "system",
+            action: "payment.confirm",
+            entityType: "payment_intent",
+            entityId: confirmedIntent?.id ?? norm.reference,
+            tenantId,
+            summary: `Payment ${norm.reference} confirmed via ${providerId} webhook`,
+            after: confirmedIntent
+              ? { status: "completed", amount: confirmedIntent.amount, currency: confirmedIntent.currency, provider: confirmedIntent.provider }
+              : { status: "completed", provider: providerId },
+          });
+        } catch (auditErr: any) {
+          console.warn("[unified-payment-webhook] audit write failed:", auditErr?.message);
+        }
+      }
+    } catch (postAckErr: any) {
+      // Post-ack failure: the 200 is already sent. The confirm path is
+      // claim-first/idempotent so a redelivery or reconciliation replay is safe.
+      console.error(`[unified-payment-webhook] post-ack processing failed for ${providerId} ref=${norm.reference}:`, postAckErr?.message);
+      captureException(postAckErr, {
+        service: "unifiedPaymentWebhook",
+        operation: "postAckProcessing",
+        tenantId: tenantId ?? undefined,
+        severity: "critical",
+        extra: { provider: providerId, reference: norm.reference },
+      });
     }
-    return void res.status(200).json({ received: true, ...result });
+    return;
   } catch (err: any) {
     console.error("[unified-payment-webhook]", err);
     return void res.status(500).json({ error: err?.message });

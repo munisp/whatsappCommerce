@@ -23,6 +23,7 @@ Endpoints:
 """
 
 import asyncio
+import concurrent.futures
 import json
 import logging
 import os
@@ -36,6 +37,7 @@ from typing import Any, Optional
 import httpx
 import psycopg2
 import psycopg2.extras
+import psycopg2.pool
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -119,26 +121,50 @@ def load_models() -> None:
     log.info("Model loading complete. Loaded: %s", list(_models.keys()))
 
 
-def get_db():
-    """Get a PostgreSQL connection."""
-    try:
-        conn = psycopg2.connect(DATABASE_URL)
-        return conn
-    except Exception as e:
-        log.warning("DB connection failed: %s", e)
-        return None
+# ── DB pool + blocking-work executor (W48 sidecars PERF-SC-5/17) ─────────────
+# Was: a brand-new psycopg2 connection per call (full TCP+auth handshake per
+# /predict) and sync driver calls directly on the uvicorn event loop. Now:
+#   - a ThreadedConnectionPool (size ML_DB_POOL_MIN/MAX) reuses connections;
+#   - every blocking DB call runs in _io_executor via run_in_executor;
+#   - CPU/GIL-bound torch inference runs in _cpu_executor (PERF-SC-17), so the
+#     event loop (incl. /health) never stalls behind a prediction.
+_DB_POOL_MIN = int(os.getenv("ML_DB_POOL_MIN", "1"))
+_DB_POOL_MAX = int(os.getenv("ML_DB_POOL_MAX", "8"))
+_io_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=int(os.getenv("ML_IO_WORKERS", "8")), thread_name_prefix="ml-io")
+_cpu_executor = concurrent.futures.ThreadPoolExecutor(
+    max_workers=int(os.getenv("ML_CPU_WORKERS", "2")), thread_name_prefix="ml-cpu")
+
+_db_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
+_db_pool_lock = __import__("threading").Lock()
 
 
-async def persist_lakehouse_run(pipeline_type: str, stage: str, status: str,
-                                 records_extracted: int = 0, records_loaded: int = 0,
-                                 features_written: int = 0, model_version: str = None,
-                                 duration_ms: int = None, error_msg: str = None,
-                                 metadata: dict = None) -> Optional[str]:
-    """Persist a lakehouse pipeline run to PostgreSQL."""
-    conn = get_db()
-    if not conn:
+def _get_db_pool() -> Optional[psycopg2.pool.ThreadedConnectionPool]:
+    """Lazily create the shared connection pool (fail-open: None on error)."""
+    global _db_pool
+    if _db_pool is not None:
+        return _db_pool
+    with _db_pool_lock:
+        if _db_pool is None:
+            try:
+                _db_pool = psycopg2.pool.ThreadedConnectionPool(
+                    _DB_POOL_MIN, _DB_POOL_MAX, DATABASE_URL)
+            except Exception as e:
+                log.warning("DB pool init failed: %s", e)
+                return None
+    return _db_pool
+
+
+def _persist_lakehouse_run_sync(pipeline_type: str, stage: str, status: str,
+                                records_extracted: int, records_loaded: int,
+                                features_written: int, model_version,
+                                duration_ms, error_msg, metadata) -> Optional[str]:
+    pool = _get_db_pool()
+    if pool is None:
         return None
+    conn = None
     try:
+        conn = pool.getconn()
         cur = conn.cursor()
         cur.execute(
             """INSERT INTO lakehouse_pipeline_runs
@@ -159,16 +185,31 @@ async def persist_lakehouse_run(pipeline_type: str, stage: str, status: str,
         log.warning("Failed to persist lakehouse run: %s", e)
         return None
     finally:
-        conn.close()
+        if conn is not None:
+            pool.putconn(conn)
 
 
-async def update_lakehouse_run(run_id: str, status: str, duration_ms: int = None,
-                                error_msg: str = None, metadata: dict = None) -> None:
-    """Mark a previously created lakehouse run as completed/failed (honest lifecycle)."""
-    conn = get_db()
-    if not conn:
+async def persist_lakehouse_run(pipeline_type: str, stage: str, status: str,
+                                 records_extracted: int = 0, records_loaded: int = 0,
+                                 features_written: int = 0, model_version: str = None,
+                                 duration_ms: int = None, error_msg: str = None,
+                                 metadata: dict = None) -> Optional[str]:
+    """Persist a lakehouse pipeline run to PostgreSQL (pooled, off-loop)."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        _io_executor, _persist_lakehouse_run_sync, pipeline_type, stage, status,
+        records_extracted, records_loaded, features_written, model_version,
+        duration_ms, error_msg, metadata)
+
+
+def _update_lakehouse_run_sync(run_id: str, status: str, duration_ms,
+                               error_msg, metadata) -> None:
+    pool = _get_db_pool()
+    if pool is None:
         return
+    conn = None
     try:
+        conn = pool.getconn()
         cur = conn.cursor()
         cur.execute(
             """UPDATE lakehouse_pipeline_runs SET
@@ -185,7 +226,17 @@ async def update_lakehouse_run(run_id: str, status: str, duration_ms: int = None
     except Exception as e:
         log.warning("Failed to update lakehouse run %s: %s", run_id, e)
     finally:
-        conn.close()
+        if conn is not None:
+            pool.putconn(conn)
+
+
+async def update_lakehouse_run(run_id: str, status: str, duration_ms: int = None,
+                                error_msg: str = None, metadata: dict = None) -> None:
+    """Mark a previously created lakehouse run as completed/failed (honest lifecycle)."""
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        _io_executor, _update_lakehouse_run_sync, run_id, status, duration_ms,
+        error_msg, metadata)
 
 
 # ── Fraud / credit inference (real model first, labeled heuristic fallback) ──
@@ -320,6 +371,11 @@ async def lifespan(app: FastAPI):
     # === END W35 otel-ml-stack ===
     load_models()
     yield
+    # PERF-SC-5: clean shutdown of the shared pool + executors.
+    if _db_pool is not None:
+        _db_pool.closeall()
+    _io_executor.shutdown(wait=False, cancel_futures=True)
+    _cpu_executor.shutdown(wait=False, cancel_futures=True)
     log.info("ML Inference Server shutting down")
 
 
@@ -373,8 +429,13 @@ async def _run_prediction(req: PredictRequest) -> dict:
     payload = {k: v for k, v in req.model_dump().items() if v is not None}
     features = model_io.build_fraud_features(payload)
 
-    fraud_prob, risk_level, fraud_source = run_fraud_inference(features)
-    credit_score, credit_grade, credit_source = compute_credit_score(payload, features)
+    # PERF-SC-17: GIL/CPU-bound torch inference off the event loop — fraud and
+    # credit run concurrently in the CPU executor.
+    loop = asyncio.get_running_loop()
+    fraud_future = loop.run_in_executor(_cpu_executor, run_fraud_inference, features)
+    credit_future = loop.run_in_executor(_cpu_executor, compute_credit_score, payload, features)
+    (fraud_prob, risk_level, fraud_source), (credit_score, credit_grade, credit_source) = \
+        await asyncio.gather(fraud_future, credit_future)
 
     duration_ms = int((time.time() - t0) * 1000)
 
@@ -429,7 +490,9 @@ async def predict_fraud(req: PredictRequest):
 async def nlp_intent(req: NLPRequest):
     """Intent classification for WhatsApp messages."""
     t0 = time.time()
-    intent, confidence = classify_intent(req.text)
+    # PERF-SC-17: transformers inference is CPU/GIL-bound — off the event loop.
+    intent, confidence = await asyncio.get_running_loop().run_in_executor(
+        _cpu_executor, classify_intent, req.text)
     duration_ms = int((time.time() - t0) * 1000)
     return {
         "intent": intent,

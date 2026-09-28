@@ -7,53 +7,53 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348012232484",
-      "profileName": "Sim User 2484",
-      "inboundId": "wamid.j441-1790421525107-hello",
-      "at": 1790421525111,
+      "phone": "2348015179657",
+      "profileName": "Sim User 9657",
+      "inboundId": "wamid.j441-1790547695475-hello",
+      "at": 1790547695478,
       "kind": "text",
       "text": "hello"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.j441-1790421525107-hello",
-      "at": 1790421525116
+      "wamid": "wamid.j441-1790547695475-hello",
+      "at": 1790547695485
     },
     {
       "dir": "out",
-      "phone": "2348012232484",
-      "wamid": "wamid.sim.001036",
+      "phone": "2348015179657",
+      "wamid": "wamid.sim.000008",
       "statuses": [
         "sent"
       ],
-      "at": 1790421525122,
+      "at": 1790547695491,
       "kind": "text",
       "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
     },
     {
       "dir": "in",
-      "phone": "2348012232484",
-      "profileName": "Sim User 2484",
-      "inboundId": "wamid.j441-1790421525107",
-      "at": 1790421525662,
+      "phone": "2348015179657",
+      "profileName": "Sim User 9657",
+      "inboundId": "wamid.j441-1790547695475",
+      "at": 1790547696026,
       "kind": "text",
       "text": "YES"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.j441-1790421525107",
-      "at": 1790421525668
+      "wamid": "wamid.j441-1790547695475",
+      "at": 1790547696033
     },
     {
       "dir": "out",
-      "phone": "2348012232484",
-      "wamid": "wamid.sim.001037",
+      "phone": "2348015179657",
+      "wamid": "wamid.sim.000009",
       "statuses": [
         "sent"
       ],
-      "at": 1790421525679,
+      "at": 1790547696044,
       "kind": "text",
       "body": "Thank you! You've opted in to order updates on WhatsApp.\n\nWelcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n\nReply with a number to choose an option."
     }

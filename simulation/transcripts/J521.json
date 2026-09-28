@@ -1,0 +1,82 @@
+{
+  "id": "J521",
+  "title": "promo spotlight card on WA inquiry (image-header interactive)",
+  "feature": "W51 promos: WA promo card on browse/search",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348014365257",
+      "profileName": "Sim User 5257",
+      "inboundId": "wamid.sim.in.text.00001",
+      "at": 1790548082748,
+      "kind": "text",
+      "text": "do you have ankara?"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00001",
+      "at": 1790548082759
+    },
+    {
+      "dir": "out",
+      "phone": "2348014365257",
+      "wamid": "wamid.sim.000016",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548082828,
+      "kind": "text",
+      "body": "Yes — J521 Ankara is in stock at ₦45.00."
+    },
+    {
+      "dir": "out",
+      "phone": "2348014365257",
+      "wamid": "wamid.sim.000017",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548082847,
+      "kind": "interactive",
+      "body": "J521 Ankara — ₦45.00",
+      "buttons": [
+        {
+          "id": "cart_add:p-j521",
+          "title": "🛒 Add to cart"
+        },
+        {
+          "id": "buy_now:p-j521",
+          "title": "⚡ Buy now"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348014365257",
+      "wamid": "wamid.sim.000018",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548082860,
+      "kind": "interactive",
+      "body": "🔥 Promo FLASH20 — 20% off with code FLASH20",
+      "header": "Promo FLASH20",
+      "buttons": [
+        {
+          "id": "promo_shop",
+          "title": "🛍️ Shop now"
+        },
+        {
+          "id": "promo_deal:FLASH20",
+          "title": "View deal"
+        },
+        {
+          "id": "promo_share:FLASH20",
+          "title": "📤 Share"
+        }
+      ]
+    }
+  ]
+}

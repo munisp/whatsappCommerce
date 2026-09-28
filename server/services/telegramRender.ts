@@ -67,6 +67,12 @@ export function renderInteractiveForTelegram(input: SendInteractiveInput): Teleg
     if (!buttons.length || !buttons.every((b) => carriable(b.id))) return null;
     return { kind: "keyboard", text, buttons };
   }
+  if (input.action.type === "cta_url") {
+    // W49 RICH-7: a WhatsApp cta_url button is a Telegram URL button (no callback_data to carry).
+    const { url, displayText } = input.action;
+    if (!url?.trim()) return null;
+    return { kind: "keyboard", text, buttons: [{ id: url, title: title(displayText, "Open"), url }] };
+  }
   const rows = input.action.sections
     .flatMap((s) => s.rows)
     .map((r): TelegramListRow => ({ id: r.id, title: title(r.title, r.id), description: r.description }));

@@ -22,6 +22,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -83,6 +84,19 @@ type PermifyClient struct {
 	http       *http.Client
 	logger     *zap.Logger
 	failClosed bool
+
+	// === W48 sidecars (PERF-SC-11) === short-TTL decision cache — removes one
+	// Permify RPC (up to 3s on degradation) from every authorized API call.
+	// Cache holds ONLY definitive Permify answers (never failure-policy
+	// fallbacks) and is flushed on WriteRelationship.
+	cacheMu  sync.RWMutex
+	cache    map[string]permifyCacheEntry
+	cacheTTL time.Duration
+}
+
+type permifyCacheEntry struct {
+	allowed   bool
+	expiresAt time.Time
 }
 
 // NewPermifyClient builds a client. failClosed should be
@@ -98,6 +112,8 @@ func NewPermifyClient(baseURL, tenantID, apiKey string, failClosed bool, logger 
 		http:       &http.Client{Timeout: 3 * time.Second},
 		logger:     logger,
 		failClosed: failClosed,
+		cache:      make(map[string]permifyCacheEntry),
+		cacheTTL:   30 * time.Second, // PERF-SC-11
 	}
 }
 
@@ -130,6 +146,37 @@ func (c *PermifyClient) Check(entityType, entityID, permission, subjectType, sub
 	if c.baseURL == "" {
 		return c.denyOrAllow("unconfigured")
 	}
+	key := entityType + ":" + entityID + ":" + permission + ":" + subjectType + ":" + subjectID
+
+	c.cacheMu.RLock()
+	if e, ok := c.cache[key]; ok && time.Now().Before(e.expiresAt) {
+		c.cacheMu.RUnlock()
+		return e.allowed, nil
+	}
+	c.cacheMu.RUnlock()
+
+	allowed, cacheable, err := c.checkRemote(entityType, entityID, permission, subjectType, subjectID)
+	if cacheable {
+		c.cacheMu.Lock()
+		// Opportunistically bound the cache.
+		if len(c.cache) > 10000 {
+			now := time.Now()
+			for k, e := range c.cache {
+				if now.After(e.expiresAt) {
+					delete(c.cache, k)
+				}
+			}
+		}
+		c.cache[key] = permifyCacheEntry{allowed: allowed, expiresAt: time.Now().Add(c.cacheTTL)}
+		c.cacheMu.Unlock()
+	}
+	return allowed, err
+}
+
+// checkRemote performs the actual Permify RPC. The second return value is
+// true only when Permify gave a definitive answer (failure-policy fallbacks
+// are never cached — a transient outage must not pin a denial for 30s).
+func (c *PermifyClient) checkRemote(entityType, entityID, permission, subjectType, subjectID string) (bool, bool, error) {
 	body := permifyCheckRequest{
 		Metadata:   permifyCheckMeta{Depth: 20},
 		Entity:     permifyEntity{Type: entityType, ID: entityID},
@@ -142,18 +189,21 @@ func (c *PermifyClient) Check(entityType, entityID, permission, subjectType, sub
 	req.Header = c.headers()
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return c.denyOrAllow("unreachable", zap.Error(err))
+		allow, derr := c.denyOrAllow("unreachable", zap.Error(err))
+		return allow, false, derr
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 500 {
-		return c.denyOrAllow("server_error", zap.Int("status", resp.StatusCode))
+		allow, derr := c.denyOrAllow("server_error", zap.Int("status", resp.StatusCode))
+		return allow, false, derr
 	}
-	data, _ := io.ReadAll(resp.Body)
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	var result permifyCheckResponse
 	if err := json.Unmarshal(data, &result); err != nil {
-		return c.denyOrAllow("parse_error", zap.Error(err))
+		allow, derr := c.denyOrAllow("parse_error", zap.Error(err))
+		return allow, false, derr
 	}
-	return result.Can == "RESULT_ALLOWED", nil
+	return result.Can == "RESULT_ALLOWED", true, nil
 }
 
 // WriteRelationship grants a relationship tuple in Permify.
@@ -181,6 +231,11 @@ func (c *PermifyClient) WriteRelationship(entityType, entityID, relation, subjec
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("permify write failed %d: %s", resp.StatusCode, string(body))
 	}
+	// PERF-SC-11: relationships changed — flush cached decisions so a revoked
+	// grant is honoured within one call instead of lingering for the TTL.
+	c.cacheMu.Lock()
+	c.cache = make(map[string]permifyCacheEntry)
+	c.cacheMu.Unlock()
 	return nil
 }
 

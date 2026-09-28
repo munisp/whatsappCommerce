@@ -59,7 +59,9 @@ describe("detectLocale", () => {
   });
 
   it("still detects Hausa/pidgin 'don' as a standalone word", () => {
-    expect(detectLocale("I don finish")).toBe("ha");
+    // === W49 I18N-PCM === "I don …" is now the pcm phrase stopword (2pts),
+    // outscoring the Hausa single-word "don" (1.5) — correct for Pidgin text.
+    expect(detectLocale("I don finish")).toBe("pcm");
     expect(detectLocale("Don Allah taimako")).toBe("ha");
     expect(detectLocale("ina son sayayya, don Allah")).toBe("ha");
   });
@@ -115,13 +117,12 @@ describe("resolveLocale", () => {
     expect(await resolveLocale({ tenantId: "t1", phone: "p-dont", text: "can you check?" })).toBe("en");
   });
 
-  it("first-message Hausa 'don' weak signal resolves ha but is NOT sticky (W46 MSG-23: picker, not silent sticky)", async () => {
-    // Weak single-stopword signal: locale resolves to the weakly-detected
-    // ha, but per MSG-23 it is flagged low-confidence and never persisted —
-    // the language picker offers the explicit choice instead.
-    expect(await resolveLocale({ tenantId: "t1", phone: "p-don", text: "I don finish" })).toBe("ha");
+  // === W49 I18N-PCM === "I don finish" is now the pcm phrase (2pts) — the
+  // weak signal resolves pcm (picker, not sticky) instead of ha.
+  it("first-message pidgin 'i don' weak signal resolves pcm but is NOT sticky", async () => {
+    expect(await resolveLocale({ tenantId: "t1", phone: "p-don", text: "I don finish" })).toBe("pcm");
     expect(await getStickyLocale("t1", "p-don")).toBeNull();
-    // Later English text resolves en (no sticky ha to override it).
+    // Later English text resolves en (no sticky pcm to override it).
     expect(await resolveLocale({ tenantId: "t1", phone: "p-don", text: "thank you" })).toBe("en");
   });
 });
@@ -158,7 +159,7 @@ describe("helpers", () => {
     expect(localeFromSessionLanguage("yoruba")).toBe("yo");
     expect(localeFromSessionLanguage("hausa")).toBe("ha");
     expect(localeFromSessionLanguage("igbo")).toBe("ig");
-    expect(localeFromSessionLanguage("pidgin")).toBe("en");
+    expect(localeFromSessionLanguage("pidgin")).toBe("pcm"); // === W49 I18N-PCM ===
     expect(localeFromSessionLanguage("english")).toBe("en");
   });
 
