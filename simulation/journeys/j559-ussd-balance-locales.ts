@@ -31,6 +31,9 @@ export const journey: Journey = {
       await world.db.update(nlpSessions)
         .set({ language: sessionLanguage })
         .where(eq(nlpSessions.id, first.sessionId));
+      // A real picker choice also makes the locale sticky (otherwise detection may self-correct it — J574).
+      const { setStickyLocale, localeFromSessionLanguage } = await import("../../server/services/i18n");
+      await setStickyLocale(TENANT_ID, phone, localeFromSessionLanguage(sessionLanguage));
       return caller.nlp.processMessage({
         tenantId: TENANT_ID, waPhoneNumber: phone, message, ussdMode: true,
       });
@@ -69,6 +72,10 @@ export const journey: Journey = {
       tenantId: TENANT_ID, waPhoneNumber: stranger, message: "hi", ussdMode: true,
     });
     await world.db.update(nlpSessions).set({ language: "french" }).where(eq(nlpSessions.id, first.sessionId));
+    {
+      const { setStickyLocale } = await import("../../server/services/i18n");
+      await setStickyLocale(TENANT_ID, stranger, "fr");
+    }
     const frNone = await caller.nlp.processMessage({
       tenantId: TENANT_ID, waPhoneNumber: stranger, message: "savings", ussdMode: true,
     });

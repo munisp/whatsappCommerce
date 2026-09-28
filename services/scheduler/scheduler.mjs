@@ -53,6 +53,7 @@ export const SCHEDULE = [
   { path: "/api/scheduled/odoo-sync", intervalMin: 1440 },
   { path: "/api/scheduled/credit-loan-repayment", intervalMin: 10 },
   { path: "/api/scheduled/wa-send-retry", intervalMin: 5 },
+  { path: "/api/scheduled/psp-confirm-retry", intervalMin: 5 },
   { path: "/api/scheduled/inventory-sync", intervalMin: 5 },
   { path: "/api/scheduled/reconciliation-alert", intervalMin: 60 },
   { path: "/api/scheduled/forecast-snapshot", intervalMin: 1440 },

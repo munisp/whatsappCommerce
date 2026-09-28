@@ -8,82 +8,82 @@
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348012728894",
-      "sessionId": "ussd-w50-1790548073659",
+      "phone": "2348018567397",
+      "sessionId": "ussd-w50-1790607766993",
       "text": "near me",
-      "at": 1790548074010
+      "at": 1790607767308
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348012728894",
-      "sessionId": "ussd-w50-1790548073659",
+      "phone": "2348018567397",
+      "sessionId": "ussd-w50-1790607766993",
       "text": "CON 📍 Reply with your area or nearest landmark (e.g. \"Wuse 2\") to find businesses near you.",
-      "at": 1790548074011
+      "at": 1790607767309
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348012728894",
-      "sessionId": "ussd-w50-1790548073659",
+      "phone": "2348018567397",
+      "sessionId": "ussd-w50-1790607766993",
       "text": "near me*wuse",
-      "at": 1790548074319
+      "at": 1790607767631
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348012728894",
-      "sessionId": "ussd-w50-1790548073659",
-      "text": "END Businesses near you:\n1. Sim Store — 12 Aminu Kano Crescent, Wuse 2",
-      "at": 1790548074320
+      "phone": "2348018567397",
+      "sessionId": "ussd-w50-1790607766993",
+      "text": "END Businesses near you:\n1. Sim Store (j471) — 12 Aminu Kano Crescent, Wuse 2",
+      "at": 1790607767632
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348014820528",
-      "sessionId": "ussd-w50-1790548073659-b",
+      "phone": "2348016479481",
+      "sessionId": "ussd-w50-1790607766993-b",
       "text": "food near me in aminu kano",
-      "at": 1790548074627
+      "at": 1790607767950
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348014820528",
-      "sessionId": "ussd-w50-1790548073659-b",
-      "text": "END Businesses near you:\n1. Sim Store — 12 Aminu Kano Crescent, Wuse 2",
-      "at": 1790548074628
+      "phone": "2348016479481",
+      "sessionId": "ussd-w50-1790607766993-b",
+      "text": "END Businesses near you:\n1. Sim Store (j471) — 12 Aminu Kano Crescent, Wuse 2",
+      "at": 1790607767951
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348014087946",
-      "sessionId": "ussd-w50-1790548073659-c",
+      "phone": "2348014298163",
+      "sessionId": "ussd-w50-1790607766993-c",
       "text": "near me",
-      "at": 1790548074934
+      "at": 1790607768261
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348014087946",
-      "sessionId": "ussd-w50-1790548073659-c",
+      "phone": "2348014298163",
+      "sessionId": "ussd-w50-1790607766993-c",
       "text": "CON 📍 Reply with your area or nearest landmark (e.g. \"Wuse 2\") to find businesses near you.",
-      "at": 1790548074935
+      "at": 1790607768262
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348014087946",
-      "sessionId": "ussd-w50-1790548073659-c",
+      "phone": "2348014298163",
+      "sessionId": "ussd-w50-1790607766993-c",
       "text": "near me*zzzz nowhere",
-      "at": 1790548075243
+      "at": 1790607768582
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348014087946",
-      "sessionId": "ussd-w50-1790548073659-c",
+      "phone": "2348014298163",
+      "sessionId": "ussd-w50-1790607766993-c",
       "text": "END No businesses found near you yet — try a different location.",
-      "at": 1790548075244
+      "at": 1790607768583
     }
   ]
 }

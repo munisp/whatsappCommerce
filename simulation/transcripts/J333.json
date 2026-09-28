@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348011720206",
-      "profileName": "Sim User 0206",
-      "inboundId": "wamid.sim.in.img.00032",
-      "at": 1790546967839,
+      "phone": "2348018869146",
+      "profileName": "Sim User 9146",
+      "inboundId": "wamid.sim.in.img.00481",
+      "at": 1790607554998,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-pod-off"
@@ -18,15 +18,15 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.img.00032",
-      "at": 1790546967845
+      "wamid": "wamid.sim.in.img.00481",
+      "at": 1790607555019
     },
     {
       "dir": "in",
-      "phone": "2348013532368",
-      "profileName": "Sim User 2368",
-      "inboundId": "wamid.sim.in.img.00033",
-      "at": 1790546969894,
+      "phone": "2348011333371",
+      "profileName": "Sim User 3371",
+      "inboundId": "wamid.sim.in.img.00482",
+      "at": 1790607557074,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-pod-on"
@@ -34,37 +34,37 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.img.00033",
-      "at": 1790546969901
+      "wamid": "wamid.sim.in.img.00482",
+      "at": 1790607557096
     },
     {
       "dir": "out",
-      "phone": "2348013532368",
-      "wamid": "wamid.sim.000069",
+      "phone": "2348011333371",
+      "wamid": "wamid.sim.000861",
       "statuses": [
         "sent"
       ],
-      "at": 1790546969971,
+      "at": 1790607557248,
       "kind": "text",
-      "body": "✅ Proof of delivery received for order W43-j333b-F314 — your order is now marked delivered. Enjoy! If anything is wrong, just reply here."
+      "body": "✅ Proof of delivery received for order W43-j333b-A635 — your order is now marked delivered. Enjoy! If anything is wrong, just reply here.\n\n⭐ How was it? Reply \"RATE 5 great!\" (1-5) to leave a review — it helps other buyers and the seller."
     },
     {
       "dir": "out",
-      "phone": "2348013532368",
-      "wamid": "wamid.sim.000070",
+      "phone": "2348011333371",
+      "wamid": "wamid.sim.000862",
       "statuses": [
         "sent"
       ],
-      "at": 1790546969973,
+      "at": 1790607557255,
       "kind": "text",
-      "body": "📷 Proof of delivery received for order W43-j333b-F314 — thank you!"
+      "body": "📷 Proof of delivery received for order W43-j333b-A635 — thank you!"
     },
     {
       "dir": "in",
-      "phone": "2348013532368",
-      "profileName": "Sim User 2368",
-      "inboundId": "wamid.sim.in.img.00034",
-      "at": 1790546970441,
+      "phone": "2348011333371",
+      "profileName": "Sim User 3371",
+      "inboundId": "wamid.sim.in.img.00483",
+      "at": 1790607557638,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-pod-on"
@@ -72,8 +72,8 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.img.00034",
-      "at": 1790546970447
+      "wamid": "wamid.sim.in.img.00483",
+      "at": 1790607557658
     }
   ]
 }

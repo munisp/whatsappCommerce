@@ -11,11 +11,12 @@
  *
  * Through the REAL /api/webhooks/paystack handler in PSP custody mode:
  *   1. the wallet-transaction insert for this order is made to fail → the
- *      webhook errors, and NEITHER the hold NOR a wallet credit exists
- *      (no half state);
- *   2. the failure is lifted and Paystack redelivers → the hold AND the
- *      wallet credit are created, exactly once;
- *   3. a further redelivery changes nothing.
+ *      webhook still acks 200 (W48 ack-first), NEITHER the hold NOR a wallet
+ *      credit exists (no half state), and the event is queued for retry —
+ *      Paystack will not redeliver an event we already acked;
+ *   2. the failure is lifted and the retry sweep replays it → the hold AND
+ *      the wallet credit are created, exactly once;
+ *   3. a further Paystack redelivery changes nothing.
  */
 import { eq } from "drizzle-orm";
 import { TENANT_ID, assert, type World } from "../world";
@@ -51,25 +52,37 @@ export const journey: Journey = {
         `ALTER TABLE wallet_transactions ADD CONSTRAINT j568_block CHECK (order_id IS DISTINCT FROM '${order.orderId}') NOT VALID`,
       );
       constraintAdded = true;
+      const { PSP_CONFIRM_RETRY_EVENT, sweepPspConfirmRetries } = await import("../../server/services/payments/pspChargeWebhook");
+      const { and } = await import("drizzle-orm");
+      const retryRows = () => world.db.select().from(schema.webhookEvents).where(and(
+        eq(schema.webhookEvents.eventType, PSP_CONFIRM_RETRY_EVENT),
+        eq(schema.webhookEvents.source, "paystack"),
+      )).then((rows) => rows.filter((r) => (r.payload as any)?.reference === order.paymentRef));
       const failed = await paystackChargeSuccess(world, { reference: order.paymentRef!, amountMajor: order.total });
-      assert(failed.status === 500, `webhook surfaced the failure so the PSP retries (got ${failed.status})`);
+      assert(failed.status === 200, `webhook acks first (got ${failed.status})`);
+      await world.waitFor(async () => (await retryRows()).length === 1, 8000, "failed processing queued for retry");
+      assert((await retryRows())[0].status === "failed", `retry row records the failure (got status=${(await retryRows())[0].status})`);
       assert((await holds()).length === 0, "no half state: the hold rolled back with the failed wallet credit");
       assert((await credits()).length === 0, "no wallet transaction");
       assert((await walletBalance()) === balanceBefore, "wallet escrow balance unchanged");
 
-      // 2. Failure lifted, provider redelivers → hold + credit created once.
+      // 2. Failure lifted, the retry sweep replays the event → hold + credit created once.
       await world.db.execute(`ALTER TABLE wallet_transactions DROP CONSTRAINT j568_block`);
       constraintAdded = false;
-      const healed = await paystackChargeSuccess(world, { reference: order.paymentRef!, amountMajor: order.total });
-      assert(healed.status === 200, `redelivery acked (got ${healed.status})`);
+      const run = await sweepPspConfirmRetries(world.db as any);
+      assert(run.healed >= 1, `retry sweep healed the event (got ${JSON.stringify(run)})`);
+      assert((await retryRows())[0].status === "processed", "retry row marked processed");
       const h = await holds();
       assert(h.length === 1 && h[0].state === "escrow_held", `redelivery created the missing hold (got ${h.length})`);
       assert((await credits()).length === 1, "redelivery created the wallet credit");
       const gross = Math.round(parseFloat(h[0].amount) * 100);
       assert((await walletBalance()) === balanceBefore + gross, `wallet credited exactly the hold (got ${await walletBalance()}, want ${balanceBefore + gross})`);
 
-      // 3. Another redelivery: nothing moves.
-      await paystackChargeSuccess(world, { reference: order.paymentRef!, amountMajor: order.total });
+      // 3. A Paystack redelivery (and a second sweep) after the heal: nothing moves.
+      const redelivered = await paystackChargeSuccess(world, { reference: order.paymentRef!, amountMajor: order.total });
+      assert(redelivered.status === 200, `redelivery acked (got ${redelivered.status})`);
+      await new Promise((r) => setTimeout(r, 500)); // post-ack processing
+      await sweepPspConfirmRetries(world.db as any);
       assert((await holds()).length === 1, "no second hold");
       assert((await credits()).length === 1, "no second credit");
       assert((await walletBalance()) === balanceBefore + gross, "no double credit");

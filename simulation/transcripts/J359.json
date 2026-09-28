@@ -7,12 +7,348 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348014819425",
-      "wamid": "wamid.sim.000075",
+      "phone": "2348017242568",
+      "wamid": "wamid.sim.001014",
       "statuses": [
         "sent"
       ],
-      "at": 1790547323567,
+      "at": 1790607629167,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 0"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017440533",
+      "wamid": "wamid.sim.001015",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629182,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 1"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016144590",
+      "wamid": "wamid.sim.001016",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629196,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 2"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018365410",
+      "wamid": "wamid.sim.001017",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629211,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 3"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016116420",
+      "wamid": "wamid.sim.001018",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629226,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 4"
+    },
+    {
+      "dir": "out",
+      "phone": "2348011085668",
+      "wamid": "wamid.sim.001019",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629245,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 5"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016262093",
+      "wamid": "wamid.sim.001020",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629263,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 6"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017884003",
+      "wamid": "wamid.sim.001021",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629281,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 7"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012840517",
+      "wamid": "wamid.sim.001022",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629299,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 8"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018727120",
+      "wamid": "wamid.sim.001023",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629322,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 9"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015634170",
+      "wamid": "wamid.sim.001024",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629343,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 10"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016581097",
+      "wamid": "wamid.sim.001025",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629361,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 11"
+    },
+    {
+      "dir": "out",
+      "phone": "2348011614117",
+      "wamid": "wamid.sim.001026",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629380,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 12"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012945506",
+      "wamid": "wamid.sim.001027",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629399,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 13"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019732190",
+      "wamid": "wamid.sim.001028",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629416,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 14"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015296019",
+      "wamid": "wamid.sim.001029",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629438,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 15"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019042011",
+      "wamid": "wamid.sim.001030",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629454,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 16"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018441144",
+      "wamid": "wamid.sim.001031",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629470,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 17"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015871648",
+      "wamid": "wamid.sim.001032",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629489,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 18"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015470583",
+      "wamid": "wamid.sim.001033",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629507,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 19"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016936727",
+      "wamid": "wamid.sim.001034",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629525,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 20"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014334732",
+      "wamid": "wamid.sim.001035",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629544,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 21"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019629889",
+      "wamid": "wamid.sim.001036",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629564,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 22"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015829992",
+      "wamid": "wamid.sim.001037",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629585,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 23"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012515774",
+      "wamid": "wamid.sim.001038",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629605,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Breaker 24"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001039",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629623,
+      "kind": "text",
+      "body": "🚨 Broadcast campaign \"J284 Breaker Campaign\" was AUTO-PAUSED by the circuit breaker: 25/25 sends failed (100%). 0 sent, 5 not attempted. Check the dashboard, fix the cause (template/quality), then resume the campaign."
+    },
+    {
+      "dir": "out",
+      "phone": "2348014723617",
+      "wamid": "wamid.sim.001040",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607629653,
       "kind": "text",
       "body": "retry me"
     }

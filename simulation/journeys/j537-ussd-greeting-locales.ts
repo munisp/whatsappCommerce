@@ -45,6 +45,10 @@ export const journey: Journey = {
         .update(nlpSessions)
         .set({ language: c.sessionLanguage })
         .where(eq(nlpSessions.id, first.sessionId));
+      // A real picker choice also makes the locale sticky — without it, the next message's detection is allowed to
+      // self-correct the session language (J574), which is exactly what a bare DB pin would look like.
+      const { setStickyLocale, localeFromSessionLanguage } = await import("../../server/services/i18n");
+      await setStickyLocale(TENANT_ID, phone, localeFromSessionLanguage(c.sessionLanguage));
       const r = await caller.nlp.processMessage({
         tenantId: TENANT_ID, waPhoneNumber: phone, message: "hi", ussdMode: true,
       });

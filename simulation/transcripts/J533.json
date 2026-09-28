@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018682445",
-      "profileName": "Sim User 2445",
-      "inboundId": "wamid.sim.in.text.00004",
-      "at": 1790548090219,
+      "phone": "2348012875585",
+      "profileName": "Sim User 5585",
+      "inboundId": "wamid.sim.in.text.00580",
+      "at": 1790607787598,
       "kind": "text",
-      "text": "DEAL DEAL33 REF REF-7MRUBE"
+      "text": "DEAL DEAL33 REF REF-3L3YS2"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00004",
-      "at": 1790548090227
+      "wamid": "wamid.sim.in.text.00580",
+      "at": 1790607787618
     },
     {
       "dir": "out",
-      "phone": "2348018682445",
-      "wamid": "wamid.sim.000022",
+      "phone": "2348012875585",
+      "wamid": "wamid.sim.001187",
       "statuses": [
         "sent"
       ],
-      "at": 1790548090273,
+      "at": 1790607787720,
       "kind": "text",
       "body": "✅ Deal DEAL33 locked in — it applies automatically at checkout. Happy shopping!"
     }

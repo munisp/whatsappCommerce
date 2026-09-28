@@ -1,0 +1,273 @@
+{
+  "id": "J564",
+  "title": "Telegram parity: menu engine + interactive taps match WhatsApp for the same inputs",
+  "feature": "Telegram/WhatsApp parity — menu engine",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348018449265",
+      "profileName": "Sim User 9265",
+      "inboundId": "wamid.sim.in.text.00628",
+      "at": 1790607853507,
+      "kind": "text",
+      "text": "hi"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00628",
+      "at": 1790607853545
+    },
+    {
+      "dir": "out",
+      "phone": "2348018449265",
+      "wamid": "wamid.sim.001296",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607853635,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store (j471)! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "buttons": [
+        {
+          "id": "menu_1",
+          "title": "Shop products"
+        },
+        {
+          "id": "menu_2",
+          "title": "Track my order"
+        },
+        {
+          "id": "menu_3",
+          "title": "Talk to a human"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348018449265",
+      "profileName": "Sim User 9265",
+      "inboundId": "wamid.sim.in.text.00629",
+      "at": 1790607854633,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00629",
+      "at": 1790607854667
+    },
+    {
+      "dir": "out",
+      "phone": "2348018449265",
+      "wamid": "wamid.sim.001297",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607854761,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store (j471)! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "buttons": [
+        {
+          "id": "menu_1",
+          "title": "Shop products"
+        },
+        {
+          "id": "menu_2",
+          "title": "Track my order"
+        },
+        {
+          "id": "menu_3",
+          "title": "Talk to a human"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348018449265",
+      "profileName": "Sim User 9265",
+      "inboundId": "wamid.sim.in.text.00630",
+      "at": 1790607855751,
+      "kind": "text",
+      "text": "help"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00630",
+      "at": 1790607855779
+    },
+    {
+      "dir": "out",
+      "phone": "2348018449265",
+      "wamid": "wamid.sim.001298",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607855858,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store (j471)! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "buttons": [
+        {
+          "id": "menu_1",
+          "title": "Shop products"
+        },
+        {
+          "id": "menu_2",
+          "title": "Track my order"
+        },
+        {
+          "id": "menu_3",
+          "title": "Talk to a human"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348018449265",
+      "profileName": "Sim User 9265",
+      "inboundId": "wamid.sim.in.text.00631",
+      "at": 1790607856865,
+      "kind": "text",
+      "text": "catalog"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00631",
+      "at": 1790607856899
+    },
+    {
+      "dir": "out",
+      "phone": "2348018449265",
+      "wamid": "wamid.sim.001299",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607856984,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store (j471)! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "buttons": [
+        {
+          "id": "menu_1",
+          "title": "Shop products"
+        },
+        {
+          "id": "menu_2",
+          "title": "Track my order"
+        },
+        {
+          "id": "menu_3",
+          "title": "Talk to a human"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348018449265",
+      "profileName": "Sim User 9265",
+      "inboundId": "wamid.sim.in.text.00632",
+      "at": 1790607857982,
+      "kind": "text",
+      "text": "2"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00632",
+      "at": 1790607858006
+    },
+    {
+      "dir": "out",
+      "phone": "2348018449265",
+      "wamid": "wamid.sim.001300",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607858095,
+      "kind": "text",
+      "body": "I couldn't find any orders for this number yet. Place an order first, then come back to track it here."
+    },
+    {
+      "dir": "in",
+      "phone": "2348018449265",
+      "profileName": "Sim User 9265",
+      "inboundId": "wamid.sim.in.text.00633",
+      "at": 1790607859096,
+      "kind": "text",
+      "text": "3"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00633",
+      "at": 1790607859119
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001301",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607859177,
+      "kind": "text",
+      "body": "🙋 Human handoff requested by 2348018449265 (Sim User 9265). Please take over the conversation."
+    },
+    {
+      "dir": "out",
+      "phone": "2348018449265",
+      "wamid": "wamid.sim.001302",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607859188,
+      "kind": "text",
+      "body": "Connecting you to a human agent — someone will be with you shortly. 🙏"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001303",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607859701,
+      "kind": "text",
+      "body": "🙋 Human handoff requested by telegram:564001 (Tg User). Please take over the conversation."
+    },
+    {
+      "dir": "in",
+      "phone": "2348018449265",
+      "profileName": "Sim User 9265",
+      "inboundId": "wamid.sim.in.text.00634",
+      "at": 1790607861892,
+      "kind": "text",
+      "text": "what are your opening hours"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00634",
+      "at": 1790607861910
+    },
+    {
+      "dir": "out",
+      "phone": "2348018449265",
+      "wamid": "wamid.sim.001304",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607861953,
+      "kind": "text",
+      "body": "We are open 8am to 8pm every day."
+    }
+  ]
+}

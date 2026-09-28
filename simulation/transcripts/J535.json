@@ -8,34 +8,34 @@
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348013765033",
-      "sessionId": "ussd-j535-1790548092136",
+      "phone": "2348011296964",
+      "sessionId": "ussd-j535-1790607789763",
       "text": "(dial)",
-      "at": 1790548092445
+      "at": 1790607790085
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348013765033",
-      "sessionId": "ussd-j535-1790548092136",
-      "text": "CON Big menu — pick one:\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n4. Extra Service 1\n5. Extra Service 2\n6. Extra Service 3\n7. Extra Service 4\n8. Extra Service 5\n9. Extra Service 6\n10. Extra Service 7\n11. Extra Service 8",
-      "at": 1790548092446
+      "phone": "2348011296964",
+      "sessionId": "ussd-j535-1790607789763",
+      "text": "CON Welcome to Sim Store (j471)! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
+      "at": 1790607790086
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348013765033",
-      "sessionId": "ussd-j535-1790548092136",
+      "phone": "2348011296964",
+      "sessionId": "ussd-j535-1790607789763",
       "text": "1",
-      "at": 1790548092764
+      "at": 1790607790444
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348013765033",
-      "sessionId": "ussd-j535-1790548092136",
-      "text": "END DEAL: Promo USSDSHARE — 5% off. Use code USSDSHARE\nForward: 🔥 Promo USSDSHARE — 5% off at our store! Use code USSDSHARE. https://wa.me/2349000000535?text=DEAL%20USSDSHARE\nSorry, I didn't quite get that — type 'menu' to see options.",
-      "at": 1790548092765
+      "phone": "2348011296964",
+      "sessionId": "ussd-j535-1790607789763",
+      "text": "END DEAL: Promo USSDSHARE — 5% off. Use code USSDSHARE\nForward: 🔥 Promo USSDSHARE — 5% off at our store! Use code USSDSHARE. https://wa.me/2349000000535?text=DEAL%20USSDSHARE\nSure! Here's what we have:\n\n1. Jollof Rice — NGN 2500.00\n2. Grilled Chicken — NGN 3000.00\n3. Last Unit Special — NGN 1000.00\n4. Sold Out Sneakers — NGN 15000.00 (out of stock)\n5. Ankara Fabric — NGN 5000.00\n6. Restock Widget — NGN 750.00 (out of stock)\n7. Peak Milk 400g — NGN 1850.00 (out of stock)\n8. Snack p-j128-a — NGN 200.00\n9. Snack p-j128-b — NGN 250.00\n10. Snack p-j128-c — NGN 300.00\n11. Plantain Chips 100g — NGN 250.00 (out of stock)\n12. Royal Stallion Rice 50kg — NGN 95000.00 (out of stock)\n13. J130 p-j130-b1 — NGN 100.00\n14. J130 p-j130-b2 — NGN 200.00\n15. J130 p-j130-b3 — NGN 300.00\n16. J130 p-j130-b4 — NGN 400.00\n17. J130 p-j130-s1 — NGN 9.99\n18. J130 p-j130-x1 — NGN 500.00\n19. J130 p-j130-x2 — NGN 700.00\n20. Indigo Dye Kit — NGN 999.00\n\nReply with a number or an item's name to add it.",
+      "at": 1790607790445
     }
   ]
 }

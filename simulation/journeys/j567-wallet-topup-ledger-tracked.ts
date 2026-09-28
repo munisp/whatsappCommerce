@@ -34,7 +34,13 @@ export const journey: Journey = {
 
     const before = ledger.transfers.length;
     const res = await paystackChargeSuccess(world, { reference: intent.providerPaymentId!, amountMajor: 5_000 });
-    assert(res.status === 200 && res.json?.ok, `webhook confirmed the top-up (got ${res.status} ${JSON.stringify(res.json)})`);
+    assert(res.status === 200, `webhook acked (got ${res.status} ${JSON.stringify(res.json)})`);
+    // W48: the webhook acks first and confirms post-ack — wait for the confirm to land.
+    await world.waitFor(async () => {
+      const [row] = await world.db.select({ status: schema.paymentIntents.status, metadata: schema.paymentIntents.metadata })
+        .from(schema.paymentIntents).where(eq(schema.paymentIntents.id, intent.id)).limit(1);
+      return row?.status === "completed" && !!(row.metadata as any)?.ledgerSettle;
+    }, 8000, "top-up confirmed post-ack");
 
     const legs = ledger.transfers.slice(before).map((t) => t.body?.idempotency_key);
     assert(legs.includes(`settle-in:${intent.id}`) && legs.includes(`settle:${intent.id}`),

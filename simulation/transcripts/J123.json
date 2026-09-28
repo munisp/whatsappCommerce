@@ -7,36 +7,36 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348012430768",
-      "profileName": "Sim User 0768",
-      "inboundId": "wamid.sim.in.text.00029",
-      "at": 1790546216480,
+      "phone": "2348013434792",
+      "profileName": "Sim User 4792",
+      "inboundId": "wamid.sim.in.text.00323",
+      "at": 1790607282517,
       "kind": "text",
       "text": "fresh vegetables near me"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00029",
-      "at": 1790546216490
+      "wamid": "wamid.sim.in.text.00323",
+      "at": 1790607282532
     },
     {
       "dir": "out",
-      "phone": "2348012430768",
-      "wamid": "wamid.sim.000105",
+      "phone": "2348013434792",
+      "wamid": "wamid.sim.000578",
       "statuses": [
         "sent"
       ],
-      "at": 1790546216529,
+      "at": 1790607282583,
       "kind": "text",
       "body": "To see businesses near you, tap 📎 → Location and share your current location."
     },
     {
       "dir": "in",
-      "phone": "2348012430768",
-      "profileName": "Sim User 0768",
-      "inboundId": "wamid.sim.in.loc.00030",
-      "at": 1790546217026,
+      "phone": "2348013434792",
+      "profileName": "Sim User 4792",
+      "inboundId": "wamid.sim.in.loc.00324",
+      "at": 1790607283064,
       "kind": "location",
       "lat": 6.53,
       "lng": 3.3792
@@ -44,163 +44,163 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.loc.00030",
-      "at": 1790546217033
+      "wamid": "wamid.sim.in.loc.00324",
+      "at": 1790607283083
     },
     {
       "dir": "out",
-      "phone": "2348012430768",
-      "wamid": "wamid.sim.000106",
+      "phone": "2348013434792",
+      "wamid": "wamid.sim.000579",
       "statuses": [
         "sent"
       ],
-      "at": 1790546217053,
+      "at": 1790607283129,
       "kind": "text",
       "body": "📍 Businesses near you (within 5 km):\n1. Lagos Plastics Manufacturing — plastics · 0.3 km\n   🗺️ https://maps.google.com/?q=6.5272,3.3792\n2. Sim Store — sim · 0.6 km\n   🗺️ https://maps.google.com/?q=6.5244,3.3792\n💡 Share a different location anytime to search around another area.\n\nReply with a category to filter, or tell me what you're looking for."
     },
     {
       "dir": "in",
-      "phone": "2348012430768",
-      "profileName": "Sim User 0768",
-      "inboundId": "wamid.sim.in.text.00031",
-      "at": 1790546217568,
+      "phone": "2348013434792",
+      "profileName": "Sim User 4792",
+      "inboundId": "wamid.sim.in.text.00325",
+      "at": 1790607283609,
       "kind": "text",
       "text": "fresh vegetables near me"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00031",
-      "at": 1790546217574
+      "wamid": "wamid.sim.in.text.00325",
+      "at": 1790607283627
     },
     {
       "dir": "out",
-      "phone": "2348012430768",
-      "wamid": "wamid.sim.000107",
+      "phone": "2348013434792",
+      "wamid": "wamid.sim.000580",
       "statuses": [
         "sent"
       ],
-      "at": 1790546217603,
+      "at": 1790607283693,
       "kind": "text",
       "body": "📍 Businesses near you (within 5 km):\n1. Sim Store — sim · 0.6 km\n   🗺️ https://maps.google.com/?q=6.5244,3.3792\n💡 Share a different location anytime to search around another area."
     },
     {
       "dir": "in",
-      "phone": "2348012430768",
-      "profileName": "Sim User 0768",
-      "inboundId": "wamid.sim.in.text.00032",
-      "at": 1790546218125,
+      "phone": "2348013434792",
+      "profileName": "Sim User 4792",
+      "inboundId": "wamid.sim.in.text.00326",
+      "at": 1790607284157,
       "kind": "text",
-      "text": "i want these [6f446a69]"
+      "text": "i want these [d6403ba1]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00032",
-      "at": 1790546218132
+      "wamid": "wamid.sim.in.text.00326",
+      "at": 1790607284177
     },
     {
       "dir": "out",
-      "phone": "2348012430768",
-      "wamid": "wamid.sim.000108",
+      "phone": "2348013434792",
+      "wamid": "wamid.sim.000581",
       "statuses": [
         "sent"
       ],
-      "at": 1790546218184,
+      "at": 1790607284248,
       "kind": "text",
       "body": "✅ 2 × Fresh Vegetables\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348012430768",
-      "profileName": "Sim User 0768",
-      "inboundId": "wamid.sim.in.text.00033",
-      "at": 1790546218669,
+      "phone": "2348013434792",
+      "profileName": "Sim User 4792",
+      "inboundId": "wamid.sim.in.text.00327",
+      "at": 1790607284705,
       "kind": "text",
-      "text": "confirm please [6f446a69]"
+      "text": "confirm please [d6403ba1]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00033",
-      "at": 1790546218677
+      "wamid": "wamid.sim.in.text.00327",
+      "at": 1790607284724
     },
     {
       "dir": "out",
-      "phone": "2348012430768",
-      "wamid": "wamid.sim.000109",
+      "phone": "2348013434792",
+      "wamid": "wamid.sim.000582",
       "statuses": [
         "sent"
       ],
-      "at": 1790546218721,
+      "at": 1790607284792,
       "kind": "text",
       "body": "🛒 *Your order*\n2 × Fresh Vegetables — ₦1,200.00 each\nSubtotal: ₦2,400.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348012430768",
-      "profileName": "Sim User 0768",
-      "inboundId": "wamid.sim.in.text.00034",
-      "at": 1790546219218,
+      "phone": "2348013434792",
+      "profileName": "Sim User 4792",
+      "inboundId": "wamid.sim.in.text.00328",
+      "at": 1790607285257,
       "kind": "text",
       "text": "1"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00034",
-      "at": 1790546219226
+      "wamid": "wamid.sim.in.text.00328",
+      "at": 1790607285275
     },
     {
       "dir": "out",
-      "phone": "2348012430768",
-      "wamid": "wamid.sim.000110",
+      "phone": "2348013434792",
+      "wamid": "wamid.sim.000583",
       "statuses": [
         "sent"
       ],
-      "at": 1790546219282,
+      "at": 1790607285391,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MUKCZKZI*\n2 × Fresh Vegetables — ₦1,200.00 each\n*Total: ₦2,400.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/c227d4f7-0314-4684-be00-254565277cd4\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/8f7112ed-abad-4157-82e0-ba8635d4b7c1.Z-YHwq89E1rBWSzX3vy7Ni9O"
+      "body": "🧾 *Pickup Order ORD-MULDCFVC*\n2 × Fresh Vegetables — ₦1,200.00 each\n*Total: ₦2,400.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/97dc086f-3150-4779-b0c9-bd63c3ced23e\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/fb2baab1-8a15-408e-b298-631393e852d2.J47ES1eg21bJz13S-Cpc9aQ_"
     },
     {
       "dir": "out",
-      "phone": "2348012430768",
-      "wamid": "wamid.sim.000111",
+      "phone": "2348013434792",
+      "wamid": "wamid.sim.000584",
       "statuses": [
         "sent"
       ],
-      "at": 1790546219288,
+      "at": 1790607285402,
       "kind": "interactive",
-      "body": "💳 Order ORD-MUKCZKZI is awaiting payment. Tap below to pay securely.",
+      "body": "💳 Order ORD-MULDCFVC is awaiting payment. Tap below to pay securely.",
       "buttons": [
         {
-          "id": "https://checkout.paystack.com/sim/c227d4f7-0314-4684-be00-254565277cd4",
+          "id": "https://checkout.paystack.com/sim/97dc086f-3150-4779-b0c9-bd63c3ced23e",
           "title": "cta_url"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348012430768",
-      "wamid": "wamid.sim.000112",
+      "phone": "2348013434792",
+      "wamid": "wamid.sim.000585",
       "statuses": [
         "sent"
       ],
-      "at": 1790546219291,
+      "at": 1790607285409,
       "kind": "interactive",
-      "body": "Order ORD-MUKCZKZI — manage it here:",
+      "body": "Order ORD-MULDCFVC — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:8f7112ed-abad-4157-82e0-ba8635d4b7c1",
+          "id": "order_track:fb2baab1-8a15-408e-b298-631393e852d2",
           "title": "📦 Track Order"
         },
         {
-          "id": "order_pay:8f7112ed-abad-4157-82e0-ba8635d4b7c1",
+          "id": "order_pay:fb2baab1-8a15-408e-b298-631393e852d2",
           "title": "💳 Pay Now"
         },
         {
-          "id": "order_cancel:8f7112ed-abad-4157-82e0-ba8635d4b7c1",
+          "id": "order_cancel:fb2baab1-8a15-408e-b298-631393e852d2",
           "title": "❌ Cancel"
         }
       ]

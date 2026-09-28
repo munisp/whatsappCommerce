@@ -84,9 +84,16 @@ export const journey: Journey = {
 
     // 3. The order-action card (Track / Pay / Cancel) must have gone out as a Telegram inline keyboard, not just
     //    text — same as WhatsApp gets buttons, not a typed instruction.
+    //    When the order already has a payment link, Pay is a Telegram URL button straight to THAT link (W49 RICH-2,
+    //    the Telegram analog of WhatsApp's cta_url); otherwise it is the order_pay:<id> callback.
+    const [tx] = await world.db.select({ paymentUrl: schema.paymentTransactions.paymentUrl }).from(schema.paymentTransactions)
+      .where(eq(schema.paymentTransactions.orderId, order!.id)).limit(1);
+    const isPayForThisOrder = (b: any) =>
+      (typeof b.callback_data === "string" && b.callback_data.startsWith(`order_pay:${order!.id}`)) ||
+      (!!tx?.paymentUrl && b.url === tx.paymentUrl);
     const cardMsg = sendsToChat().slice(before).find((c: any) =>
       Array.isArray(c.body?.reply_markup?.inline_keyboard) &&
-      c.body.reply_markup.inline_keyboard.flat().some((b: any) => typeof b.callback_data === "string" && b.callback_data.startsWith(`order_pay:${order!.id}`)));
+      c.body.reply_markup.inline_keyboard.flat().some(isPayForThisOrder));
     assert(!!cardMsg, "an order-action card with a Pay button for THIS order must be sent");
 
     // 4. Tapping Pay resolves through the SAME handleOrderAction a WhatsApp tap would hit, on the correct order —

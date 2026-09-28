@@ -495,6 +495,9 @@ export async function confirmProviderPayment(
     } catch (err: any) {
       console.error(`[payment-confirm] escrow hold retry failed for order ${orderId}:`, err?.message);
       captureException(err, { service: "paymentConfirm", operation: "escrowHoldRetry", tenantId, severity: "critical", extra: { orderId, reference } });
+      // Rethrown, exactly like a first-delivery hold failure: the PSP webhooks ack first (W48), so the caller's retry
+      // (services/payments/pspChargeWebhook.ts) is what heals this — it must see that the hold is still missing.
+      throw err;
     }
   };
 

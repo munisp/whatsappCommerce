@@ -20,6 +20,7 @@ export const journey: Journey = {
 
     // Give the tenant a menu longer than one TG page (TG_LIST_PAGE_SIZE=8).
     const [row] = await world.db.select().from(schema.tenants).where(eq(schema.tenants.id, TENANT_ID));
+    const originalSettings = row.settings;
     const settings = { ...(row.settings as any) };
     settings.waMenu = {
       greeting: "Big menu — pick one:",
@@ -29,6 +30,8 @@ export const journey: Journey = {
       })),
     };
     await world.db.update(schema.tenants).set({ settings }).where(eq(schema.tenants.id, TENANT_ID));
+    // Restore the shared sim tenant's menu afterwards — later journeys (e.g. J564) assert the default welcome menu.
+    try {
 
     const chatId = "880501";
     const { recordConsent } = await import("../../server/services/consent");
@@ -64,5 +67,8 @@ export const journey: Journey = {
     assert(kb1.length >= 1, "page 1 renders remaining entries");
     assert(String(kb1[0]?.text ?? "").startsWith("9."), `page 1 numbering continues from 9 (got ${kb1[0]?.text})`);
     assert(String(page1.body?.text ?? "").includes("continued"), "page 1 header marks continuation");
+    } finally {
+      await world.db.update(schema.tenants).set({ settings: originalSettings }).where(eq(schema.tenants.id, TENANT_ID));
+    }
   },
 };

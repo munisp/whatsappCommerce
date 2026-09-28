@@ -627,6 +627,11 @@ async function pushMenuDoc(deps: DispatchDeps): Promise<void> {
     .catch((e: any) => console.warn("[useCases] menuDocUrl push failed:", e?.message));
 }
 
+/** Telegram pages a long menu list itself, so only WhatsApp is held to the 10-row list limit. */
+function menuRenderOpts(channel: ConversationChannel | undefined): { maxEntries?: number } {
+  return channel === "telegram" ? { maxEntries: Infinity } : {};
+}
+
 async function showMenu(deps: DispatchDeps, opts: { sendMenuDoc?: boolean } = {}): Promise<InboundOutcome> {
   const ctx = await menuCtxForCaller(deps);
   const config = localizedMenuConfig(deps);
@@ -636,12 +641,12 @@ async function showMenu(deps: DispatchDeps, opts: { sendMenuDoc?: boolean } = {}
     handled: true,
     reply: renderWhatsAppMenu(config, ctx),
     // WhatsApp prefers the interactive rendering; USSD never calls showMenu.
-    interactive: renderWhatsAppInteractive(config, ctx) ?? undefined,
+    interactive: renderWhatsAppInteractive(config, ctx, menuRenderOpts(deps.channel)) ?? undefined,
   };
 }
 
 /**
- * The tenant's interactive menu for one caller (null when there is none, or it has more than 10 entries). Lets
+ * The tenant's interactive menu for one caller (null when there is none, or — WhatsApp only — more than 10 entries). Lets
  * Telegram serve a "More →" page of a long menu list without re-running the conversation (which would reset the
  * session and push the PDF menu again).
  */
@@ -665,7 +670,7 @@ export async function renderInteractiveMenuForCaller(opts: {
     businessName: opts.tenant?.name ?? undefined,
     locale,
   };
-  return renderWhatsAppInteractive(localizedMenuConfig(deps), await menuCtxForCaller(deps));
+  return renderWhatsAppInteractive(localizedMenuConfig(deps), await menuCtxForCaller(deps), menuRenderOpts(deps.channel));
 }
 
 /** Run a use-case handler and persist the resulting session state. */

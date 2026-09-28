@@ -29,7 +29,11 @@ export const journey: Journey = {
     // appears in the explanatory comment D left above the waSender seam).
     assert(!/fetch\([^)]*graph\.facebook\.com/.test(src), "no raw Graph fetch call in conversation.ts");
     assert(src.includes('notifType: "portal_agent_reply"'), "reply is metered under its own notifType");
-    assert(src.includes("sendWhatsAppText"), "reply routes through waSender");
+    // Merge with development: the reply goes through the channel-agnostic sendChannelMessage facade (so a Telegram
+    // chat can be answered too), whose whatsapp branch is waSender.sendWhatsAppText.
+    assert(src.includes("sendChannelMessage"), "reply routes through the channel facade");
+    const facade = await readFile(new URL("../../server/services/channelSender.ts", import.meta.url), "utf8");
+    assert(facade.includes("wa.sendWhatsAppText("), "the facade's whatsapp branch is waSender");
 
     const caller = await tenantCaller(TENANT_ID);
     const phone = "+2348017000479";

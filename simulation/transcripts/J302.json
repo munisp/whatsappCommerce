@@ -7,47 +7,47 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348013733848",
-      "wamid": "wamid.sim.000045",
+      "phone": "2348019204447",
+      "wamid": "wamid.sim.000837",
       "statuses": [
         "sent"
       ],
-      "at": 1790546951002,
+      "at": 1790607535091,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j302-0705 (reason: wrong item). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j302-C77C (reason: wrong item). The merchant will review it shortly."
     },
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000046",
+      "wamid": "wamid.sim.000838",
       "statuses": [
         "sent"
       ],
-      "at": 1790546951005,
+      "at": 1790607535098,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j302-0705 (reason: wrong item). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j302-C77C (reason: wrong item). The merchant will review it shortly."
     },
     {
       "dir": "out",
-      "phone": "2348013733848",
-      "wamid": "wamid.sim.000047",
+      "phone": "2348019204447",
+      "wamid": "wamid.sim.000839",
       "statuses": [
         "sent"
       ],
-      "at": 1790546951035,
+      "at": 1790607535150,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j302b-1A89 (reason: no longer needed). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j302b-DA60 (reason: no longer needed). The merchant will review it shortly."
     },
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000048",
+      "wamid": "wamid.sim.000840",
       "statuses": [
         "sent"
       ],
-      "at": 1790546951036,
+      "at": 1790607535160,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j302b-1A89 (reason: no longer needed). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j302b-DA60 (reason: no longer needed). The merchant will review it shortly."
     }
   ]
 }

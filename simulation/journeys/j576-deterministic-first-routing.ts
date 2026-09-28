@@ -69,12 +69,16 @@ export const journey: Journey = {
     assert(!/added|🛒|cart now/i.test(stockReply), `stock question must not read as an add-to-cart confirmation (got: ${stockReply.slice(0, 100)})`);
     assert(world.llm.calls.length === callsBeforeStock, "stock question must not call the LLM");
 
+    // A product's picture goes out either as a plain image or — since W49 RICH-1 — as an interactive product card
+    // whose header is that image (with Add-to-cart / Buy buttons). Either way the catalog image must be sent.
+    const productImageSends = () => world.outbound.toPhone(phone).filter((c: any) =>
+      c.waType === "image" || (c.waType === "interactive" && JSON.stringify(c.body ?? {}).includes('"image"')));
     // 3. Product detail — resolves AND actually sends the catalog image through the real delivery layer.
     const callsBeforeDetail = world.llm.calls.length;
-    const beforeImg = world.outbound.ofType("image", phone).length;
+    const beforeImg = productImageSends().length;
     await world.text(phone, "show me the grilled chicken");
-    await world.waitFor(() => world.outbound.ofType("image", phone).length > beforeImg, 8000, "product image sent");
-    const card = world.outbound.lastOfType("image", phone);
+    await world.waitFor(() => productImageSends().length > beforeImg, 8000, "product image sent");
+    const card = productImageSends().at(-1);
     assertIncludes(JSON.stringify(card?.body ?? {}), "cdn.sim.local", "product detail sends the real catalog image, not just a text description");
     assert(world.llm.calls.length === callsBeforeDetail, "product detail lookup must not call the LLM");
 
@@ -136,10 +140,10 @@ export const journey: Journey = {
     try {
       const callsBeforeRelImg = world.llm.calls.length;
       const beforeRelImgTxt = world.outbound.ofType("text", phone).length;
-      const beforeRelImg = world.outbound.ofType("image", phone).length;
+      const beforeRelImg = productImageSends().length;
       await world.text(phone, "show me the jollof rice");
-      await world.waitFor(() => world.outbound.ofType("image", phone).length > beforeRelImg, 8000, "relative-path product image sent");
-      const relImgCard = world.outbound.lastOfType("image", phone);
+      await world.waitFor(() => productImageSends().length > beforeRelImg, 8000, "relative-path product image sent");
+      const relImgCard = productImageSends().at(-1);
       const relImgCardStr = JSON.stringify(relImgCard?.body ?? {});
       assert(/https?:\/\//i.test(relImgCardStr) && !relImgCardStr.includes('"/api/storage'), `a relative imageUrl must be resolved to an absolute URL before being sent to the channel (got: ${relImgCardStr.slice(0, 200)})`);
       await world.waitFor(() => world.outbound.ofType("text", phone).length > beforeRelImgTxt, 8000, "relative-path product text reply");

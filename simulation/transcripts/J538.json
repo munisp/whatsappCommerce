@@ -7,34 +7,34 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348012365368",
-      "profileName": "Sim User 5368",
-      "inboundId": "wamid.sim.in.text.00006",
-      "at": 1790548094085,
+      "phone": "2348011875950",
+      "profileName": "Sim User 5950",
+      "inboundId": "wamid.sim.in.text.00582",
+      "at": 1790607792302,
       "kind": "text",
       "text": "menu"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00006",
-      "at": 1790548094093
+      "wamid": "wamid.sim.in.text.00582",
+      "at": 1790607792323
     },
     {
       "dir": "out",
-      "phone": "2348012365368",
-      "wamid": "wamid.sim.000024",
+      "phone": "2348011875950",
+      "wamid": "wamid.sim.001189",
       "statuses": [
         "sent"
       ],
-      "at": 1790548094113,
+      "at": 1790607792387,
       "kind": "interactive",
-      "body": "Big menu — pick one:",
+      "body": "Welcome to Sim Store (j471)! How can we help you today?",
       "footer": "Tap an option, or reply with its number.",
       "listButton": "View options",
       "sections": [
         {
-          "title": "Sim Store",
+          "title": "Sim Store (j471)",
           "rows": [
             {
               "id": "menu_1",
