@@ -1195,8 +1195,22 @@
     {
       "idx": 177,
       "version": "7",
+      "when": 1790523600000,
+      "tag": "0177_w56_credit",
+      "breakpoints": true
+    },
+    {
+      "idx": 178,
+      "version": "7",
+      "when": 1790610000000,
+      "tag": "0178_w57_risk_shield",
+      "breakpoints": true
+    },
+    {
+      "idx": 179,
+      "version": "7",
       "when": 1790500000000,
-      "tag": "0177_platform_drivers",
+      "tag": "0179_platform_drivers",
       "breakpoints": true
     }
   ]

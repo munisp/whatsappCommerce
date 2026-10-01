@@ -13,7 +13,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="WA Commerce" />
     <meta name="description" content="Manage your business on WhatsApp Commerce: products, orders, customers, payments, and integrations." />
-    <link rel="manifest" href="/manifest.json" />
+    <!-- W55 pwa (MOB-4): manifest link is injected by vite-plugin-pwa at build
+         (inline manifest scoped to /tenant-portal/); the shared
+         /manifest.json belongs to the legacy client/ app. -->
     <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
     <!-- W48 perf (PERF-FE-6): self-hosted fonts via @fontsource in main.tsx -->
   </head>

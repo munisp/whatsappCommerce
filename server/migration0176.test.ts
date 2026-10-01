@@ -54,7 +54,11 @@ describe("0176_w54_membership.sql", () => {
     expect(entry).toBeTruthy();
     expect(entry.idx).toBe(176);
     expect(journal.entries.filter((e: any) => e.idx === 176)).toHaveLength(1);
-    expect(journal.entries[journal.entries.length - 1].tag).toBe("0176_w54_membership");
+    // Journal is append-only: 0176 is present exactly once and later waves
+    // (e.g. W56 0177) chain AFTER it — the tip is no longer asserted here.
+    const idx176 = journal.entries.findIndex((e: any) => e.tag === "0176_w54_membership");
+    expect(idx176).toBeGreaterThan(-1);
+    expect(journal.entries.slice(idx176 + 1).every((e: any) => e.idx > 176)).toBe(true);
     // Chain intact: 0175 (disputes) still chains from 0174.
     expect(prevSnapshot.prevId).toBeTruthy();
   });

@@ -428,6 +428,33 @@ export async function settleEscrowAtomic(
   });
   // === W34 otel-core === escrow_settlements_total{outcome} (fail-open recorder).
   recordEscrowSettlement(txResult.transitioned ? "success" : "skipped");
+  // === W56 credit ===
+  // Post-commit credit-score recompute seam (settlement event): additive,
+  // non-blocking, dynamic import — recomputeAfterPaymentEvent never throws
+  // and never touches the committed settlement (receipts pattern).
+  if (txResult.transitioned) {
+    void (async () => {
+      try {
+        const settled = txResult.escrow;
+        if (!settled?.orderId) return;
+        const { orders } = await import("../../drizzle/schema");
+        const [ord] = await db
+          .select({ customerId: orders.customerId })
+          .from(orders)
+          .where(eq(orders.id, settled.orderId))
+          .limit(1)
+          .catch(() => [] as any[]);
+        const { recomputeAfterPaymentEvent } = await import("../services/creditScoring");
+        await recomputeAfterPaymentEvent(db as any, {
+          tenantId: settled.tenantId,
+          buyerSubjectId: ord?.customerId ?? null,
+          merchantId: settled.tenantId,
+          kind: "settlement",
+        });
+      } catch { /* fail-open telemetry only */ }
+    })();
+  }
+  // === END W56 credit ===
   return txResult;
   } catch (err) {
     recordEscrowSettlement("error"); // === W34 otel-core ===

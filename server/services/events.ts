@@ -196,6 +196,10 @@ export async function purchaseTickets(db: Db, input: {
   qty: number;
   /** E.164 phone (WA/USSD/SMS) or "telegram:<chatId>" (TG). */
   buyerCustomerId: string;
+  // === W55 parity (PARITY-2) === originating channel, recorded in
+  // order metadata so ticket-code delivery can add the SMS copy a
+  // USSD-only feature-phone buyer needs (USSD has no push channel).
+  channel?: "whatsapp" | "telegram" | "ussd" | "sms";
 }): Promise<{
   orderId: string; orderNumber: string; paymentUrl: string | null;
   totalCents: number; currency: string; ticketTypeName: string; eventTitle: string;
@@ -272,6 +276,8 @@ export async function purchaseTickets(db: Db, input: {
           eventId: ev.id, ticketTypeId: type.id, qty,
           buyerCustomerId: input.buyerCustomerId.slice(0, 64),
           purchasedAt: now.toISOString(),
+          // === W55 parity (PARITY-2) ===
+          ...(input.channel ? { originChannel: input.channel } : {}),
         },
       },
       createdAt: now,
@@ -358,7 +364,7 @@ export async function issueTicketsForOrder(db: Db, orderId: string) {
 
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
   const meta = (order?.metadata as Record<string, unknown> | null)?.eventTicket as
-    { eventId?: string; ticketTypeId?: string; qty?: number; buyerCustomerId?: string } | undefined;
+    { eventId?: string; ticketTypeId?: string; qty?: number; buyerCustomerId?: string; originChannel?: string } | undefined;
   if (!order || !meta?.eventId || !meta?.ticketTypeId || !meta?.qty) {
     return { tickets: [] as typeof existing, issued: false as const };
   }
@@ -415,6 +421,34 @@ export async function issueAndDeliverTicketsForOrder(db: Db, orderId: string): P
   } catch (e: any) {
     console.warn("[events] ticket delivery failed:", e?.message);
   }
+  // === W55 parity (PARITY-2) ===
+  // USSD-originated purchase: USSD is session-pull with NO push channel, and
+  // the WA/TG route above silently no-ops for a feature-phone buyer with no
+  // WA presence. Deliver the codes by SMS (segmentation via smsSender;
+  // idempotent per order; fail-open but logged) so the buyer always has
+  // them. Codes also stay retrievable in-session via USSD "my tickets".
+  const originChannel = ((order.metadata as Record<string, unknown> | null)?.eventTicket as
+    { originChannel?: string } | undefined)?.originChannel;
+  if (originChannel === "ussd" && !/^telegram:/i.test(buyer)) {
+    try {
+      const { sendSmsSafe, smsAlreadySent } = await import("./smsSender");
+      const idemKey = `event-ticket-sms:${orderId}`;
+      if (await smsAlreadySent(order.tenantId, idemKey).catch(() => false)) return;
+      const smsText =
+        `Your ticket${tickets.length > 1 ? "s" : ""} for ${ev?.title ?? "the event"}: ` +
+        tickets.map((t) => t.code).join(", ") +
+        `. Show the code${tickets.length > 1 ? "s" : ""} at the door. Order ${order.orderNumber}.`;
+      const res = await sendSmsSafe(order.tenantId, buyer, smsText, {
+        idempotencyKey: idemKey,
+      });
+      if (res.error) {
+        console.warn(`[events] USSD ticket SMS copy failed for order ${orderId} (fail-open):`, res.error);
+      }
+    } catch (e: any) {
+      console.warn(`[events] USSD ticket SMS copy failed for order ${orderId} (fail-open):`, e?.message ?? e);
+    }
+  }
+  // === END W55 parity ===
 }
 
 // ─── Check-in (claim-first) ─────────────────────────────────────────────────

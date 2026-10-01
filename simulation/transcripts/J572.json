@@ -1,7 +1,7 @@
 {
   "id": "J572",
-  "title": "telegram: choosing delivery sends a REAL location-request button, not a silently-dropped WhatsApp call",
-  "feature": "Telegram/WhatsApp parity — native location request",
+  "title": "bureau report-back outbox idempotent retry with backoff",
+  "feature": "W56 bureau: reportRepayment + runBureauReportSweep",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
   "messages": []

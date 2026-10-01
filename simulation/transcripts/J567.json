@@ -1,7 +1,7 @@
 {
   "id": "J567",
-  "title": "wallet top-up is ledger-tracked (AF-05)",
-  "feature": "direct-leg settlement stamped for recon-worker",
+  "title": "credit score updates after repayment event via post-commit seam",
+  "feature": "W56 creditScoring: recomputeAfterPaymentEvent seam",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
   "messages": []

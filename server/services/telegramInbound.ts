@@ -528,6 +528,34 @@ async function runMenuPage(db: Db, cfg: TelegramTenantConfig, ev: { chatId: stri
 }
 
 /**
+ * Render the tenant's settings.waMenu config as a Telegram inline-keyboard
+ * list — the SAME menu engine the WA webhook uses (loadMenuConfig +
+ * buildMenuEntries), with `menu_<n>` callback ids preserved verbatim so a
+ * tap resolves through handleInteractiveInbound exactly like a WA list row.
+ * `page` drives the menu_more_<offset> pagination sendTelegramList emits.
+ */
+export async function sendTelegramMenu(
+  db: Db,
+  cfg: TelegramTenantConfig,
+  chatId: string | number,
+  page = 0,
+): Promise<void> {
+  const [tenantRow] = await db
+    .select({ name: tenants.name, settings: tenants.settings })
+    .from(tenants)
+    .where(eq(tenants.id, cfg.tenantId))
+    .limit(1)
+    .catch(() => [] as any[]);
+  const { loadMenuConfig, buildMenuEntries, renderMenu, menuEntryReplyId } = await import("./waMenu");
+  const config = loadMenuConfig(tenantRow ?? null);
+  const entries = buildMenuEntries(config);
+  const text = renderMenu(config, { businessName: (tenantRow?.name as string) ?? undefined });
+  const rows = entries.map((e) => ({ id: menuEntryReplyId(e), title: e.label }));
+  const { sendTelegramList } = await import("./telegramSender");
+  await sendTelegramList(cfg.tenantId, String(chatId), text, rows, { notifType: "menu", page });
+}
+
+/**
  * Feed a text-equivalent message through the SAME NLP engine the WA webhook
  * uses (session keyed `telegram:<chat_id>` via the nlp.ts W37 seam) and
  * deliver the reply over Telegram, followed by the same rich follow-ups WhatsApp
@@ -543,6 +571,80 @@ async function dispatchToNlp(
 ): Promise<void> {
   if (!opts.gated && !(await intakeAllowed(db, cfg, ev.chatId))) return;
   const sessionKey = sessionKeyFor(CHANNEL_TELEGRAM, ev.chatId);
+  // === W55 parity ===
+  // PARITY-1 + PARITY-4: TG text never passes through
+  // useCases.handleConversationalInbound (WA-only seam, _core/index.ts), so
+  // mirror its deterministic pre-NLP keyword handlers here BEFORE the NLP
+  // fallback — otherwise "stokvel contribute <id>", "insure", "voucher …"
+  // and merchant finance Q&A fall to the LLM with nothing recorded.
+  //   - savingsWa.handleSavingsInbound: stokvel status/contribute
+  //     (claim-first/idempotent inside stokvels service), insure bind/menu,
+  //     voucher status/redeem — unchanged semantics, same handler as WA.
+  //   - financeQa.handleFinanceQa: read-only AP/AR keyword answers.
+  //   - localized text "menu" (matchLocalizedIntent — e.g. "ahịa", "menyu")
+  //     renders the SAME menu engine the /menu command uses (isMenuKeyword's
+  //     English list is already handled in processTelegramUpdate).
+  // Identity: these handlers key on an E.164 phone; resolve the linked
+  // phone from telegramIdentities and fall back to the TG session key
+  // (read-only lookups then simply find nothing and answer honestly).
+  try {
+    const { telegramIdentities } = await import("../../drizzle/schema");
+    const { and: andOp } = await import("drizzle-orm");
+    const [ident] = await db
+      .select({ phone: telegramIdentities.phoneE164 })
+      .from(telegramIdentities)
+      .where(andOp(eq(telegramIdentities.tenantId, cfg.tenantId), eq(telegramIdentities.chatId, ev.chatId)))
+      .limit(1)
+      .catch(() => [] as any[]);
+    const phoneRef: string = ident?.phone ?? sessionKey;
+    const { handleSavingsInbound } = await import("./savingsWa");
+    const savingsOutcome = await handleSavingsInbound({ db, tenantId: cfg.tenantId, phone: phoneRef, text: message });
+    if (savingsOutcome) {
+      if (savingsOutcome.reply) {
+        await sendTelegramTextReply(cfg.tenantId, ev.chatId, savingsOutcome.reply)
+          .catch((e: any) => console.warn("[telegram-inbound] savings reply failed:", e?.message));
+      }
+      return;
+    }
+    const { handleFinanceQa } = await import("./financeQa");
+    const financeOutcome = await handleFinanceQa({ db, tenantId: cfg.tenantId, phone: phoneRef, text: message });
+    if (financeOutcome) {
+      if (financeOutcome.reply) {
+        await sendTelegramTextReply(cfg.tenantId, ev.chatId, financeOutcome.reply)
+          .catch((e: any) => console.warn("[telegram-inbound] finance Q&A reply failed:", e?.message));
+      }
+      return;
+    }
+    // === W56 credit === merchant credit-intelligence keywords (WA parity):
+    // "CREDIT SCORE <customer>", "BUREAU CHECK <customer>" (consent-first,
+    // never auto-pulls), "BUREAU CONFIRM <customer>" — admin-phone authz
+    // inside the handler; TG identity resolves to the linked E.164 phone.
+    if (/^\s*(?:BUREAU\s+(?:CHECK|CONFIRM)\s+\S+|CREDIT\s+(?:SCORE|RISK)\s+\S+)\s*$/i.test(message)) {
+      const { handleCreditIntelCommand } = await import("./creditIntelligenceChat");
+      const intelOutcome = await handleCreditIntelCommand({
+        db, tenantId: cfg.tenantId, fromPhone: phoneRef, text: message, channel: "telegram",
+      });
+      if (intelOutcome) {
+        if (intelOutcome.handled) {
+          if (intelOutcome.reply) {
+            await sendTelegramTextReply(cfg.tenantId, ev.chatId, intelOutcome.reply)
+              .catch((e: any) => console.warn("[telegram-inbound] credit-intel reply failed:", e?.message));
+          }
+          return;
+        }
+      }
+    }
+    // === END W56 credit ===
+    const i18n = await import("./i18n");
+    const locale = await i18n.resolveLocale({ tenantId: cfg.tenantId, phone: sessionKey, text: message }).catch(() => "en");
+    if (i18n.matchLocalizedIntent(message, locale) === "menu") {
+      await sendTelegramMenu(db, cfg, ev.chatId);
+      return;
+    }
+  } catch (e: any) {
+    console.warn("[telegram-inbound] W55 parity pre-NLP handlers failed (fail-open to NLP):", e?.message ?? e);
+  }
+  // === END W55 parity ===
   const { appRouter } = await import("../routers");
   const caller = appRouter.createCaller({ user: null } as any);
   const result: any = await caller.nlp.processMessage({

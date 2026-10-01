@@ -1,7 +1,7 @@
 {
   "id": "J562",
-  "title": "telegram is off unless TELEGRAM_ENABLED is exactly true; suspended tenant leaks nothing",
-  "feature": "W37 telegram: global kill switch + closed-tenant fail-closed",
+  "title": "TG permanent failure → SMS failover (transactional only)",
+  "feature": "W55 parity: TG→SMS failover in channelParity (PARITY-3)",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
   "messages": []

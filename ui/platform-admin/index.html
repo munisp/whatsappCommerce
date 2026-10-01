@@ -9,6 +9,11 @@
     <title>Platform Admin — WhatsApp Commerce</title>
     <meta name="theme-color" content="#22c55e" />
     <meta name="description" content="Platform administration: tenants, platform users, infrastructure, and platform-wide configuration." />
+    <!-- W55 pwa (MOB-4): manifest link is injected by vite-plugin-pwa at build
+         (inline manifest scoped to /platform-admin/). -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
     <!-- W48 perf (PERF-FE-6): self-hosted fonts via @fontsource in main.tsx -->
   </head>
 

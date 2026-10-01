@@ -11,6 +11,7 @@
     "dev:tenant-portal": "vite --config ui/tenant-portal/vite.config.ts",
     "build:platform-admin": "vite build --config ui/platform-admin/vite.config.ts",
     "build:tenant-portal": "vite build --config ui/tenant-portal/vite.config.ts",
+    "check:bundle-size": "vite build && node scripts/check-bundle-size.mjs dist/public 250",
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",

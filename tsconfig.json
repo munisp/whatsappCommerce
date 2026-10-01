@@ -1,6 +1,14 @@
 {
   "include": ["client/src/**/*", "shared/**/*", "server/**/*", "ui/**/*", "services/temporal-workflows/**/*"],
-  "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
+  "exclude": [
+    "node_modules", "build", "dist", "**/*.test.ts",
+    // Not wired into any route (client/src/App.tsx) - calls a per-tenant
+    // trpc.riders.* admin API that server/routers/riders.ts no longer
+    // provides as of 52366792 (2026-09-26), which retired that model for
+    // drivers.ts's platform-wide, tenantless driver pool. Excluded rather
+    // than fixed pending a real product decision on reconciling the two.
+    "client/src/pages/Riders.tsx"
+  ],
   "compilerOptions": {
     "incremental": true,
     "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo",

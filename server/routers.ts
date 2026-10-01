@@ -41,6 +41,12 @@ import { orderCrudRouter } from "./routers/orderCrud";
 import { ucMoneyRouter } from "./routers/ucMoney";
 // === END W46 uc-money ===
 import { buyerCreditRouter } from "./routers/buyerCredit";
+// === W56 credit ===
+import { creditScoringRouter } from "./routers/creditScoring";
+import { bureauRouter } from "./routers/bureau";
+import { creditServicingRouter } from "./routers/creditServicing";
+import { creditInsuranceRouter } from "./routers/creditInsurance";
+// === END W56 credit ===
 import { rmaRouter } from "./routers/rma";
 import { exchangesRouter } from "./routers/exchanges"; // === W43 exchanges (Coder B) ===
 // === W44 giftcards-referrals (Coder A) ===
@@ -222,6 +228,12 @@ export const appRouter = router({
   ucMoney: ucMoneyRouter,
   // === END W46 uc-money ===
   buyerCredit: buyerCreditRouter,
+  // === W56 credit ===
+  creditScoring: creditScoringRouter,
+  bureau: bureauRouter,
+  creditInsurance: creditInsuranceRouter,
+  creditServicing: creditServicingRouter,
+  // === END W56 credit ===
   // === W41 rma-fx (Coder C): returns lifecycle + display-FX config ===
   rma: rmaRouter,
   // === END W41 rma-fx ===

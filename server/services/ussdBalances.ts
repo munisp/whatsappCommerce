@@ -98,6 +98,22 @@ export async function buildUssdBalanceReply(
   if (/^(loyalty|points)$/.test(kw)) {
     return loyaltyReply(db, opts.tenantId, phone, locale);
   }
+  // === W55 parity (PARITY-8) === customer wallet balance (read-only,
+  // services/customerWallet.walletBalance — same read path as the WA/TG/SMS
+  // "wallet balance" chat keyword).
+  if (/^wallet$/.test(kw)) {
+    const { t27 } = await import("./i18n");
+    const { customerWallets } = await import("../../drizzle/schema");
+    const [row] = await db.select({ currency: customerWallets.currency })
+      .from(customerWallets)
+      .where(and(eq(customerWallets.tenantId, opts.tenantId), eq(customerWallets.customerPhone, phone)))
+      .limit(1).catch(() => [] as any[]);
+    if (!row) return t27(locale, "walletBalanceNone");
+    const { walletBalance } = await import("./customerWallet");
+    const cents = await walletBalance(opts.tenantId, phone, db).catch(() => 0);
+    return t27(locale, "walletBalanceLine", { balance: fmtMajor(cents, row.currency) });
+  }
+  // === END W55 parity ===
   // membership
   return membershipReply(db, opts.tenantId, phone, locale);
 }

@@ -52,6 +52,10 @@ export const SCHEDULE = [
   { path: "/api/scheduled/bookkeeping-digests", intervalMin: 1440 },
   { path: "/api/scheduled/odoo-sync", intervalMin: 1440 },
   { path: "/api/scheduled/credit-loan-repayment", intervalMin: 10 },
+  // === W56 credit ===
+  { path: "/api/scheduled/credit-score-refresh", intervalMin: 360 },
+  { path: "/api/scheduled/bureau-report", intervalMin: 15 },
+  // === END W56 credit ===
   { path: "/api/scheduled/wa-send-retry", intervalMin: 5 },
   { path: "/api/scheduled/psp-confirm-retry", intervalMin: 5 },
   { path: "/api/scheduled/inventory-sync", intervalMin: 5 },

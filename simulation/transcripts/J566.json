@@ -1,7 +1,7 @@
 {
   "id": "J566",
-  "title": "unified webhook quarantines mismatches (AF-02)",
-  "feature": "PAY-13 seam on /api/webhooks/payments/:provider",
+  "title": "credit score computed from seeded history deterministically",
+  "feature": "W56 creditScoring: deterministic integer model + credit_scores cache",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
   "messages": []

@@ -24,6 +24,32 @@ const ReviewsModeration = lazy(() => import("./pages/ReviewsModeration"));
 // === END W27 ===
 const OrderTimeline = lazy(() => import("./pages/OrderTimeline"));
 const Payments = lazy(() => import("./pages/Payments"));
+// === W55 ui-c ===
+const ScheduledPayments = lazy(() => import("./pages/ScheduledPayments"));
+const RecurringRules = lazy(() => import("./pages/RecurringRules"));
+const ApprovalsInbox = lazy(() => import("./pages/ApprovalsInbox"));
+const EscalationInbox = lazy(() => import("./pages/EscalationInbox"));
+// Riders (pages/Riders.tsx) is NOT wired in - it calls a per-tenant trpc.riders.*
+// admin API (list/approve/suspend/register) that server/routers/riders.ts no
+// longer provides as of 52366792 (2026-09-26), which retired that per-tenant
+// rider model in favor of drivers.ts's platform-wide, tenantless driver pool
+// (self-signup/OTP login/go-online-offline - drizzle/schema.ts's `drivers`
+// table has no tenantId at all). Reconciling tenant-facing rider management
+// with the new driver-pool model is a real product decision, not a merge
+// mechanics fix - left unwired (not deleted) pending that call.
+const InventoryDepth = lazy(() => import("./pages/InventoryDepth"));
+const BuyerCredit = lazy(() => import("./pages/BuyerCredit"));
+// === W56 credit ===
+const CreditScores = lazy(() => import("./pages/CreditScores"));
+const Bureau = lazy(() => import("./pages/Bureau"));
+// === END W56 credit ===
+const ReturnsExchanges = lazy(() => import("./pages/ReturnsExchanges"));
+const CreditFacilities = lazy(() => import("./pages/CreditFacilities"));
+// === W57 risk-shield ===
+const CreditInsurance = lazy(() => import("./pages/CreditInsurance"));
+// === END W57 risk-shield ===
+const EmbeddedClients = lazy(() => import("./pages/EmbeddedClients"));
+// === END W55 ui-c ===
 const TwentyCRM = lazy(() => import("./pages/TwentyCRM"));
 const Crm = lazy(() => import("./pages/Crm"));
 const OdooHub = lazy(() => import("./pages/OdooHub"));
@@ -60,6 +86,11 @@ const MerchantWallet = lazy(() => import("./pages/portal/MerchantWallet"));
 const SavingsCircles = lazy(() => import("./pages/SavingsCircles"));
 const InsurancePolicies = lazy(() => import("./pages/InsurancePolicies"));
 const VoucherPrograms = lazy(() => import("./pages/VoucherPrograms"));
+// === W55 ui-a ===
+const EventsHub = lazy(() => import("./pages/EventsHub"));
+const MembershipPlansPage = lazy(() => import("./pages/MembershipPlans"));
+const GiftCardsPage = lazy(() => import("./pages/GiftCards"));
+const SubscriptionPlansPage = lazy(() => import("./pages/SubscriptionPlans"));
 const OnboardingWizard = lazy(() => import("./pages/portal/OnboardingWizard"));
 const EvidencePortal = lazy(() => import("./pages/EvidencePortal"));
 const MerchantAnalytics = lazy(() => import("./pages/portal/MerchantAnalytics"));
@@ -90,6 +121,14 @@ const OperatorTemplates = lazy(() => import("./pages/OperatorTemplates"));
 const SalesChannelsHub = lazy(() => import("./pages/SalesChannelsHub"));
 const MultiChannelHub = lazy(() => import("./pages/MultiChannelHub"));
 const MobileMoneyPortal = lazy(() => import("./pages/MobileMoneyPortal"));
+// === W55 ui-b ===
+const DocumentsHub = lazy(() => import("./pages/DocumentsHub"));
+const VendorBills = lazy(() => import("./pages/VendorBills"));
+const ArInvoices = lazy(() => import("./pages/ArInvoices"));
+const TaxStatements = lazy(() => import("./pages/TaxStatements"));
+const FxPayouts = lazy(() => import("./pages/FxPayouts"));
+const Cashflow = lazy(() => import("./pages/Cashflow"));
+// === END W55 ui-b ===
 const AnalyticsBIDashboard = lazy(() => import("./pages/AnalyticsBIDashboard"));
 const CompliancePortal = lazy(() => import("./pages/CompliancePortal"));
 const MedusaHub = lazy(() => import("./pages/MedusaHub"));
@@ -166,6 +205,26 @@ function Router() {
       <Route path="/track/:token" component={TrackOrder} />
       <Route path="/driver" component={DriverApp} />
       <Route path="/payments" component={Payments} />
+      {/* === W55 ui-c === */}
+      <Route path="/scheduled-payments" component={ScheduledPayments} />
+      <Route path="/recurring-rules" component={RecurringRules} />
+      <Route path="/approvals" component={ApprovalsInbox} />
+      <Route path="/escalations" component={EscalationInbox} />
+      {/* /riders intentionally not routed - see the Riders import comment above */}
+      <Route path="/inventory-depth" component={InventoryDepth} />
+      <Route path="/buyer-credit" component={BuyerCredit} />
+      {/* === W56 credit === */}
+      <Route path="/credit-scores" component={CreditScores} />
+      <Route path="/bureau" component={Bureau} />
+      {/* === END W56 credit === */}
+      <Route path="/returns" component={ReturnsExchanges} />
+      <Route path="/credit-facilities" component={CreditFacilities} />
+      {/* === W57 risk-shield === */}
+      <Route path="/credit-insurance" component={CreditInsurance} />
+      <Route path="/embedded-clients" component={EmbeddedClients} />
+      {/* === END W55 ui-c === */}
+      {/* Consolidated into the single real ServiceHealth page, now at
+          /platform-admin/health - avoids two live copies of the same page. */}
       <Route path="/health" component={() => <AdminRouteRedirect to="/health" />} />
       <Route path="/twenty-crm" component={TwentyCRM} />
       <Route path="/crm" component={Crm} />
@@ -232,6 +291,11 @@ function Router() {
           <Route path="/savings-circles" component={SavingsCircles} />
           <Route path="/insurance" component={InsurancePolicies} />
           <Route path="/vouchers" component={VoucherPrograms} />
+          {/* === W55 ui-a === */}
+          <Route path="/events" component={EventsHub} />
+          <Route path="/membership-plans" component={MembershipPlansPage} />
+          <Route path="/gift-cards" component={GiftCardsPage} />
+          <Route path="/subscription-plans" component={SubscriptionPlansPage} />
           <Route path="/whatsapp-media" component={WhatsAppMediaPortal} />
           <Route path="/operator-templates" component={OperatorTemplates} />
           <Route path="/evidence/:token" component={EvidencePortal} />
@@ -241,6 +305,14 @@ function Router() {
           <Route path="/marketplace" component={() => <RouteRedirect to="/sales-channels" />} />
           <Route path="/sales-channels" component={SalesChannelsHub} />
           <Route path="/mobile-money" component={MobileMoneyPortal} />
+          {/* === W55 ui-b === */}
+          <Route path="/finance/documents" component={DocumentsHub} />
+          <Route path="/finance/vendor-bills" component={VendorBills} />
+          <Route path="/finance/ar-invoices" component={ArInvoices} />
+          <Route path="/finance/tax-statements" component={TaxStatements} />
+          <Route path="/finance/fx-payouts" component={FxPayouts} />
+          <Route path="/finance/cashflow" component={Cashflow} />
+          {/* === END W55 ui-b === */}
           <Route path="/service-commerce" component={() => <RouteRedirect to="/sales-channels" />} />
           <Route path="/analytics-bi" component={AnalyticsBIDashboard} />
           <Route path="/compliance" component={CompliancePortal} />

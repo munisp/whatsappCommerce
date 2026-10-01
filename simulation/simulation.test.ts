@@ -36,7 +36,12 @@ describe("WhatsApp feature simulation (577 journeys)", () => {
   });
 
   it("loads the full journey registry", () => {
-    expect(journeys.length).toBe(577); // 558 (W54 merger) + J560-J578 (development: Temporal worker, Telegram parity, deterministic shop, AF-01..06 fixes — renumbered from J467-J485) = 577.
+    // 558 (W54 merger) + J560-J578 (W55: TG parity, credit bureau, wallet) + J579-J586
+    // (W57 risk-shield: identity graph ×2, registry, insurance ×2, provision, parity, i18n)
+    // + J587-J605 (development: Temporal worker, Telegram parity, deterministic shop,
+    // AF-01..06 fixes — independently claimed J560-J578 before merging with W55, so
+    // renumbered to J587-J605 on merge to avoid colliding with W55's own J560-J578) = 604.
+    expect(journeys.length).toBe(604);
     const ids = journeys.map((j) => j.id);
     expect(new Set(ids).size).toBe(ids.length);
   });

@@ -1596,6 +1596,22 @@ export async function handleUssdRequest(opts: {
       return ussdWrap(`${t27(ussdLocale, "eventsHeader")}\n${lines.join("\n")}\n${t27(ussdLocale, "eventUssdPickEvent")}`, false);
     }
 
+    // === W55 parity (PARITY-2) === "my tickets" in-session code pull:
+    // USSD has no push channel, so after payment confirmation (codes arrive
+    // by SMS too) the buyer can dial back and read the codes here — the
+    // SAME read-only listBuyerTickets the WA/TG "my tickets" keyword uses.
+    // Kept within USSD length limits (END, newest 8 tickets).
+    if (/^my tickets$/i.test(lastInput)) {
+      const { listBuyerTickets } = await import("./events");
+      const rows = await listBuyerTickets(db, tenantId, phone).catch(() => [] as any[]);
+      if (!rows.length) {
+        return ussdWrap(t27(ussdLocale, "eventMyTicketsEmpty"), true);
+      }
+      const lines = rows.slice(0, 8).map((t: any) => `${t.code} (${t.status})`);
+      return ussdWrap(`🎟️ ${t27(ussdLocale, "eventMyTicketsHeader")}\n${lines.join("\n")}`.slice(0, 155), true);
+    }
+    // === END W55 parity ===
+
     if (flow && numeric !== null) {
       if (flow.step === "pick_event" && Array.isArray(flow.eventIds)) {
         const eventId = flow.eventIds[numeric - 1];
@@ -1636,6 +1652,9 @@ export async function handleUssdRequest(opts: {
           const p = await purchaseTickets(db, {
             tenantId, eventId: flow.eventId, ticketTypeId: flow.ticketTypeId,
             qty: numeric, buyerCustomerId: phone,
+            // === W55 parity (PARITY-2) === mark USSD origin so ticket-code
+            // delivery adds an SMS copy (USSD has no push channel).
+            channel: "ussd",
           });
           reply = t27(ussdLocale, "eventTicketPurchaseReady", {
             qty: String(numeric), type: p.ticketTypeName, event: p.eventTitle,
@@ -1698,9 +1717,12 @@ export async function handleUssdRequest(opts: {
   // END-terminated: no state to hijack, consistent with the existing USSD
   // session semantics (a dial is already phone-authenticated by the carrier,
   // same as the events/order-status flows). Localized ×8 via t27.
-  if (/^(savings|stokvel|esusu|ajo|chama|loyalty|points|loyalty points|membership|my membership)$/i.test(lastInput)) {
+  // === W55 parity (PARITY-8) === "wallet"/"wallet balance" joins the
+  // read-only USSD balance queries (same customerWallet read path as the
+  // WA/TG/SMS chat keyword).
+  if (/^(savings|stokvel|esusu|ajo|chama|loyalty|points|loyalty points|membership|my membership|wallet|wallet balance)$/i.test(lastInput)) {
     const { buildUssdBalanceReply } = await import("./ussdBalances");
-    const kw = lastInput.replace(/^loyalty points$/i, "loyalty").replace(/^my membership$/i, "membership");
+    const kw = lastInput.replace(/^loyalty points$/i, "loyalty").replace(/^my membership$/i, "membership").replace(/^wallet balance$/i, "wallet");
     const reply = await buildUssdBalanceReply(db, {
       tenantId, phone, keyword: kw, sessionLanguage: ussdLocale,
     }).catch((e: any) => {
