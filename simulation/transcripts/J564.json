@@ -1,0 +1,93 @@
+{
+  "id": "J564",
+  "title": "wallet balance self-serve keyword on WA + TG + USSD",
+  "feature": "W55 parity: customer wallet balance keyword (PARITY-8)",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348017705703",
+      "profileName": "Sim User 5703",
+      "inboundId": "wamid.sim.in.text.00628",
+      "at": 1790820316356,
+      "kind": "text",
+      "text": "wallet balance"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00628",
+      "at": 1790820316362
+    },
+    {
+      "dir": "out",
+      "phone": "2348017705703",
+      "wamid": "wamid.sim.001300",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790820316394,
+      "kind": "text",
+      "body": "👛 Wallet balance: NGN 2,500.00.\nRecent wallet activity:\n+NGN 2,500.00 — merchant_goodwill (2026-10-01)"
+    },
+    {
+      "dir": "in",
+      "phone": "2348011146494",
+      "profileName": "Sim User 6494",
+      "inboundId": "wamid.sim.in.text.00629",
+      "at": 1790820316903,
+      "kind": "text",
+      "text": "wallet"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00629",
+      "at": 1790820316912
+    },
+    {
+      "dir": "out",
+      "phone": "2348011146494",
+      "wamid": "wamid.sim.001301",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790820316935,
+      "kind": "text",
+      "body": "👛 You don't have a wallet with this store yet — refunds and store credit land here."
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348013785985",
+      "sessionId": "w55-j564-1790820317536",
+      "text": "(dial)",
+      "at": 1790820317844
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348013785985",
+      "sessionId": "w55-j564-1790820317536",
+      "text": "CON Big menu — pick one:\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n4. Extra Service 1\n5. Extra Service 2\n6. Extra Service 3\n7. Extra Service 4\n8. Extra Service 5\n9. Extra Service 6\n10. Extra Service 7\n11. Extra Service 8",
+      "at": 1790820317845
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348013785985",
+      "sessionId": "w55-j564-1790820317536",
+      "text": "wallet",
+      "at": 1790820318152
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348013785985",
+      "sessionId": "w55-j564-1790820317536",
+      "text": "END 👛 Wallet balance: NGN 100.00.",
+      "at": 1790820318153
+    }
+  ]
+}

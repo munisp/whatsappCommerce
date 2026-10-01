@@ -7,75 +7,152 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348011630771",
-      "profileName": "Sim User 0771",
-      "inboundId": "wamid.sim.in.text.00026",
-      "at": 1790547323985,
+      "phone": "2348013547452",
+      "profileName": "Sim User 7452",
+      "inboundId": "wamid.sim.in.text.00545",
+      "at": 1790820116842,
       "kind": "text",
       "text": "add 1 jollof to my cart [j360a]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00026",
-      "at": 1790547324001
+      "wamid": "wamid.sim.in.text.00545",
+      "at": 1790820116848
     },
     {
       "dir": "out",
-      "phone": "2348011630771",
-      "wamid": "wamid.sim.000076",
+      "phone": "2348013547452",
+      "wamid": "wamid.sim.001041",
       "statuses": [
         "sent"
       ],
-      "at": 1790547324045,
+      "at": 1790820116882,
       "kind": "text",
       "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348013244881",
-      "profileName": "Sim User 4881",
-      "inboundId": "wamid.sim.in.text.00027",
-      "at": 1790547324534,
+      "phone": "2348016464345",
+      "profileName": "Sim User 4345",
+      "inboundId": "wamid.sim.in.text.00546",
+      "at": 1790820117390,
       "kind": "text",
       "text": "add 1 chicken to my cart [j360b]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00027",
-      "at": 1790547324541
+      "wamid": "wamid.sim.in.text.00546",
+      "at": 1790820117396
     },
     {
       "dir": "out",
-      "phone": "2348013244881",
-      "wamid": "wamid.sim.000077",
+      "phone": "2348016464345",
+      "wamid": "wamid.sim.001042",
       "statuses": [
         "sent"
       ],
-      "at": 1790547324571,
+      "at": 1790820117426,
       "kind": "text",
       "body": "✅ 1 × Grilled Chicken\nAdded to your cart!"
     },
     {
       "dir": "out",
-      "phone": "2348011630771",
-      "wamid": "wamid.sim.000078",
+      "phone": "2348019246943",
+      "wamid": "wamid.sim.001043",
       "statuses": [
         "sent"
       ],
-      "at": 1790547325096,
+      "at": 1790820117987,
       "kind": "text",
       "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
     },
     {
       "dir": "out",
-      "phone": "2348013244881",
-      "wamid": "wamid.sim.000079",
+      "phone": "2348019920947",
+      "wamid": "wamid.sim.001044",
       "statuses": [
         "sent"
       ],
-      "at": 1790547325107,
+      "at": 1790820117996,
+      "kind": "text",
+      "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014295040",
+      "wamid": "wamid.sim.001045",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790820118007,
+      "kind": "text",
+      "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014603863",
+      "wamid": "wamid.sim.001046",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790820118019,
+      "kind": "text",
+      "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019987416",
+      "wamid": "wamid.sim.001047",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790820118027,
+      "kind": "text",
+      "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019033669",
+      "wamid": "wamid.sim.001048",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790820118037,
+      "kind": "text",
+      "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019130440",
+      "wamid": "wamid.sim.001049",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790820118140,
+      "kind": "text",
+      "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013547452",
+      "wamid": "wamid.sim.001050",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790820118161,
+      "kind": "text",
+      "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016464345",
+      "wamid": "wamid.sim.001051",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790820118170,
       "kind": "template",
       "templateName": "wac_cart_recovery",
       "templateLanguage": "en_US",

@@ -7,79 +7,79 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348013721212",
-      "profileName": "Sim User 1212",
-      "inboundId": "wamid.sim.in.text.00055",
-      "at": 1790546237506,
+      "phone": "2348019084387",
+      "profileName": "Sim User 4387",
+      "inboundId": "wamid.sim.in.text.00349",
+      "at": 1790819840986,
       "kind": "text",
       "text": "language"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00055",
-      "at": 1790546237513
+      "wamid": "wamid.sim.in.text.00349",
+      "at": 1790819840992
     },
     {
       "dir": "out",
-      "phone": "2348013721212",
-      "wamid": "wamid.sim.000137",
+      "phone": "2348019084387",
+      "wamid": "wamid.sim.000610",
       "statuses": [
         "sent"
       ],
-      "at": 1790546237544,
+      "at": 1790819841016,
       "kind": "text",
       "body": "🌐 Choose your language / Zaɓi harshenka:\n1. English\n2. Français\n3. Hausa\n4. Yorùbá\n5. Igbo\n6. Kiswahili\n7. አማርኛ (Amharic)\n8. Naija (Pidgin)"
     },
     {
       "dir": "in",
-      "phone": "2348013721212",
-      "profileName": "Sim User 1212",
-      "inboundId": "wamid.sim.in.text.00056",
-      "at": 1790546238051,
+      "phone": "2348019084387",
+      "profileName": "Sim User 4387",
+      "inboundId": "wamid.sim.in.text.00350",
+      "at": 1790819841531,
       "kind": "text",
       "text": "3"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00056",
-      "at": 1790546238058
+      "wamid": "wamid.sim.in.text.00350",
+      "at": 1790819841537
     },
     {
       "dir": "out",
-      "phone": "2348013721212",
-      "wamid": "wamid.sim.000138",
+      "phone": "2348019084387",
+      "wamid": "wamid.sim.000611",
       "statuses": [
         "sent"
       ],
-      "at": 1790546238080,
+      "at": 1790819841560,
       "kind": "text",
       "body": "An saita harshe zuwa Hausa. Kana iya canza shi a kowane lokaci ta rubuta LANGUAGE.\n\nSannu da zuwa Sim Store! Yaya za mu iya taimaka maka yau?\n\n1. Sayayya / aika oda\n2. Bibiyar odana\n3. Yi magana da wakili\n\nReply with a number to choose an option."
     },
     {
       "dir": "in",
-      "phone": "2348013721212",
-      "profileName": "Sim User 1212",
-      "inboundId": "wamid.sim.in.text.00057",
-      "at": 1790546238595,
+      "phone": "2348019084387",
+      "profileName": "Sim User 4387",
+      "inboundId": "wamid.sim.in.text.00351",
+      "at": 1790819842074,
       "kind": "text",
       "text": "menu"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00057",
-      "at": 1790546238603
+      "wamid": "wamid.sim.in.text.00351",
+      "at": 1790819842081
     },
     {
       "dir": "out",
-      "phone": "2348013721212",
-      "wamid": "wamid.sim.000139",
+      "phone": "2348019084387",
+      "wamid": "wamid.sim.000612",
       "statuses": [
         "sent"
       ],
-      "at": 1790546238619,
+      "at": 1790819842095,
       "kind": "interactive",
       "body": "Sannu da zuwa Sim Store! Yaya za mu iya taimaka maka yau?",
       "footer": "Tap an option, or reply with its number.",
@@ -100,27 +100,27 @@
     },
     {
       "dir": "in",
-      "phone": "2348013721212",
-      "profileName": "Sim User 1212",
-      "inboundId": "wamid.sim.in.text.00058",
-      "at": 1790546239139,
+      "phone": "2348019084387",
+      "profileName": "Sim User 4387",
+      "inboundId": "wamid.sim.in.text.00352",
+      "at": 1790819842619,
       "kind": "text",
       "text": "sayayya"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00058",
-      "at": 1790546239145
+      "wamid": "wamid.sim.in.text.00352",
+      "at": 1790819842625
     },
     {
       "dir": "out",
-      "phone": "2348013721212",
-      "wamid": "wamid.sim.000140",
+      "phone": "2348019084387",
+      "wamid": "wamid.sim.000613",
       "statuses": [
         "sent"
       ],
-      "at": 1790546239177,
+      "at": 1790819842650,
       "kind": "text",
       "body": "Ga kayayyakinmu — me kake so?"
     }

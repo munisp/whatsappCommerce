@@ -26,6 +26,18 @@ const ReviewsModeration = lazy(() => import("./pages/ReviewsModeration"));
 // === END W27 ===
 const OrderTimeline = lazy(() => import("./pages/OrderTimeline"));
 const Payments = lazy(() => import("./pages/Payments"));
+// === W55 ui-c ===
+const ScheduledPayments = lazy(() => import("./pages/ScheduledPayments"));
+const RecurringRules = lazy(() => import("./pages/RecurringRules"));
+const ApprovalsInbox = lazy(() => import("./pages/ApprovalsInbox"));
+const EscalationInbox = lazy(() => import("./pages/EscalationInbox"));
+const Riders = lazy(() => import("./pages/Riders"));
+const InventoryDepth = lazy(() => import("./pages/InventoryDepth"));
+const BuyerCredit = lazy(() => import("./pages/BuyerCredit"));
+const ReturnsExchanges = lazy(() => import("./pages/ReturnsExchanges"));
+const CreditFacilities = lazy(() => import("./pages/CreditFacilities"));
+const EmbeddedClients = lazy(() => import("./pages/EmbeddedClients"));
+// === END W55 ui-c ===
 const ServiceHealth = lazy(() => import("./pages/ServiceHealth"));
 const TwentyCRM = lazy(() => import("./pages/TwentyCRM"));
 const Crm = lazy(() => import("./pages/Crm"));
@@ -71,6 +83,11 @@ const MerchantWallet = lazy(() => import("./pages/portal/MerchantWallet"));
 const SavingsCircles = lazy(() => import("./pages/SavingsCircles"));
 const InsurancePolicies = lazy(() => import("./pages/InsurancePolicies"));
 const VoucherPrograms = lazy(() => import("./pages/VoucherPrograms"));
+// === W55 ui-a ===
+const EventsHub = lazy(() => import("./pages/EventsHub"));
+const MembershipPlansPage = lazy(() => import("./pages/MembershipPlans"));
+const GiftCardsPage = lazy(() => import("./pages/GiftCards"));
+const SubscriptionPlansPage = lazy(() => import("./pages/SubscriptionPlans"));
 const OnboardingWizard = lazy(() => import("./pages/portal/OnboardingWizard"));
 const EvidencePortal = lazy(() => import("./pages/EvidencePortal"));
 const MerchantAnalytics = lazy(() => import("./pages/portal/MerchantAnalytics"));
@@ -104,6 +121,14 @@ const OperatorTemplates = lazy(() => import("./pages/OperatorTemplates"));
 const SalesChannelsHub = lazy(() => import("./pages/SalesChannelsHub"));
 const MultiChannelHub = lazy(() => import("./pages/MultiChannelHub"));
 const MobileMoneyPortal = lazy(() => import("./pages/MobileMoneyPortal"));
+// === W55 ui-b ===
+const DocumentsHub = lazy(() => import("./pages/DocumentsHub"));
+const VendorBills = lazy(() => import("./pages/VendorBills"));
+const ArInvoices = lazy(() => import("./pages/ArInvoices"));
+const TaxStatements = lazy(() => import("./pages/TaxStatements"));
+const FxPayouts = lazy(() => import("./pages/FxPayouts"));
+const Cashflow = lazy(() => import("./pages/Cashflow"));
+// === END W55 ui-b ===
 const AnalyticsBIDashboard = lazy(() => import("./pages/AnalyticsBIDashboard"));
 const CompliancePortal = lazy(() => import("./pages/CompliancePortal"));
 const Compliance = lazy(() => import("./pages/Compliance"));
@@ -164,6 +189,18 @@ function Router() {
       <Route path="/orders/:orderNumber" component={OrderTimeline} />
       <Route path="/track/:token" component={TrackOrder} />
       <Route path="/payments" component={Payments} />
+      {/* === W55 ui-c === */}
+      <Route path="/scheduled-payments" component={ScheduledPayments} />
+      <Route path="/recurring-rules" component={RecurringRules} />
+      <Route path="/approvals" component={ApprovalsInbox} />
+      <Route path="/escalations" component={EscalationInbox} />
+      <Route path="/riders" component={Riders} />
+      <Route path="/inventory-depth" component={InventoryDepth} />
+      <Route path="/buyer-credit" component={BuyerCredit} />
+      <Route path="/returns" component={ReturnsExchanges} />
+      <Route path="/credit-facilities" component={CreditFacilities} />
+      <Route path="/embedded-clients" component={EmbeddedClients} />
+      {/* === END W55 ui-c === */}
       <Route path="/health" component={ServiceHealth} />
       <Route path="/twenty-crm" component={TwentyCRM} />
       <Route path="/crm" component={Crm} />
@@ -230,6 +267,11 @@ function Router() {
           <Route path="/savings-circles" component={SavingsCircles} />
           <Route path="/insurance" component={InsurancePolicies} />
           <Route path="/vouchers" component={VoucherPrograms} />
+          {/* === W55 ui-a === */}
+          <Route path="/events" component={EventsHub} />
+          <Route path="/membership-plans" component={MembershipPlansPage} />
+          <Route path="/gift-cards" component={GiftCardsPage} />
+          <Route path="/subscription-plans" component={SubscriptionPlansPage} />
           <Route path="/whatsapp-media" component={WhatsAppMediaPortal} />
           <Route path="/operator-templates" component={OperatorTemplates} />
           <Route path="/evidence/:token" component={EvidencePortal} />
@@ -239,6 +281,14 @@ function Router() {
           <Route path="/marketplace" component={() => <RouteRedirect to="/sales-channels" />} />
           <Route path="/sales-channels" component={SalesChannelsHub} />
           <Route path="/mobile-money" component={MobileMoneyPortal} />
+          {/* === W55 ui-b === */}
+          <Route path="/finance/documents" component={DocumentsHub} />
+          <Route path="/finance/vendor-bills" component={VendorBills} />
+          <Route path="/finance/ar-invoices" component={ArInvoices} />
+          <Route path="/finance/tax-statements" component={TaxStatements} />
+          <Route path="/finance/fx-payouts" component={FxPayouts} />
+          <Route path="/finance/cashflow" component={Cashflow} />
+          {/* === END W55 ui-b === */}
           <Route path="/service-commerce" component={() => <RouteRedirect to="/sales-channels" />} />
           <Route path="/analytics-bi" component={AnalyticsBIDashboard} />
           <Route path="/compliance" component={CompliancePortal} />

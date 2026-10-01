@@ -13,7 +13,7 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, MapPin, MessageCircle, ShoppingBag, Store } from "lucide-react";
+import { Loader2, MapPin, MessageCircle, Share2, ShoppingBag, Store } from "lucide-react";
 
 interface StorefrontProduct {
   id: string;
@@ -63,6 +63,24 @@ export default function Shop() {
       )}`
     : null;
 
+  // === W55 pwa (MOB-6): Web Share API with wa.me fallback ===
+  // Mirrors the shareDeal pack shape (blurb + link, server/services/shareDeal.ts)
+  // for the storefront: a one-line blurb plus the shop URL. navigator.share is
+  // progressive enhancement — desktop browsers without it fall back to a
+  // wa.me share link (same channel the chat share pack targets).
+  const shopUrl = typeof window !== "undefined" ? window.location.href : "";
+  const shareText = `${shop.businessName} — order on WhatsApp Commerce: ${shopUrl}`;
+  const waShareUrl = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
+  const canNativeShare =
+    typeof navigator !== "undefined" && typeof navigator.share === "function";
+  const handleShare = async () => {
+    try {
+      await navigator.share({ title: shop.businessName, text: shareText, url: shopUrl });
+    } catch {
+      /* user dismissed the share sheet or share failed — no-op */
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Hero / branding */}
@@ -75,6 +93,25 @@ export default function Shop() {
               <a href={chatUrl} target="_blank" rel="noopener noreferrer">
                 <MessageCircle className="mr-2 h-4 w-4" />
                 Order on WhatsApp
+              </a>
+            </Button>
+          )}
+          {/* W55 pwa (MOB-6): native share sheet where available, wa.me otherwise */}
+          {canNativeShare ? (
+            <Button
+              type="button"
+              onClick={handleShare}
+              variant="outline"
+              className="mt-4 ml-2 border-white text-white hover:bg-white/10 bg-transparent"
+            >
+              <Share2 className="mr-2 h-4 w-4" />
+              Share shop
+            </Button>
+          ) : (
+            <Button asChild variant="outline" className="mt-4 ml-2 border-white text-white hover:bg-white/10 bg-transparent">
+              <a href={waShareUrl} target="_blank" rel="noopener noreferrer">
+                <Share2 className="mr-2 h-4 w-4" />
+                Share on WhatsApp
               </a>
             </Button>
           )}

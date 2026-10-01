@@ -393,10 +393,14 @@ export default function EvidencePortal() {
                 </div>
               )}
             </div>
+            {/* W55 pwa (MOB-7): camera-first on mobile — capture="environment"
+                opens the rear camera directly for photo evidence; desktop
+                browsers ignore capture and show the normal file picker. */}
             <input
               ref={fileInputRef}
               type="file"
               accept="image/jpeg,image/png,image/webp,application/pdf"
+              capture="environment"
               onChange={handleFileChange}
               className="hidden"
             />

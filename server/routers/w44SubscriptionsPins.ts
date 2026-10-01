@@ -50,6 +50,43 @@ export const subscriptionPlansRouter = router({
       const { listSubscriptionPlans } = await import("../services/subscriptions");
       return listSubscriptionPlans(db, input.tenantId);
     }),
+
+  // === W55 ui-a ===
+  /** Subscriber list (additive, tenant-scoped read) for the tenant-portal
+   *  SubscriptionPlans page — no existing procedure exposes the roster. */
+  listSubscribers: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      planId: z.string().uuid().optional(),
+      status: z.enum(["active", "paused", "cancelled", "past_due"]).optional(),
+      limit: z.number().int().min(1).max(200).default(100),
+    }))
+    .query(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await dbOrThrow();
+      const { customerSubscriptions, subscriptionPlans } = await import("../../drizzle/schema");
+      const { and, desc, eq } = await import("drizzle-orm");
+      const rows = await db.select({
+        id: customerSubscriptions.id,
+        planId: customerSubscriptions.planId,
+        planName: subscriptionPlans.name,
+        customerId: customerSubscriptions.customerId,
+        status: customerSubscriptions.status,
+        nextBillingAt: customerSubscriptions.nextBillingAt,
+        lastBilledPeriod: customerSubscriptions.lastBilledPeriod,
+        createdAt: customerSubscriptions.createdAt,
+      }).from(customerSubscriptions)
+        .innerJoin(subscriptionPlans, eq(customerSubscriptions.planId, subscriptionPlans.id))
+        .where(and(
+          eq(customerSubscriptions.tenantId, input.tenantId),
+          input.planId ? eq(customerSubscriptions.planId, input.planId) : undefined,
+          input.status ? eq(customerSubscriptions.status, input.status) : undefined,
+        ))
+        .orderBy(desc(customerSubscriptions.createdAt))
+        .limit(input.limit);
+      return rows;
+    }),
+  // === END W55 ui-a ===
 });
 
 export const digitalPinsRouter = router({

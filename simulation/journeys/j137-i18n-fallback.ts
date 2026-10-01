@@ -1,9 +1,11 @@
 /**
  * J137 — W27 multi-language framework: fallback to English for missing keys.
  *
- *   1. Catalog seam: keys intentionally untranslated in a locale (Igbo and
- *      Amharic `paymentPending`) render the English template; translated
- *      keys render the locale string; {vars} interpolate in both paths.
+ *   1. Catalog seam: W55 parity (PARITY-7) filled the last intentionally
+ *      untranslated keys (Igbo and Amharic `paymentPending`) — they now
+ *      render the locale string; the locale→en fallback chain is exercised
+ *      via unknown/unsupported locale codes instead; translated keys render
+ *      the locale string; {vars} interpolate in both paths.
  *   2. Unknown/unsupported locale codes resolve to English wholesale.
  *   3. Tenant overrides win over the locale pack (durable
  *      tenant_i18n_overrides row via the i18n router), and removing the
@@ -27,13 +29,22 @@ export const journey: Journey = {
     const i18n = await import("../../server/services/i18n");
 
     // ── 1. Catalog fallback chain ────────────────────────────────────────
+    // === W55 parity (PARITY-7) === ig/am paymentPending are now translated;
+    // assert the translations render (and differ from English), while the
+    // fallback chain itself is proven via unknown locales below.
     assert(
-      i18n.t27("ig", "paymentPending") === i18n.MESSAGE_CATALOG.en.paymentPending,
-      "missing Igbo key falls back to English",
+      i18n.t27("ig", "paymentPending") === i18n.MESSAGE_CATALOG.ig.paymentPending &&
+      i18n.t27("ig", "paymentPending") !== i18n.MESSAGE_CATALOG.en.paymentPending,
+      "Igbo paymentPending renders the Igbo translation",
     );
     assert(
-      i18n.t27("am", "paymentPending") === i18n.MESSAGE_CATALOG.en.paymentPending,
-      "missing Amharic key falls back to English",
+      i18n.t27("am", "paymentPending") === i18n.MESSAGE_CATALOG.am.paymentPending &&
+      i18n.t27("am", "paymentPending") !== i18n.MESSAGE_CATALOG.en.paymentPending,
+      "Amharic paymentPending renders the Amharic translation",
+    );
+    assert(
+      i18n.t27("zz", "paymentPending") === i18n.MESSAGE_CATALOG.en.paymentPending,
+      "unknown locale still falls back to English",
     );
     const haPay = i18n.t27("ha", "paymentPrompt", { total: "5,000", currency: "NGN" });
     assert(haPay.includes("5,000") && haPay.includes("NGN"), "vars interpolate in the translated template");

@@ -13,6 +13,19 @@ import { useLocation } from "wouter";
 import { usePollInterval } from "@/hooks/usePollInterval";
 import { useIsMobile } from "@/hooks/useMobile";
 import { useTableVirtualizer, VirtualTableBody } from "@/components/VirtualTable";
+// === W55 ui-c (ORPHAN-BE-19): orderCrud edit actions — status correction,
+// cancel and refund, previously no UI surface (page was read-only via the
+// order router). ===
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { MoreHorizontal } from "lucide-react";
+import { toast } from "sonner";
+
+const ORDER_STATUSES = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"] as const;
+// === END W55 ui-c ===
 
 
 const statusColors: Record<string, string> = {
@@ -58,6 +71,38 @@ export default function Orders() {
   }, [orderList, unreadCounts, unreadOnly]);
   // === W48 perf (PERF-FE-4): virtualized order rows ===
   const { scrollRef, virtualizer } = useTableVirtualizer(displayedOrders.length, 53);
+
+  // === W55 ui-c: orderCrud edit actions ===
+  const utils = trpc.useUtils();
+  const [statusEdit, setStatusEdit] = useState<{ id: string; status: string } | null>(null);
+  const [newStatus, setNewStatus] = useState<string>("");
+  const [statusNotes, setStatusNotes] = useState("");
+  const [cancelFor, setCancelFor] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [refundFor, setRefundFor] = useState<{ id: string; total: number; currency: string } | null>(null);
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundReason, setRefundReason] = useState("");
+
+  const invalidateOrders = () => {
+    utils.order.list.invalidate();
+    utils.order.stats.invalidate();
+  };
+  const updateStatusMut = trpc.orderCrud.updateStatus.useMutation({
+    onSuccess: () => { toast.success("Order status updated"); setStatusEdit(null); invalidateOrders(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const cancelMut = trpc.orderCrud.cancel.useMutation({
+    onSuccess: (r) => {
+      toast.success(r.escrowRefunded ? "Order cancelled and escrow refunded" : "Order cancelled");
+      setCancelFor(null); setCancelReason(""); invalidateOrders();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const refundMut = trpc.orderCrud.refund.useMutation({
+    onSuccess: () => { toast.success("Refund initiated"); setRefundFor(null); setRefundAmount(""); setRefundReason(""); invalidateOrders(); },
+    onError: (e) => toast.error(e.message),
+  });
+  // === END W55 ui-c ===
 
   return (
     <DashboardLayout>
@@ -191,6 +236,32 @@ export default function Orders() {
                             {unreadCounts[o.id]}
                           </button>
                         )}
+                        {/* === W55 ui-c: orderCrud edit actions === */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {!["delivered", "cancelled", "refunded"].includes(o.status) && (
+                              <DropdownMenuItem onClick={() => { setStatusEdit({ id: o.id, status: o.status }); setNewStatus(o.status); setStatusNotes(""); }}>
+                                Update status
+                              </DropdownMenuItem>
+                            )}
+                            {!["shipped", "delivered", "cancelled", "refunded"].includes(o.status) && (
+                              <DropdownMenuItem onClick={() => { setCancelFor(o.id); setCancelReason(""); }}>
+                                Cancel order
+                              </DropdownMenuItem>
+                            )}
+                            {o.paymentStatus === "completed" && !["cancelled", "refunded"].includes(o.status) && (
+                              <DropdownMenuItem onClick={() => { setRefundFor({ id: o.id, total: Number(o.totalAmount), currency: o.currency }); setRefundAmount(String(o.totalAmount)); setRefundReason(""); }}>
+                                Initiate refund
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                        {/* === END W55 ui-c === */}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -201,6 +272,81 @@ export default function Orders() {
             </div>
           </CardContent>
         </Card>
+
+        {/* === W55 ui-c: orderCrud edit dialogs === */}
+        <Dialog open={!!statusEdit} onOpenChange={() => setStatusEdit(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Update order status</DialogTitle></DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>New status (current: {statusEdit?.status})</Label>
+                <Select value={newStatus} onValueChange={setNewStatus}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {ORDER_STATUSES.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Only legal transitions are accepted; illegal ones are rejected by the server.</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Note (optional)</Label>
+                <Textarea value={statusNotes} onChange={(e) => setStatusNotes(e.target.value)} maxLength={500} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setStatusEdit(null)}>Close</Button>
+              <Button disabled={updateStatusMut.isPending || !newStatus}
+                onClick={() => statusEdit && updateStatusMut.mutate({ orderId: statusEdit.id, status: newStatus as any, notes: statusNotes || undefined })}>
+                Update
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={!!cancelFor} onOpenChange={() => setCancelFor(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Cancel order</DialogTitle></DialogHeader>
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">Reserved inventory is released and any escrow is refunded. This cannot be undone.</p>
+              <Label>Reason (optional)</Label>
+              <Textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} maxLength={500} />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setCancelFor(null)}>Close</Button>
+              <Button variant="destructive" disabled={cancelMut.isPending}
+                onClick={() => cancelFor && cancelMut.mutate({ orderId: cancelFor, reason: cancelReason || undefined })}>
+                Cancel order
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={!!refundFor} onOpenChange={() => setRefundFor(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Initiate refund</DialogTitle></DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Amount ({refundFor?.currency}) — order total {refundFor?.total.toFixed(2)}</Label>
+                <Input type="number" min="0.01" step="0.01" value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Reason</Label>
+                <Textarea value={refundReason} onChange={(e) => setRefundReason(e.target.value)} maxLength={500} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setRefundFor(null)}>Close</Button>
+              <Button variant="destructive"
+                disabled={refundMut.isPending || !refundReason.trim() || !(Number(refundAmount) > 0)}
+                onClick={() => refundFor && refundMut.mutate({ orderId: refundFor.id, amount: Number(refundAmount), reason: refundReason.trim() })}>
+                Initiate refund
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {/* === END W55 ui-c === */}
       </div>
     </DashboardLayout>
   );

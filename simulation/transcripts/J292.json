@@ -8,37 +8,37 @@
     {
       "dir": "out",
       "phone": "2348000000292",
-      "wamid": "wamid.sim.000026",
+      "wamid": "wamid.sim.000818",
       "statuses": [
         "sent"
       ],
-      "at": 1790546944694,
+      "at": 1790820029431,
       "kind": "text",
-      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J292-1790546944655\n\n\n*Total paid: ₦400.00*\nPayment ref: bipcap:940afe62-6173-48a3-97f0-c627f5b67ac3:2\n\n🔎 Track your order: http://localhost:4173/track/j292-order-1790546944651.3p5wR-2L5hW193yu9pUvbCfc"
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J292-1790820029392\n\n\n*Total paid: ₦400.00*\nPayment ref: bipcap:e6efff6a-5530-4c10-84dc-33c5fd341630:2\n\n🔎 Track your order: http://localhost:4173/track/j292-order-1790820029389.u6ZjHJ0Z2WdsJkf0Gj_iizTA"
     },
     {
       "dir": "out",
       "phone": "2348000000292",
-      "wamid": "wamid.sim.000027",
+      "wamid": "wamid.sim.000819",
       "statuses": [
         "sent"
       ],
-      "at": 1790546944700,
-      "kind": "text",
-      "body": "🎉 Final installment received — your order is fully paid! The shop has been notified to prepare your order."
-    },
-    {
-      "dir": "out",
-      "phone": "2348000000292",
-      "wamid": "wamid.sim.000028",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790546944701,
+      "at": 1790820029438,
       "kind": "document",
       "mediaKind": "document",
-      "caption": "🧾 Receipt for order J292-1790546944655",
-      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-J292-1790546944655.pdf"
+      "caption": "🧾 Receipt for order J292-1790820029392",
+      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-J292-1790820029392.pdf"
+    },
+    {
+      "dir": "out",
+      "phone": "2348000000292",
+      "wamid": "wamid.sim.000820",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790820029445,
+      "kind": "text",
+      "body": "🎉 Final installment received — your order is fully paid! The shop has been notified to prepare your order."
     }
   ]
 }

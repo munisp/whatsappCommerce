@@ -49,6 +49,10 @@ const LabelStudioPipe = lazy(() => import("@/pages/LabelStudioPipe"));
 const ScanStatsDashboard = lazy(() => import("@/pages/ScanStatsDashboard"));
 const HermesDashboard = lazy(() => import("@/pages/HermesDashboard"));
 const CogsDisputes = lazy(() => import("@/pages/CogsDisputes"));
+// === W55 ui-c ===
+const CreditFacilities = lazy(() => import("@/pages/CreditFacilities"));
+const EmbeddedClients = lazy(() => import("@/pages/EmbeddedClients"));
+// === END W55 ui-c ===
 
 // UnifiedOnboarding (generic multi-service provisioning wizard) and
 // TenantOnboarding/"/onboarding" (KYC-driven admin onboarding) were two
@@ -106,6 +110,10 @@ function Router() {
         <Route path="/scan-stats" component={ScanStatsDashboard} />
         <Route path="/hermes" component={HermesDashboard} />
         <Route path="/cogs-disputes" component={CogsDisputes} />
+        {/* === W55 ui-c === */}
+        <Route path="/credit-facilities" component={CreditFacilities} />
+        <Route path="/embedded-clients" component={EmbeddedClients} />
+        {/* === END W55 ui-c === */}
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>
