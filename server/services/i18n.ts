@@ -796,6 +796,10 @@ export type MessageKey =
   // === W56 credit === merchant credit-intelligence chat keywords (WA+TG)
   | "creditScoreLine" | "creditScoreNotFound" | "creditScoreUsage"
   | "bureauConsentPrompt" | "bureauConsentRecorded" | "bureauConsentRequired"
+  // === W57 risk-shield === identity-graph "credit risk" keyword (WA+TG)
+  // + subject due-process notice
+  | "creditRiskLine" | "creditRiskStatusClear" | "creditRiskStatusDefault"
+  | "creditRiskStatusFrozen" | "identityFlagDisputed"
   | "bureauPullSummary" | "bureauPullFailed"
   // === W56 credit (Feature 3) === servicing notices (fee adjust /
   // reschedule / grace period) — buyer-facing, WA+TG parity, fail-open
@@ -921,6 +925,12 @@ const EN_CATALOG: MessageCatalog = {
   // === W56 credit ===
   creditScoreLine: "📊 Credit score for {subject}: {score}/1000 (grade {grade}).",
   creditScoreNotFound: "I couldn't find a customer matching {ref} for this store.",
+  // === W57 risk-shield ===
+  creditRiskLine: "🛡️ Credit risk for {subject}: score {score}/1000 (grade {grade}). {status}",
+  creditRiskStatusClear: "No linked defaults found — credit eligible.",
+  creditRiskStatusDefault: "⚠️ {count} linked default(s) on record — review before extending credit.",
+  creditRiskStatusFrozen: "🚫 Credit eligibility FROZEN (identity linked to a defaulted account). Cash-on-delivery is unaffected. The customer may dispute via support.",
+  identityFlagDisputed: "📋 Your identity review request has been received — our team will review the link and restore credit eligibility if it was made in error.",
   creditScoreUsage: "Reply CREDIT SCORE <customer phone> to check a buyer's credit score.",
   bureauConsentPrompt: "🔒 Bureau check for {subject}. Consent text: {consentText} Reply BUREAU CONFIRM {ref} to record consent and pull the report.",
   bureauConsentRecorded: "✅ Consent recorded for {subject} ({channel}).",
@@ -1047,6 +1057,12 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletBalanceLine: "👛 Solde du portefeuille : {balance}.",
     creditScoreLine: "📊 Score de crédit de {subject} : {score}/1000 (note {grade}).",
     creditScoreNotFound: "Je n'ai trouvé aucun client correspondant à {ref} pour cette boutique.",
+    // === W57 risk-shield ===
+    creditRiskLine: "🛡️ Risque de crédit pour {subject} : score {score}/1000 (note {grade}). {status}",
+    creditRiskStatusClear: "Aucun défaut lié trouvé — éligible au crédit.",
+    creditRiskStatusDefault: "⚠️ {count} défaut(s) lié(s) au dossier — vérifiez avant d'accorder du crédit.",
+    creditRiskStatusFrozen: "🚫 Éligibilité au crédit GELÉE (identité liée à un compte en défaut). Le paiement à la livraison n'est pas affecté. Le client peut contester via le support.",
+    identityFlagDisputed: "📋 Votre demande de révision d'identité a été reçue — notre équipe vérifiera le lien et restaurera l'éligibilité au crédit en cas d'erreur.",
     creditScoreUsage: "Répondez CREDIT SCORE <téléphone client> pour vérifier le score d'un acheteur.",
     bureauConsentPrompt: "🔒 Vérification bureau pour {subject}. Texte de consentement : {consentText} Répondez BUREAU CONFIRM {ref} pour enregistrer le consentement et tirer le rapport.",
     bureauConsentRecorded: "✅ Consentement enregistré pour {subject} ({channel}).",
@@ -1172,6 +1188,12 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletBalanceLine: "👛 Balansin walat: {balance}.",
     creditScoreLine: "📊 Sakamakon kiredit na {subject}: {score}/1000 (mataki {grade}).",
     creditScoreNotFound: "Ban sami abokin ciniki da ya dace da {ref} a wannan shago ba.",
+    // === W57 risk-shield ===
+    creditRiskLine: "🛡️ Hadarin kiredit na {subject}: maki {score}/1000 (matsayi {grade}). {status}",
+    creditRiskStatusClear: "Babu wata rashin biya da aka haɗa — cancanta ya samu kiredit.",
+    creditRiskStatusDefault: "⚠️ An samo rashin biya {count} da aka haɗa — yi bita kafin ba da kiredit.",
+    creditRiskStatusFrozen: "🚫 An DAKATAR da cancantar kiredit (an haɗa asali da asusun da ya kasa biya). Biya lokacin isarwa ba ta shafi haka ba. Abokin ciniki na iya ƙalubalantar ta tallafi.",
+    identityFlagDisputed: "📋 An karɓi buƙatarku ta sake dubawar asali — ƙungiyarmu za ta duba haɗin kuma ta mayar da cancantar kiredit idan an yi kuskure.",
     creditScoreUsage: "Amsa CREDIT SCORE <lambar abokin ciniki> don duba sakamakon kiredit.",
     bureauConsentPrompt: "🔒 Binciken ofishin kiredit na {subject}. Rubutun amincewa: {consentText} Amsa BUREAU CONFIRM {ref} don yin rikodin amincewa da fitar da rahoton.",
     bureauConsentRecorded: "✅ An yi rikodin amincewa na {subject} ({channel}).",
@@ -1297,6 +1319,12 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletBalanceLine: "👛 Balónsì apó-owó: {balance}.",
     creditScoreLine: "📊 Àbùdá kírédìtì {subject}: {score}/1000 (ipele {grade}).",
     creditScoreNotFound: "Mi ò rí oníbàárá tó bá {ref} mu fún ìtajà yìí.",
+    // === W57 risk-shield ===
+    creditRiskLine: "🛡️ Ewu kírédìtì fún {subject}: àmì {score}/1000 (ìpele {grade}). {status}",
+    creditRiskStatusClear: "Kò sí àiṣànmáyò tó sopọ̀ — ó yẹ fún kírédìtì.",
+    creditRiskStatusDefault: "⚠️ A rí àiṣànmáyò {count} tó sopọ̀ — ṣàyẹ̀wò ṣáájú fífún ní kírédìtì.",
+    creditRiskStatusFrozen: "🚫 A ti DÍ ìbámu kírédìtì lọ́wọ́ (ìdánimọ̀ sopọ̀ mọ́ àkántì tí ó kùnà). Sanwó nígbà ìfìránsẹ́ kò ní í ṣe pẹ̀lú. Oníbàárá lè fi ẹjọ́ sílẹ̀.",
+    identityFlagDisputed: "📋 A ti gba ìbéèrè àtúnyẹ̀wò ìdánimọ̀ rẹ — ẹgbẹ́ wa yóò ṣàyẹ̀wò ìsopọ̀ náà kí ó sì dá ìbámu kírédìtì padà tí ó bá jẹ́ àṣìṣe.",
     creditScoreUsage: "Dáhùn CREDIT SCORE <nọ́ńbà oníbàárá> láti ṣàyẹ̀wò kírédìtì olùráàní.",
     bureauConsentPrompt: "🔒 Àyẹ̀wò ilé-iṣẹ́ kírédìtì {subject}. Ọ̀rọ̀ ìfàràdà: {consentText} Dáhùn BUREAU CONFIRM {ref} láti gba ìfàràdà àti fa ìròyìn jáde.",
     bureauConsentRecorded: "✅ Ìfàràdà ti wà fún {subject} ({channel}).",
@@ -1425,6 +1453,12 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletBalanceLine: "👛 Balansị akpa ego: {balance}.",
     creditScoreLine: "📊 Akara kredit nke {subject}: {score}/1000 (ogo {grade}).",
     creditScoreNotFound: "Achọpụtaghị m onye ahịa dabara na {ref} n'ụlọ ahịa a.",
+    // === W57 risk-shield ===
+    creditRiskLine: "🛡️ Ihe egwu kredit maka {subject}: akara {score}/1000 (ọkwa {grade}). {status}",
+    creditRiskStatusClear: "Ọ dịghị ndabere ezitere ezi achọpụtara — tozuru maka kredit.",
+    creditRiskStatusDefault: "⚠️ Achọpụtara ndabere {count} metụtara — nyochaa tupu ị nye kredit.",
+    creditRiskStatusFrozen: "🚫 A kpọchila uru kredit (ejikọtara njirimara na akaụntụ dara ada). Ịkwụ ụgwọ mgbe e nyefere adịghị emetụta. Onye ahịa nwere ike ịrịọ nyocha site na nkwado.",
+    identityFlagDisputed: "📋 Anabatala arịrị nyocha njirimara gị — otu anyị ga-enyocha njikọ ahụ ma weghachi uru kredit ọ bụrụ na e mere njehie.",
     creditScoreUsage: "Zaghachi CREDIT SCORE <ekwentị onye ahịa> iji lelee akara kredit.",
     bureauConsentPrompt: "🔒 Nnyocha ụlọ ọrụ kredit maka {subject}. Okwu nkwenye: {consentText} Zaghachi BUREAU CONFIRM {ref} iji dekọọ nkwenye wee dọpụta akụkọ.",
     bureauConsentRecorded: "✅ Edekọtala nkwenye {subject} ({channel}).",
@@ -1550,6 +1584,12 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletBalanceLine: "👛 Salio la pochi: {balance}.",
     creditScoreLine: "📊 Alama ya mkopo ya {subject}: {score}/1000 (daraja {grade}).",
     creditScoreNotFound: "Sikuweza kupata mteja anayelingana na {ref} kwa duka hili.",
+    // === W57 risk-shield ===
+    creditRiskLine: "🛡️ Hatari ya mkopo kwa {subject}: alama {score}/1000 (daraja {grade}). {status}",
+    creditRiskStatusClear: "Hakuna kushindwa kulipa kunakohusishwa — anastahili mkopo.",
+    creditRiskStatusDefault: "⚠️ Kushindwa kulipa {count} kunakohusishwa — kagua kabla ya kutoa mkopo.",
+    creditRiskStatusFrozen: "🚫 Ustahili wa mkopo UMEFUNGWA (utambulisho umeunganishwa na akaunti iliyoshindwa kulipa). Malipo ya kuwasilishwa hayathiriki. Mteja anaweza kupinga kupitia usaidizi.",
+    identityFlagDisputed: "📋 Ombi lako la mapitio ya utambulisho limepokelewa — timu yetu itakagua uunganisho na kurejesha ustahili wa mkopo ikiwa kulikuwa na makosa.",
     creditScoreUsage: "Jibu CREDIT SCORE <simu ya mteja> kuangalia alama ya mkopo.",
     bureauConsentPrompt: "🔒 Ukaguzi wa ofisi ya mkopo kwa {subject}. Maandishi ya ridhaa: {consentText} Jibu BUREAU CONFIRM {ref} kurekodi ridhaa na kutoa ripoti.",
     bureauConsentRecorded: "✅ Ridhaa imerekodiwa kwa {subject} ({channel}).",
@@ -1674,6 +1714,12 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletBalanceLine: "👛 የዋሌት ቀሪ ሂሳብ: {balance}።",
     creditScoreLine: "📊 የ{subject} የብድር ነጥብ: {score}/1000 (ደረጃ {grade}).",
     creditScoreNotFound: "ከ{ref} ጋር የሚዛመድ ደንበኛ በዚህ ሱቅ ማግኘት አልቻልኩም።",
+    // === W57 risk-shield ===
+    creditRiskLine: "🛡️ የብድር ስጋት ለ{subject}: ነጥብ {score}/1000 (ደረጃ {grade}). {status}",
+    creditRiskStatusClear: "ምንም የተገናኘ ክፍያ አለመሳካት አልተገኘም — ለብድር ተብቅቷል።",
+    creditRiskStatusDefault: "⚠️ {count} የተገናኘ ክፍያ አለመሳካት ተገኝቷል — ብድር ከመስጠትዎ በፊት ይገምግሙ።",
+    creditRiskStatusFrozen: "🚫 የብድር ብቁነት ታግዷል (ማንነት ከክፍያ ካልፈጸመ አካውንት ጋር ተገናኝቷል)። በዴሊቨሪ ጊዜ ክፍያ አይነካም። ደንበኛው በድጋፍ አማካኝነት መቃወም ይችላል።",
+    identityFlagDisputed: "📋 የማንነት ግምገማ ጥያቄዎ ደርሷል — ቡድናችን አገናኙን ይገመግማል እና ስህተት ከሆነ የብድር ብቁነትን ይመልሳል።",
     creditScoreUsage: "የገዢውን የብድር ነጥብ ለማየት CREDIT SCORE <የደንበኛ ስልክ> ይመልሱ።",
     bureauConsentPrompt: "🔒 የብድር ቢሮ ማረጋገጫ ለ{subject}. የፍቃድ ጽሑፍ: {consentText} ፍቃዱን ለመመዝገብ እና ሪፖርቱን ለማውጣት BUREAU CONFIRM {ref} ይመልሱ።",
     bureauConsentRecorded: "✅ ፍቃድ ተመዝግቧል ለ{subject} ({channel}).",
@@ -1806,6 +1852,12 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletBalanceLine: "👛 Wallet balance: {balance}.",
     creditScoreLine: "📊 Credit score for {subject}: {score}/1000 (grade {grade}).",
     creditScoreNotFound: "I no fit find customer wey match {ref} for dis shop.",
+    // === W57 risk-shield ===
+    creditRiskLine: "🛡️ Credit risk check for {subject}: na {score}/1000 (grade {grade}). {status}",
+    creditRiskStatusClear: "No linked default dey — person fit collect credit.",
+    creditRiskStatusDefault: "⚠️ {count} linked default(s) dey record — check am before you give credit.",
+    creditRiskStatusFrozen: "🚫 Credit eligibility don FREEZE (identity linked to account wey default). Pay-on-delivery no dey affected. Customer fit complain to support.",
+    identityFlagDisputed: "📋 We don receive your identity review request — our team go check the link and restore credit eligibility if na mistake.",
     creditScoreUsage: "Reply CREDIT SCORE <customer phone> to check buyer credit score.",
     bureauConsentPrompt: "🔒 Bureau check for {subject}. Consent text: {consentText} Reply BUREAU CONFIRM {ref} make we record consent and pull di report.",
     bureauConsentRecorded: "✅ Consent don record for {subject} ({channel}).",

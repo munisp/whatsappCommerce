@@ -51,6 +51,9 @@ const HermesDashboard = lazy(() => import("@/pages/HermesDashboard"));
 const CogsDisputes = lazy(() => import("@/pages/CogsDisputes"));
 // === W55 ui-c ===
 const CreditFacilities = lazy(() => import("@/pages/CreditFacilities"));
+// === W57 risk-shield ===
+const CreditInsurance = lazy(() => import("@/pages/CreditInsurance"));
+// === END W57 risk-shield ===
 const EmbeddedClients = lazy(() => import("@/pages/EmbeddedClients"));
 // === END W55 ui-c ===
 
@@ -112,6 +115,8 @@ function Router() {
         <Route path="/cogs-disputes" component={CogsDisputes} />
         {/* === W55 ui-c === */}
         <Route path="/credit-facilities" component={CreditFacilities} />
+        {/* === W57 risk-shield === */}
+        <Route path="/credit-insurance" component={CreditInsurance} />
         <Route path="/embedded-clients" component={EmbeddedClients} />
         {/* === END W55 ui-c === */}
         <Route path="/404" component={NotFound} />

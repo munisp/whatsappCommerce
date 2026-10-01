@@ -8,34 +8,34 @@
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348013189927",
-      "sessionId": "ussd-j535-1790834746615",
+      "phone": "2348016211033",
+      "sessionId": "ussd-j535-1790841045796",
       "text": "(dial)",
-      "at": 1790834746923
+      "at": 1790841046164
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348013189927",
-      "sessionId": "ussd-j535-1790834746615",
+      "phone": "2348016211033",
+      "sessionId": "ussd-j535-1790841045796",
       "text": "CON Big menu — pick one:\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n4. Extra Service 1\n5. Extra Service 2\n6. Extra Service 3\n7. Extra Service 4\n8. Extra Service 5\n9. Extra Service 6\n10. Extra Service 7\n11. Extra Service 8",
-      "at": 1790834746924
+      "at": 1790841046165
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348013189927",
-      "sessionId": "ussd-j535-1790834746615",
+      "phone": "2348016211033",
+      "sessionId": "ussd-j535-1790841045796",
       "text": "1",
-      "at": 1790834747304
+      "at": 1790841046487
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348013189927",
-      "sessionId": "ussd-j535-1790834746615",
+      "phone": "2348016211033",
+      "sessionId": "ussd-j535-1790841045796",
       "text": "END DEAL: Promo USSDSHARE — 5% off. Use code USSDSHARE\nForward: 🔥 Promo USSDSHARE — 5% off at our store! Use code USSDSHARE. https://wa.me/2349000000535?text=DEAL%20USSDSHARE\nSorry, I didn't quite get that — type 'menu' to see options.",
-      "at": 1790834747305
+      "at": 1790841046488
     }
   ]
 }

@@ -519,7 +519,7 @@ async function dispatchToNlp(
     // "CREDIT SCORE <customer>", "BUREAU CHECK <customer>" (consent-first,
     // never auto-pulls), "BUREAU CONFIRM <customer>" — admin-phone authz
     // inside the handler; TG identity resolves to the linked E.164 phone.
-    if (/^\s*(?:BUREAU\s+(?:CHECK|CONFIRM)\s+\S+|CREDIT\s+SCORE\s+\S+)\s*$/i.test(message)) {
+    if (/^\s*(?:BUREAU\s+(?:CHECK|CONFIRM)\s+\S+|CREDIT\s+(?:SCORE|RISK)\s+\S+)\s*$/i.test(message)) {
       const { handleCreditIntelCommand } = await import("./creditIntelligenceChat");
       const intelOutcome = await handleCreditIntelCommand({
         db, tenantId: cfg.tenantId, fromPhone: phoneRef, text: message, channel: "telegram",

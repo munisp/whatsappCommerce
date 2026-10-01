@@ -81,6 +81,9 @@ const EscalationInbox = lazy(() => import("@/pages/EscalationInbox"));
 const Riders = lazy(() => import("@/pages/Riders"));
 const InventoryDepth = lazy(() => import("@/pages/InventoryDepth"));
 const BuyerCredit = lazy(() => import("@/pages/BuyerCredit"));
+// === W57 risk-shield ===
+const CreditInsurance = lazy(() => import("@/pages/CreditInsurance"));
+// === END W57 risk-shield ===
 // === W56 credit ===
 const CreditScores = lazy(() => import("@/pages/CreditScores"));
 const Bureau = lazy(() => import("@/pages/Bureau"));
@@ -192,6 +195,8 @@ function Router() {
         <Route path="/riders" component={Riders} />
         <Route path="/inventory-depth" component={InventoryDepth} />
         <Route path="/buyer-credit" component={BuyerCredit} />
+        {/* === W57 risk-shield === */}
+        <Route path="/credit-insurance" component={CreditInsurance} />
         {/* === W56 credit === */}
         <Route path="/credit-scores" component={CreditScores} />
         <Route path="/bureau" component={Bureau} />

@@ -746,6 +746,16 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j577-grace-dunning"),
     import("./journeys/j578-servicing-notify-parity"),
     // === END W56 credit ===
+    // === W57 risk-shield ===
+    import("./journeys/j579-identity-multidefault"),
+    import("./journeys/j580-identity-dispute-clear"),
+    import("./journeys/j581-default-registry"),
+    import("./journeys/j582-insurance-quote-bind-claim"),
+    import("./journeys/j583-insurance-claim-machine"),
+    import("./journeys/j584-provision-fund"),
+    import("./journeys/j585-credit-risk-parity"),
+    import("./journeys/j586-i18n-w57"),
+    // === END W57 risk-shield ===
     // === END W55 parity ===
     // === END W54 CAPABILITIES ===
     // === END W51 PROMOS ===

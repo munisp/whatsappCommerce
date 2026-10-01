@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018103785",
-      "profileName": "Sim User 3785",
+      "phone": "2348012424342",
+      "profileName": "Sim User 4342",
       "inboundId": "wamid.sim.in.text.00580",
-      "at": 1790834744676,
+      "at": 1790841043921,
       "kind": "text",
-      "text": "DEAL DEAL33 REF REF-S5E9KS"
+      "text": "DEAL DEAL33 REF REF-UCHCCH"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00580",
-      "at": 1790834744683
+      "at": 1790841043929
     },
     {
       "dir": "out",
-      "phone": "2348018103785",
+      "phone": "2348012424342",
       "wamid": "wamid.sim.001187",
       "statuses": [
         "sent"
       ],
-      "at": 1790834744720,
+      "at": 1790841043966,
       "kind": "text",
       "body": "✅ Deal DEAL33 locked in — it applies automatically at checkout. Happy shopping!"
     }

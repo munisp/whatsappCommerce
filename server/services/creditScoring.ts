@@ -59,6 +59,13 @@ import {
 } from "../../drizzle/schema";
 import { toMinorUnitsExact } from "../../shared/escrowAmounts";
 import type { DbHandle } from "./tradeCredit/accounts";
+// === W57 risk-shield ===
+import {
+  applyNewIdentityCeiling,
+  NEW_IDENTITY_SCORE_CEILING,
+  NEW_IDENTITY_TENURE_DAYS,
+} from "./identityGraph";
+// === END W57 risk-shield ===
 
 export type SubjectType = "buyer" | "merchant";
 export type Grade = "A" | "B" | "C" | "D" | "E";
@@ -394,7 +401,23 @@ export async function computeAndStoreSubjectScore(
     };
   }
 
-  const { score, grade, factors } = computeSubjectScore(signals);
+  const core = computeSubjectScore(signals);
+  // === W57 risk-shield === ADDITIVE new-identity velocity ceiling
+  // (identityGraph.applyNewIdentityCeiling): subjects younger than
+  // NEW_IDENTITY_TENURE_DAYS cannot exceed NEW_IDENTITY_SCORE_CEILING until
+  // they build tenure. The pure factor weights above are unchanged; the cap
+  // is applied post-core and recorded as an additive factor entry.
+  const capped = applyNewIdentityCeiling(core.score, signals.tenureDays);
+  const score = capped.score;
+  const grade = gradeForScore(score);
+  const factors = {
+    ...core.factors,
+    identityVelocity: {
+      ceiling: NEW_IDENTITY_SCORE_CEILING,
+      tenureDaysThreshold: NEW_IDENTITY_TENURE_DAYS,
+      applied: capped.capped,
+    },
+  } as unknown as SubjectScoreFactors;
 
   if (opts.persist !== false) {
     await db

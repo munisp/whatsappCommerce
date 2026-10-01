@@ -89,7 +89,7 @@ export async function handleCreditCommand(opts: {
   // "CREDIT SCORE <phone/customer>" (with a subject argument) is the W56
   // buyer-score lookup — delegate to the credit-intelligence handler.
   // Bare "CREDIT SCORE" stays the merchant's own score (unchanged W27).
-  if (parsed.cmd === "score" && /^\s*CREDIT\s+SCORE\s+\S+\s*$/i.test(opts.text)) {
+  if (parsed.cmd === "score" && /^\s*CREDIT\s+(?:SCORE|RISK)\s+\S+\s*$/i.test(opts.text)) {
     const { handleCreditIntelCommand } = await import("./creditIntelligenceChat");
     const outcome = await handleCreditIntelCommand({
       db: opts.db, tenantId, fromPhone: opts.waPhoneNumber, text: opts.text, channel: "whatsapp",

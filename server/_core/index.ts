@@ -860,7 +860,7 @@ async function processWaWebhookValue(
           // pulls) from the tenant's admin phone. "CREDIT SCORE <customer>"
           // with a non-numeric ref also lands here (numeric refs are
           // delegated inside creditWhatsApp). Non-admins fall through.
-          if (/^\s*(?:BUREAU\s+(?:CHECK|CONFIRM)\s+\S+|CREDIT\s+SCORE\s+\S+)\s*$/i.test(textBody)) {
+          if (/^\s*(?:BUREAU\s+(?:CHECK|CONFIRM)\s+\S+|CREDIT\s+(?:SCORE|RISK)\s+\S+)\s*$/i.test(textBody)) {
             try {
               const { handleCreditIntelCommand } = await import("../services/creditIntelligenceChat");
               const intelOutcome = await handleCreditIntelCommand({
