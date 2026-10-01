@@ -200,6 +200,13 @@ export interface CreateBuyerPlanResult {
   downPaymentRef: string;
   schedule: BuyerScheduleEntry[];
   duplicate?: boolean;
+  /**
+   * === W56 credit === read-only ADVISORY credit-score stamp for the buyer
+   * (services/creditScoring.ts). Never blocks plan creation; null when no
+   * score could be computed. Merchants may use it to size installment
+   * limits; existing flows are unchanged.
+   */
+  scoreAdvisory?: { score: number; grade: string; version: string } | null;
 }
 
 /**
@@ -251,6 +258,20 @@ export async function createBuyerPlan(
     };
   }
 
+  // === W56 credit ===
+  // Read-only advisory: compute (or refresh) the buyer's internal credit
+  // score and stamp it on the decision result. Fail-open — a scoring
+  // failure never blocks plan creation, and the score never auto-declines.
+  let scoreAdvisory: CreateBuyerPlanResult["scoreAdvisory"] = null;
+  try {
+    const { computeAndStoreSubjectScore } = await import("./creditScoring");
+    const s = await computeAndStoreSubjectScore(db as any, opts.tenantId, "buyer", opts.buyerPhone, { now });
+    if (s) scoreAdvisory = { score: s.score, grade: s.grade, version: s.version };
+  } catch {
+    scoreAdvisory = null; // advisory only — fail-open
+  }
+  // === END W56 credit ===
+
   const planId = crypto.randomUUID();
   await db.insert(buyerInstallmentPlans).values({
     id: planId,
@@ -268,7 +289,7 @@ export async function createBuyerPlan(
     createdAt: now,
     updatedAt: now,
   });
-  return { ok: true, planId, downPaymentCents, downPaymentRef: bipDownRef(planId), schedule };
+  return { ok: true, planId, downPaymentCents, downPaymentRef: bipDownRef(planId), schedule, scoreAdvisory };
 }
 
 // ── Down-payment webhook hook (adjacent seam, W31 AR-hook pattern) ─────────

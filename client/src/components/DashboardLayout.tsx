@@ -30,13 +30,13 @@ import {
   Zap, TrendingUp, Shield, Store, Truck, ChevronRight, ChevronDown,
   Search, Bot, Megaphone, FileCode, GitMerge, MessagesSquare,
   BrainCircuit, Warehouse, Smartphone, Link2,
-  Database, GitBranch, AlertTriangle, Activity, Lock, Network,
+  Database, GitBranch, AlertTriangle, Activity, Lock, Network, Gauge, Landmark,
   UserPlus, Rocket, KeyRound, Building2, ScrollText,
   Paperclip, BarChart2, Cpu, Plug, SlidersHorizontal, Map, HeartPulse,
   ClipboardCheck, ShoppingCart, ShieldCheck, Wallet, Route,
   Ticket, Gift, Repeat, Crown,
-  // === W55 ui-b ===
-  Receipt, ArrowRightLeft, Landmark, FileSpreadsheet,
+  // === W55 ui-b === (Landmark already imported above — deduped by W56 F3 gate fix)
+  Receipt, ArrowRightLeft, FileSpreadsheet,
   // === END W55 ui-b ===
   // === W55 ui-c ===
   CalendarClock, HandMetal, Bike, Boxes, ArrowLeftRight,
@@ -152,6 +152,10 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
       { icon: ClipboardCheck,  label: "Approvals",       path: "/approvals" },
       { icon: CreditCard,      label: "Buyer Credit",    path: "/buyer-credit" },
       // END W55 ui-c
+      // === W56 credit ===
+      { icon: Gauge,           label: "Credit Scores",   path: "/credit-scores" },
+      { icon: Landmark,        label: "Bureau",          path: "/bureau" },
+      // === END W56 credit ===
       { icon: Lock,            label: "Escrow",          path: "/escrow" },
       { icon: TrendingUp,      label: "Revenue",         path: "/revenue" },
       { icon: FileText,        label: "Invoices",        path: "/invoices" },

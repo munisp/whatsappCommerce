@@ -7,12 +7,12 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348014808503",
+      "phone": "2348018571592",
       "wamid": "wamid.sim.001089",
       "statuses": [
         "sent"
       ],
-      "at": 1790820162483,
+      "at": 1790834643198,
       "kind": "template",
       "templateName": "wac_order_cancelled",
       "templateLanguage": "en_US",
@@ -20,12 +20,12 @@
     },
     {
       "dir": "out",
-      "phone": "2348014808503",
+      "phone": "2348018571592",
       "wamid": "wamid.sim.001090",
       "statuses": [
         "sent"
       ],
-      "at": 1790820162542,
+      "at": 1790834643259,
       "kind": "template",
       "templateName": "wac_order_cancelled",
       "templateLanguage": "en_US",
@@ -38,7 +38,7 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790820162548,
+      "at": 1790834643265,
       "kind": "text",
       "body": "⚠️ Inventory reconciliation drift after Odoo sync (5 products):\n• product p-ankara: snapshot 47 vs ledger 50 (drift -3)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\n• product prod-w45: snapshot 7 vs ledger 10 (drift -3)\nReview inventory before selling — the snapshot and the stock ledger disagree."
     },
@@ -49,7 +49,7 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790820162553,
+      "at": 1790834643271,
       "kind": "text",
       "body": "⚠️ Inventory reconciliation drift after Odoo sync (4 products):\n• product p-ankara: snapshot 47 vs ledger 50 (drift -3)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\nReview inventory before selling — the snapshot and the stock ledger disagree."
     }

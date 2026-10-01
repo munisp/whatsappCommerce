@@ -60,13 +60,18 @@ export type ApprovalKind =
   | "vendor_bill_payment"
   | "scheduled_payment"
   | "withdrawal"
-  | "payout";
+  | "payout"
+  // === W56 credit === large mid-flight servicing changes (installment
+  // reschedule) park through the same threshold gate. Executor lives at
+  // module scope of routers/creditServicing.ts.
+  | "credit_servicing";
 
 export const APPROVAL_KINDS: readonly ApprovalKind[] = [
   "vendor_bill_payment",
   "scheduled_payment",
   "withdrawal",
   "payout",
+  "credit_servicing",
 ];
 
 // ─── Executor map ───────────────────────────────────────────────────────────

@@ -1,0 +1,20 @@
+{
+  "id": "J578",
+  "title": "servicing notices reach the buyer on WA and TG (parity, fail-open, ×8)",
+  "feature": "W56 credit servicing: channelParity notify",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348018923012",
+      "wamid": "wamid.sim.001302",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790834810461,
+      "kind": "text",
+      "body": "📉 Your credit facility fee changed from 150 to 250 bps — applies to future draws only. Reason: J578 wa"
+    }
+  ]
+}

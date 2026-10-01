@@ -7,47 +7,47 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348011423934",
+      "phone": "2348012166663",
       "wamid": "wamid.sim.000893",
       "statuses": [
         "sent"
       ],
-      "at": 1790820067742,
+      "at": 1790834546375,
       "kind": "text",
-      "body": "🎁 The store issued you a gift card!\nCode: *GC-D8CS-79AR*\nBalance: ₦750.00\nRedeem at checkout with \"USE GIFT CARD GC-D8CS-79AR\"."
+      "body": "🎁 The store issued you a gift card!\nCode: *GC-C48Q-D6F8*\nBalance: ₦750.00\nRedeem at checkout with \"USE GIFT CARD GC-C48Q-D6F8\"."
     },
     {
       "dir": "in",
-      "phone": "2348011423934",
-      "profileName": "Sim User 3934",
+      "phone": "2348012166663",
+      "profileName": "Sim User 6663",
       "inboundId": "wamid.sim.in.text.00498",
-      "at": 1790820067746,
+      "at": 1790834546379,
       "kind": "text",
-      "text": "gift card balance GC-D8CS-79AR"
+      "text": "gift card balance GC-C48Q-D6F8"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00498",
-      "at": 1790820067752
+      "at": 1790834546386
     },
     {
       "dir": "out",
-      "phone": "2348011423934",
+      "phone": "2348012166663",
       "wamid": "wamid.sim.000894",
       "statuses": [
         "sent"
       ],
-      "at": 1790820067775,
+      "at": 1790834546413,
       "kind": "text",
-      "body": "🎁 Gift card *GC-D8CS-79AR*\nBalance: ₦750.00\nStatus: active\nRedeem it on your next order with \"USE GIFT CARD GC-D8CS-79AR\"."
+      "body": "🎁 Gift card *GC-C48Q-D6F8*\nBalance: ₦750.00\nStatus: active\nRedeem it on your next order with \"USE GIFT CARD GC-C48Q-D6F8\"."
     },
     {
       "dir": "in",
-      "phone": "2348011423934",
-      "profileName": "Sim User 3934",
+      "phone": "2348012166663",
+      "profileName": "Sim User 6663",
       "inboundId": "wamid.sim.in.text.00499",
-      "at": 1790820068288,
+      "at": 1790834546923,
       "kind": "text",
       "text": "gift card balance"
     },
@@ -55,25 +55,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00499",
-      "at": 1790820068297
+      "at": 1790834546930
     },
     {
       "dir": "out",
-      "phone": "2348011423934",
+      "phone": "2348012166663",
       "wamid": "wamid.sim.000895",
       "statuses": [
         "sent"
       ],
-      "at": 1790820068316,
+      "at": 1790834546962,
       "kind": "text",
-      "body": "🎁 Gift card *GC-D8CS-79AR*\nBalance: ₦750.00\nStatus: active\nRedeem it on your next order with \"USE GIFT CARD GC-D8CS-79AR\"."
+      "body": "🎁 Gift card *GC-C48Q-D6F8*\nBalance: ₦750.00\nStatus: active\nRedeem it on your next order with \"USE GIFT CARD GC-C48Q-D6F8\"."
     },
     {
       "dir": "in",
-      "phone": "2348011423934",
-      "profileName": "Sim User 3934",
+      "phone": "2348012166663",
+      "profileName": "Sim User 6663",
       "inboundId": "wamid.sim.in.text.00500",
-      "at": 1790820068833,
+      "at": 1790834547467,
       "kind": "text",
       "text": "gift card balance GC-ZZZZ-9999"
     },
@@ -81,77 +81,77 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00500",
-      "at": 1790820068840
+      "at": 1790834547475
     },
     {
       "dir": "out",
-      "phone": "2348011423934",
+      "phone": "2348012166663",
       "wamid": "wamid.sim.000896",
       "statuses": [
         "sent"
       ],
-      "at": 1790820068860,
+      "at": 1790834547502,
       "kind": "text",
       "body": "I couldn't find a gift card with code GC-ZZZZ-9999 — please double-check the code."
     },
     {
       "dir": "in",
-      "phone": "2348016767615",
-      "profileName": "Sim User 7615",
+      "phone": "2348017910879",
+      "profileName": "Sim User 0879",
       "inboundId": "wamid.sim.in.text.00501",
-      "at": 1790820069469,
+      "at": 1790834548104,
       "kind": "text",
-      "text": "i want these [b1a39d52]"
+      "text": "i want these [d5feaca6]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00501",
-      "at": 1790820069482
+      "at": 1790834548112
     },
     {
       "dir": "out",
-      "phone": "2348016767615",
+      "phone": "2348017910879",
       "wamid": "wamid.sim.000897",
       "statuses": [
         "sent"
       ],
-      "at": 1790820069510,
+      "at": 1790834548154,
       "kind": "text",
       "body": "✅ 1 × Grilled Chicken\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348016767615",
-      "profileName": "Sim User 7615",
+      "phone": "2348017910879",
+      "profileName": "Sim User 0879",
       "inboundId": "wamid.sim.in.text.00502",
-      "at": 1790820070013,
+      "at": 1790834548649,
       "kind": "text",
-      "text": "confirm please [b1a39d52]"
+      "text": "confirm please [d5feaca6]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00502",
-      "at": 1790820070019
+      "at": 1790834548657
     },
     {
       "dir": "out",
-      "phone": "2348016767615",
+      "phone": "2348017910879",
       "wamid": "wamid.sim.000898",
       "statuses": [
         "sent"
       ],
-      "at": 1790820070046,
+      "at": 1790834548688,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Grilled Chicken — ₦3,000.00 each\nSubtotal: ₦3,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348016767615",
-      "profileName": "Sim User 7615",
+      "phone": "2348017910879",
+      "profileName": "Sim User 0879",
       "inboundId": "wamid.sim.in.text.00503",
-      "at": 1790820070564,
+      "at": 1790834549202,
       "kind": "text",
       "text": "1"
     },
@@ -159,87 +159,87 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00503",
-      "at": 1790820070574
+      "at": 1790834549209
     },
     {
       "dir": "out",
-      "phone": "2348016767615",
+      "phone": "2348017910879",
       "wamid": "wamid.sim.000899",
       "statuses": [
         "sent"
       ],
-      "at": 1790820070645,
+      "at": 1790834549266,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MUOW161O*\n1 × Grilled Chicken — ₦3,000.00 each\n*Total: ₦3,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/781d73e7-5a41-4f12-af2d-b461b618f75c\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/35c96df2-9444-44a1-85f3-304a8b3aeee8.CrTi1tnRfX1n2-lFkJC42Mno"
+      "body": "🧾 *Pickup Order ORD-MUP4NHTP*\n1 × Grilled Chicken — ₦3,000.00 each\n*Total: ₦3,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/18add56a-5361-4e9f-8190-6cd0bb6a7066\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/b4ee0286-49a9-4b2b-9f2e-4fbcb4de4bf0.0romd6sk-XCYwgCZufkCg3tB"
     },
     {
       "dir": "out",
-      "phone": "2348016767615",
+      "phone": "2348017910879",
       "wamid": "wamid.sim.000900",
       "statuses": [
         "sent"
       ],
-      "at": 1790820070651,
+      "at": 1790834549271,
       "kind": "interactive",
-      "body": "💳 Order ORD-MUOW161O is awaiting payment. Tap below to pay securely.",
+      "body": "💳 Order ORD-MUP4NHTP is awaiting payment. Tap below to pay securely.",
       "buttons": [
         {
-          "id": "https://checkout.paystack.com/sim/781d73e7-5a41-4f12-af2d-b461b618f75c",
+          "id": "https://checkout.paystack.com/sim/18add56a-5361-4e9f-8190-6cd0bb6a7066",
           "title": "cta_url"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348016767615",
+      "phone": "2348017910879",
       "wamid": "wamid.sim.000901",
       "statuses": [
         "sent"
       ],
-      "at": 1790820070655,
+      "at": 1790834549273,
       "kind": "interactive",
-      "body": "Order ORD-MUOW161O — manage it here:",
+      "body": "Order ORD-MUP4NHTP — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:35c96df2-9444-44a1-85f3-304a8b3aeee8",
+          "id": "order_track:b4ee0286-49a9-4b2b-9f2e-4fbcb4de4bf0",
           "title": "📦 Track Order"
         },
         {
-          "id": "order_pay:35c96df2-9444-44a1-85f3-304a8b3aeee8",
+          "id": "order_pay:b4ee0286-49a9-4b2b-9f2e-4fbcb4de4bf0",
           "title": "💳 Pay Now"
         },
         {
-          "id": "order_cancel:35c96df2-9444-44a1-85f3-304a8b3aeee8",
+          "id": "order_cancel:b4ee0286-49a9-4b2b-9f2e-4fbcb4de4bf0",
           "title": "❌ Cancel"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348016767615",
-      "profileName": "Sim User 7615",
+      "phone": "2348017910879",
+      "profileName": "Sim User 0879",
       "inboundId": "wamid.sim.in.text.00504",
-      "at": 1790820071110,
+      "at": 1790834549756,
       "kind": "text",
-      "text": "use gift card GC-D8CS-79AR"
+      "text": "use gift card GC-C48Q-D6F8"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00504",
-      "at": 1790820071120
+      "at": 1790834549765
     },
     {
       "dir": "out",
-      "phone": "2348016767615",
+      "phone": "2348017910879",
       "wamid": "wamid.sim.000902",
       "statuses": [
         "sent"
       ],
-      "at": 1790820071166,
+      "at": 1790834549833,
       "kind": "text",
-      "body": "🎁 Applied ₦750.00 from gift card *GC-D8CS-79AR* to order ORD-MUOW161O.\nRemaining to pay: ₦2,250.00 of ₦3,000.00 — I'll send a payment link for the rest.\nCard balance left: ₦0.00.\n💳 Pay the remainder: https://checkout.paystack.com/sim/GCR-1790820071159-35C96DF2"
+      "body": "🎁 Applied ₦750.00 from gift card *GC-C48Q-D6F8* to order ORD-MUP4NHTP.\nRemaining to pay: ₦2,250.00 of ₦3,000.00 — I'll send a payment link for the rest.\nCard balance left: ₦0.00.\n💳 Pay the remainder: https://checkout.paystack.com/sim/GCR-1790834549827-B4EE0286"
     }
   ]
 }

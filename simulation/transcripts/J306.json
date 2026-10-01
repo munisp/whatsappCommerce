@@ -7,62 +7,62 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348019294114",
-      "profileName": "Sim User 4114",
+      "phone": "2348013045612",
+      "profileName": "Sim User 5612",
       "inboundId": "wamid.sim.in.text.00477",
-      "at": 1790820038480,
+      "at": 1790834516613,
       "kind": "text",
-      "text": "2 jollof rice and 1 chicken j306 [2e78f465]"
+      "text": "2 jollof rice and 1 chicken j306 [7795a023]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00477",
-      "at": 1790820038487
+      "at": 1790834516620
     },
     {
       "dir": "out",
-      "phone": "2348019294114",
+      "phone": "2348013045612",
       "wamid": "wamid.sim.000851",
       "statuses": [
         "sent"
       ],
-      "at": 1790820038522,
+      "at": 1790834516653,
       "kind": "text",
       "body": "✅ 2 × Jollof Rice\n✅ 1 × Grilled Chicken\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348019294114",
-      "profileName": "Sim User 4114",
+      "phone": "2348013045612",
+      "profileName": "Sim User 5612",
       "inboundId": "wamid.sim.in.text.00478",
-      "at": 1790820039025,
+      "at": 1790834517160,
       "kind": "text",
-      "text": "confirm my order j306 [2e78f465]"
+      "text": "confirm my order j306 [7795a023]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00478",
-      "at": 1790820039032
+      "at": 1790834517167
     },
     {
       "dir": "out",
-      "phone": "2348019294114",
+      "phone": "2348013045612",
       "wamid": "wamid.sim.000852",
       "statuses": [
         "sent"
       ],
-      "at": 1790820039056,
+      "at": 1790834517208,
       "kind": "text",
       "body": "🛒 *Your order*\n2 × Jollof Rice — ₦2,500.00 (~$1.65) each\n1 × Grilled Chicken — ₦3,000.00 (~$1.98) each\nSubtotal: ₦8,000.00 (~$5.28)\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery\n\nApproximate conversion at this store's manual rate — you are charged in NGN."
     },
     {
       "dir": "in",
-      "phone": "2348019294114",
-      "profileName": "Sim User 4114",
+      "phone": "2348013045612",
+      "profileName": "Sim User 5612",
       "inboundId": "wamid.sim.in.text.00479",
-      "at": 1790820039576,
+      "at": 1790834517710,
       "kind": "text",
       "text": "1"
     },
@@ -70,58 +70,58 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00479",
-      "at": 1790820039583
+      "at": 1790834517717
     },
     {
       "dir": "out",
-      "phone": "2348019294114",
+      "phone": "2348013045612",
       "wamid": "wamid.sim.000853",
       "statuses": [
         "sent"
       ],
-      "at": 1790820039640,
+      "at": 1790834517774,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MUOW0I47*\n2 × Jollof Rice — ₦2,500.00 (~$1.65) each\n1 × Grilled Chicken — ₦3,000.00 (~$1.98) each\n*Total: ₦8,000.00 (~$5.28)*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/61e50047-a524-4544-af1b-4950749cce3a\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/15ddb787-aa17-48bb-af23-f92ff8b3d9ae.aiLWFep9qa7BtBniVcxmdadZ\n\nApproximate conversion at this store's manual rate — you are charged in NGN."
+      "body": "🧾 *Pickup Order ORD-MUP4MTIT*\n2 × Jollof Rice — ₦2,500.00 (~$1.65) each\n1 × Grilled Chicken — ₦3,000.00 (~$1.98) each\n*Total: ₦8,000.00 (~$5.28)*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/9f8314f6-23ef-423d-b68d-bd9016a7fff4\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/8f724349-85f8-45d0-ac16-2c3fdfb046f2.XySSx2gGA6-tsvzrR_Vo61mW\n\nApproximate conversion at this store's manual rate — you are charged in NGN."
     },
     {
       "dir": "out",
-      "phone": "2348019294114",
+      "phone": "2348013045612",
       "wamid": "wamid.sim.000854",
       "statuses": [
         "sent"
       ],
-      "at": 1790820039646,
+      "at": 1790834517779,
       "kind": "interactive",
-      "body": "💳 Order ORD-MUOW0I47 is awaiting payment. Tap below to pay securely.",
+      "body": "💳 Order ORD-MUP4MTIT is awaiting payment. Tap below to pay securely.",
       "buttons": [
         {
-          "id": "https://checkout.paystack.com/sim/61e50047-a524-4544-af1b-4950749cce3a",
+          "id": "https://checkout.paystack.com/sim/9f8314f6-23ef-423d-b68d-bd9016a7fff4",
           "title": "cta_url"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348019294114",
+      "phone": "2348013045612",
       "wamid": "wamid.sim.000855",
       "statuses": [
         "sent"
       ],
-      "at": 1790820039648,
+      "at": 1790834517781,
       "kind": "interactive",
-      "body": "Order ORD-MUOW0I47 — manage it here:",
+      "body": "Order ORD-MUP4MTIT — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:15ddb787-aa17-48bb-af23-f92ff8b3d9ae",
+          "id": "order_track:8f724349-85f8-45d0-ac16-2c3fdfb046f2",
           "title": "📦 Track Order"
         },
         {
-          "id": "order_pay:15ddb787-aa17-48bb-af23-f92ff8b3d9ae",
+          "id": "order_pay:8f724349-85f8-45d0-ac16-2c3fdfb046f2",
           "title": "💳 Pay Now"
         },
         {
-          "id": "order_cancel:15ddb787-aa17-48bb-af23-f92ff8b3d9ae",
+          "id": "order_cancel:8f724349-85f8-45d0-ac16-2c3fdfb046f2",
           "title": "❌ Cancel"
         }
       ]

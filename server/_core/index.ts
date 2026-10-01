@@ -854,6 +854,34 @@ async function processWaWebhookValue(
               console.error("[whatsapp-webhook] credit command error:", e?.message);
             }
           }
+          // === W56 credit: merchant credit-intelligence commands ────────
+          // "BUREAU CHECK <customer>" (consent-first — never auto-pulls) and
+          // "BUREAU CONFIRM <customer>" (records the consent artefact, then
+          // pulls) from the tenant's admin phone. "CREDIT SCORE <customer>"
+          // with a non-numeric ref also lands here (numeric refs are
+          // delegated inside creditWhatsApp). Non-admins fall through.
+          if (/^\s*(?:BUREAU\s+(?:CHECK|CONFIRM)\s+\S+|CREDIT\s+SCORE\s+\S+)\s*$/i.test(textBody)) {
+            try {
+              const { handleCreditIntelCommand } = await import("../services/creditIntelligenceChat");
+              const intelOutcome = await handleCreditIntelCommand({
+                db,
+                tenantId,
+                fromPhone: waPhoneNumber,
+                text: textBody,
+                channel: "whatsapp",
+              });
+              if (intelOutcome.handled) {
+                if (intelOutcome.reply) {
+                  await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, intelOutcome.reply)
+                    .catch((e: any) => console.error("[whatsapp-webhook] credit-intel reply send error:", e?.message));
+                }
+                continue; // Skip NLP processing for credit-intel commands
+              }
+            } catch (e: any) {
+              console.error("[whatsapp-webhook] credit-intel command error:", e?.message);
+            }
+          }
+          // === END W56 credit ===
           // === W28 odoo-sync (Coder A): tenant-admin Odoo commands ────────
           // "ODOO STATUS" / "ODOO SYNC NOW" from the tenant's admin phone
           // (settings.adminPhone). Non-admins / other texts fall through to
@@ -1971,6 +1999,49 @@ async function startServer() {
       return res.status(500).json({ error: e?.message ?? "credit-loan-repayment failed" });
     }
   });
+
+  // === W56 credit ===
+  // ── Scheduled: credit-score refresh sweep (stale rows > 24h, bounded) ──
+  // Recomputes stale credit_scores rows deterministically (integer math).
+  // On the services/scheduler/scheduler.mjs allowlist (J178 contract).
+  // After deploy: manus-heartbeat create --name credit-score-refresh --cron "0 0 */6 * * *" --path /api/scheduled/credit-score-refresh
+  app.post("/api/scheduled/credit-score-refresh", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runCreditScoreRefreshSweep } = await import("../services/creditScoring");
+      const limit = Number(req.body?.limit) > 0 ? Number(req.body.limit) : undefined;
+      const run = await runCreditScoreRefreshSweep(db as any, { limit });
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[credit-score-refresh] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "credit-score-refresh failed" });
+    }
+  });
+
+  // ── Scheduled: bureau repayment report-back outbox sweep ──────────────
+  // Drains due bureau_report_outbox rows claim-first with bounded backoff
+  // (J69 bureau-retry semantics extended to subject-level performance).
+  // Fail-open: provider outages leave rows retryable, never break checkout.
+  // After deploy: manus-heartbeat create --name bureau-report --cron "0 */15 * * * *" --path /api/scheduled/bureau-report
+  app.post("/api/scheduled/bureau-report", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runBureauReportSweep } = await import("../services/bureau");
+      const limit = Number(req.body?.limit) > 0 ? Number(req.body.limit) : undefined;
+      const run = await runBureauReportSweep(db as any, { limit });
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[bureau-report] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "bureau-report failed" });
+    }
+  });
+  // === END W56 credit ===
 
   // ── Scheduled: WhatsApp failed-send retry + dead-letter (every ~5 min) ────
   // Retries due retriable sends (5xx/429/network) with exponential backoff

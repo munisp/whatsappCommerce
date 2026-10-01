@@ -81,6 +81,10 @@ const EscalationInbox = lazy(() => import("@/pages/EscalationInbox"));
 const Riders = lazy(() => import("@/pages/Riders"));
 const InventoryDepth = lazy(() => import("@/pages/InventoryDepth"));
 const BuyerCredit = lazy(() => import("@/pages/BuyerCredit"));
+// === W56 credit ===
+const CreditScores = lazy(() => import("@/pages/CreditScores"));
+const Bureau = lazy(() => import("@/pages/Bureau"));
+// === END W56 credit ===
 const ReturnsExchanges = lazy(() => import("@/pages/ReturnsExchanges"));
 // === END W55 ui-c ===
 // === W27 storefront-i18n ===
@@ -188,6 +192,10 @@ function Router() {
         <Route path="/riders" component={Riders} />
         <Route path="/inventory-depth" component={InventoryDepth} />
         <Route path="/buyer-credit" component={BuyerCredit} />
+        {/* === W56 credit === */}
+        <Route path="/credit-scores" component={CreditScores} />
+        <Route path="/bureau" component={Bureau} />
+        {/* === END W56 credit === */}
         <Route path="/returns" component={ReturnsExchanges} />
         {/* === END W55 ui-c === */}
         <Route path="/orders/:orderNumber" component={OrderTimeline} />
