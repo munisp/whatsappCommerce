@@ -1,0 +1,8 @@
+{
+  "id": "J571",
+  "title": "bureau consent → pull → history (deterministic + fail-open)",
+  "feature": "W56 bureau: pullCreditReport lifecycle",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

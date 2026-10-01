@@ -515,6 +515,26 @@ async function dispatchToNlp(
       }
       return;
     }
+    // === W56 credit === merchant credit-intelligence keywords (WA parity):
+    // "CREDIT SCORE <customer>", "BUREAU CHECK <customer>" (consent-first,
+    // never auto-pulls), "BUREAU CONFIRM <customer>" — admin-phone authz
+    // inside the handler; TG identity resolves to the linked E.164 phone.
+    if (/^\s*(?:BUREAU\s+(?:CHECK|CONFIRM)\s+\S+|CREDIT\s+SCORE\s+\S+)\s*$/i.test(message)) {
+      const { handleCreditIntelCommand } = await import("./creditIntelligenceChat");
+      const intelOutcome = await handleCreditIntelCommand({
+        db, tenantId: cfg.tenantId, fromPhone: phoneRef, text: message, channel: "telegram",
+      });
+      if (intelOutcome) {
+        if (intelOutcome.handled) {
+          if (intelOutcome.reply) {
+            await sendTelegramTextReply(cfg.tenantId, ev.chatId, intelOutcome.reply)
+              .catch((e: any) => console.warn("[telegram-inbound] credit-intel reply failed:", e?.message));
+          }
+          return;
+        }
+      }
+    }
+    // === END W56 credit ===
     const i18n = await import("./i18n");
     const locale = await i18n.resolveLocale({ tenantId: cfg.tenantId, phone: sessionKey, text: message }).catch(() => "en");
     if (i18n.matchLocalizedIntent(message, locale) === "menu") {

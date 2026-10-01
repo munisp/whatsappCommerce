@@ -85,6 +85,19 @@ export async function handleCreditCommand(opts: {
   const tenantId = opts.tenantId;
   const merchantId = tenantId; // first-party merchant self-service
 
+  // === W56 credit ===
+  // "CREDIT SCORE <phone/customer>" (with a subject argument) is the W56
+  // buyer-score lookup — delegate to the credit-intelligence handler.
+  // Bare "CREDIT SCORE" stays the merchant's own score (unchanged W27).
+  if (parsed.cmd === "score" && /^\s*CREDIT\s+SCORE\s+\S+\s*$/i.test(opts.text)) {
+    const { handleCreditIntelCommand } = await import("./creditIntelligenceChat");
+    const outcome = await handleCreditIntelCommand({
+      db: opts.db, tenantId, fromPhone: opts.waPhoneNumber, text: opts.text, channel: "whatsapp",
+    });
+    if (outcome.handled) return outcome;
+  }
+  // === END W56 credit ===
+
   if (parsed.cmd === "score") {
     const { score, factors } = await getMerchantScore(tenantId, merchantId, opts.db);
     const lines = [

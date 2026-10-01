@@ -7187,3 +7187,96 @@ export const customerMemberships = pgTable("customer_memberships", {
 export type CustomerMembership = typeof customerMemberships.$inferSelect;
 export type NewCustomerMembership = typeof customerMemberships.$inferInsert;
 // === END W54 capabilities ===
+
+// === W56 credit ===
+// Automated credit scoring cache (buyer|merchant) — additive. Scores are
+// deterministic integer points (0-1000) computed from on-platform signals
+// (server/services/creditScoring.ts); grade bands A/B/C/D/E. One row per
+// (tenant, subjectType, subjectId) — upserted on recompute.
+export const creditScores = pgTable("credit_scores", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  subjectType: varchar("subjectType", { length: 8 }).notNull(), // 'buyer' | 'merchant'
+  subjectId: varchar("subjectId", { length: 64 }).notNull(),
+  score: integer("score").notNull(),
+  grade: varchar("grade", { length: 1 }).notNull(),
+  factors: jsonb("factors").notNull(),
+  computedAt: timestamp("computedAt").notNull().defaultNow(),
+  version: varchar("version", { length: 32 }).notNull().default("w56-v1"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("credit_scores_subject_uniq").on(t.tenantId, t.subjectType, t.subjectId),
+  index("credit_scores_tenant_idx").on(t.tenantId, t.subjectType),
+]);
+export type CreditScore = typeof creditScores.$inferSelect;
+export type NewCreditScore = typeof creditScores.$inferInsert;
+
+// Bureau consent artefacts (NDPR): recorded BEFORE any bureau pull; a pull
+// without a live (non-revoked) consent row is blocked. consentText snapshots
+// the exact BUREAU_CONSENT_TEXT shown, with its i18n version + channel.
+export const bureauConsents = pgTable("bureau_consents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  subjectType: varchar("subjectType", { length: 8 }).notNull(), // 'buyer' | 'merchant'
+  subjectId: varchar("subjectId", { length: 64 }).notNull(),
+  consentTextVersion: varchar("consentTextVersion", { length: 32 }).notNull(),
+  consentText: text("consentText").notNull(),
+  channel: varchar("channel", { length: 16 }).notNull(), // 'whatsapp' | 'telegram' | 'portal' | 'api'
+  grantedAt: timestamp("grantedAt").notNull().defaultNow(),
+  revokedAt: timestamp("revokedAt"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+}, (t) => [
+  index("bureau_consents_subject_idx").on(t.tenantId, t.subjectType, t.subjectId),
+]);
+export type BureauConsent = typeof bureauConsents.$inferSelect;
+export type NewBureauConsent = typeof bureauConsents.$inferInsert;
+
+// Bureau pull history (CRC / FirstCentral via services/bureau.ts). One row
+// per pull attempt — report is NULL on error/blocked rows (fail-open).
+export const bureauPulls = pgTable("bureau_pulls", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  subjectType: varchar("subjectType", { length: 8 }).notNull(),
+  subjectId: varchar("subjectId", { length: 64 }).notNull(),
+  provider: varchar("provider", { length: 24 }).notNull(), // 'crc' | 'firstcentral' | 'sandbox' | 'disabled'
+  consentId: uuid("consentId").notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("ok"), // 'ok' | 'error'
+  report: jsonb("report"),
+  rawRef: varchar("rawRef", { length: 128 }),
+  error: text("error"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+}, (t) => [
+  index("bureau_pulls_subject_idx").on(t.tenantId, t.subjectType, t.subjectId),
+  index("bureau_pulls_tenant_idx").on(t.tenantId, t.createdAt),
+]);
+export type BureauPull = typeof bureauPulls.$inferSelect;
+export type NewBureauPull = typeof bureauPulls.$inferInsert;
+
+// Bureau repayment report-back outbox (extends J69/W14 bureau_report_log
+// semantics to buyer/merchant repayment performance): claim-first rows with
+// a unique idempotencyKey, retried with bounded backoff by the scheduled
+// /api/scheduled/bureau-report sweep; rows flip pending→sent|failed.
+export const bureauReportOutbox = pgTable("bureau_report_outbox", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  subjectType: varchar("subjectType", { length: 8 }).notNull(),
+  subjectId: varchar("subjectId", { length: 64 }).notNull(),
+  eventType: varchar("eventType", { length: 24 }).notNull(), // 'paid_on_time' | 'late' | 'default' | 'settled'
+  payload: jsonb("payload").notNull(),
+  idempotencyKey: varchar("idempotencyKey", { length: 160 }).notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("pending"), // 'pending' | 'sent' | 'failed'
+  attempts: integer("attempts").notNull().default(0),
+  nextRetryAt: timestamp("nextRetryAt"),
+  reportedAt: timestamp("reportedAt"),
+  lastError: text("lastError"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("bureau_report_outbox_key_uniq").on(t.idempotencyKey),
+  index("bureau_report_outbox_due_idx").on(t.status, t.nextRetryAt),
+  index("bureau_report_outbox_tenant_idx").on(t.tenantId),
+]);
+export type BureauReportOutboxRow = typeof bureauReportOutbox.$inferSelect;
+export type NewBureauReportOutboxRow = typeof bureauReportOutbox.$inferInsert;
+// === END W56 credit ===

@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017357988",
-      "profileName": "Sim User 7988",
+      "phone": "2348011049544",
+      "profileName": "Sim User 9544",
       "inboundId": "wamid.sim.in.text.00524",
-      "at": 1790820087087,
+      "at": 1790834565871,
       "kind": "text",
       "text": "I'll pay 3000 for W44 Preorder j346f"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00524",
-      "at": 1790820087093
+      "at": 1790834565878
     },
     {
       "dir": "out",
-      "phone": "2348017357988",
+      "phone": "2348011049544",
       "wamid": "wamid.sim.000946",
       "statuses": [
         "sent"
       ],
-      "at": 1790820087117,
+      "at": 1790834565913,
       "kind": "text",
       "body": "That offer is below this store's minimum price. The store can't go below ₦4,000.00 for this item."
     },
     {
       "dir": "in",
-      "phone": "2348011851727",
-      "profileName": "Sim User 1727",
+      "phone": "2348015267116",
+      "profileName": "Sim User 7116",
       "inboundId": "wamid.sim.in.text.00525",
-      "at": 1790820087636,
+      "at": 1790834566421,
       "kind": "text",
       "text": "I'll pay 4500 for W44 Preorder j346c"
     },
@@ -44,135 +44,135 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00525",
-      "at": 1790820087643
+      "at": 1790834566428
     },
     {
       "dir": "out",
-      "phone": "2348013590847",
+      "phone": "2348011788682",
       "wamid": "wamid.sim.000947",
       "statuses": [
         "sent"
       ],
-      "at": 1790820087670,
+      "at": 1790834566460,
       "kind": "interactive",
-      "body": "🤝 Offer 26425984: a customer offers ₦4,500.00 for 1 × W44 Preorder j346c. Accept, reject, or counter (OFFER COUNTER 26425984 <amount>).",
+      "body": "🤝 Offer aad7faf7: a customer offers ₦4,500.00 for 1 × W44 Preorder j346c. Accept, reject, or counter (OFFER COUNTER aad7faf7 <amount>).",
       "buttons": [
         {
-          "id": "offer:accept:26425984-05e5-4e23-a1e4-3d4e65059eb7",
+          "id": "offer:accept:aad7faf7-2dd9-4b5d-97cd-7c0f1c8fe759",
           "title": "✅ Accept"
         },
         {
-          "id": "offer:reject:26425984-05e5-4e23-a1e4-3d4e65059eb7",
+          "id": "offer:reject:aad7faf7-2dd9-4b5d-97cd-7c0f1c8fe759",
           "title": "❌ Reject"
         },
         {
-          "id": "offer:counter:26425984-05e5-4e23-a1e4-3d4e65059eb7",
+          "id": "offer:counter:aad7faf7-2dd9-4b5d-97cd-7c0f1c8fe759",
           "title": "💬 Counter"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348011851727",
+      "phone": "2348015267116",
       "wamid": "wamid.sim.000948",
       "statuses": [
         "sent"
       ],
-      "at": 1790820087673,
+      "at": 1790834566463,
       "kind": "text",
-      "body": "🤝 Got it — your offer of ₦4,500.00 for 1 × W44 Preorder j346c is with the store (ref 26425984). We'll message you here as soon as they respond."
+      "body": "🤝 Got it — your offer of ₦4,500.00 for 1 × W44 Preorder j346c is with the store (ref aad7faf7). We'll message you here as soon as they respond."
     },
     {
       "dir": "in",
-      "phone": "2348013590847",
-      "profileName": "Sim User 0847",
+      "phone": "2348011788682",
+      "profileName": "Sim User 8682",
       "inboundId": "wamid.sim.in.text.00526",
-      "at": 1790820088183,
+      "at": 1790834566970,
       "kind": "text",
-      "text": "OFFER COUNTER 26425984-05e5-4e23-a1e4-3d4e65059eb7 4800"
+      "text": "OFFER COUNTER aad7faf7-2dd9-4b5d-97cd-7c0f1c8fe759 4800"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00526",
-      "at": 1790820088190
+      "at": 1790834566977
     },
     {
       "dir": "out",
-      "phone": "2348011851727",
+      "phone": "2348015267116",
       "wamid": "wamid.sim.000949",
       "statuses": [
         "sent"
       ],
-      "at": 1790820088217,
+      "at": 1790834567017,
       "kind": "interactive",
       "body": "🤝 The store counters your offer for 1 × W44 Preorder j346c: ₦4,800.00. Accept or decline?",
       "buttons": [
         {
-          "id": "offer:caccept:26425984-05e5-4e23-a1e4-3d4e65059eb7",
+          "id": "offer:caccept:aad7faf7-2dd9-4b5d-97cd-7c0f1c8fe759",
           "title": "✅ Accept counter"
         },
         {
-          "id": "offer:cdecline:26425984-05e5-4e23-a1e4-3d4e65059eb7",
+          "id": "offer:cdecline:aad7faf7-2dd9-4b5d-97cd-7c0f1c8fe759",
           "title": "❌ Decline"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348013590847",
+      "phone": "2348011788682",
       "wamid": "wamid.sim.000950",
       "statuses": [
         "sent"
       ],
-      "at": 1790820088221,
+      "at": 1790834567020,
       "kind": "text",
-      "body": "Counter of ₦4,800.00 sent to the customer for offer 26425984."
+      "body": "Counter of ₦4,800.00 sent to the customer for offer aad7faf7."
     },
     {
       "dir": "in",
-      "phone": "2348011851727",
-      "profileName": "Sim User 1727",
+      "phone": "2348015267116",
+      "profileName": "Sim User 7116",
       "inboundId": "wamid.sim.in.btn.00527",
-      "at": 1790820088731,
+      "at": 1790834567515,
       "kind": "button_reply",
       "text": "✅ Accept counter",
-      "payloadId": "offer:caccept:26425984-05e5-4e23-a1e4-3d4e65059eb7"
+      "payloadId": "offer:caccept:aad7faf7-2dd9-4b5d-97cd-7c0f1c8fe759"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.btn.00527",
-      "at": 1790820088743
+      "at": 1790834567523
     },
     {
       "dir": "out",
-      "phone": "2348011851727",
+      "phone": "2348015267116",
       "wamid": "wamid.sim.000951",
       "statuses": [
         "sent"
       ],
-      "at": 1790820088768,
+      "at": 1790834567551,
       "kind": "text",
-      "body": "🎉 Deal! 1 × W44 Preorder j346c for ₦4,800.00. Tap below to pay — this price is held until the offer expires.\n💳 Pay: https://checkout.paystack.com/sim/OFR-1790820088756-29111DC9"
+      "body": "🎉 Deal! 1 × W44 Preorder j346c for ₦4,800.00. Tap below to pay — this price is held until the offer expires.\n💳 Pay: https://checkout.paystack.com/sim/OFR-1790834567537-9AD1D49E"
     },
     {
       "dir": "out",
-      "phone": "2348011851727",
+      "phone": "2348015267116",
       "wamid": "wamid.sim.000952",
       "statuses": [
         "sent"
       ],
-      "at": 1790820088770,
+      "at": 1790834567553,
       "kind": "text",
       "body": "Deal! Your payment link is on its way here."
     },
     {
       "dir": "in",
-      "phone": "2348019115892",
-      "profileName": "Sim User 5892",
+      "phone": "2348016813872",
+      "profileName": "Sim User 3872",
       "inboundId": "wamid.sim.in.text.00528",
-      "at": 1790820089281,
+      "at": 1790834568065,
       "kind": "text",
       "text": "I'll pay 4000 for W44 Preorder j346c"
     },
@@ -180,76 +180,76 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00528",
-      "at": 1790820089287
+      "at": 1790834568072
     },
     {
       "dir": "out",
-      "phone": "2348013590847",
+      "phone": "2348011788682",
       "wamid": "wamid.sim.000953",
       "statuses": [
         "sent"
       ],
-      "at": 1790820089314,
+      "at": 1790834568106,
       "kind": "interactive",
-      "body": "🤝 Offer 90e8d783: a customer offers ₦4,000.00 for 1 × W44 Preorder j346c. Accept, reject, or counter (OFFER COUNTER 90e8d783 <amount>).",
+      "body": "🤝 Offer 4fdd3bef: a customer offers ₦4,000.00 for 1 × W44 Preorder j346c. Accept, reject, or counter (OFFER COUNTER 4fdd3bef <amount>).",
       "buttons": [
         {
-          "id": "offer:accept:90e8d783-37c1-4bb3-8737-24249a9e72f5",
+          "id": "offer:accept:4fdd3bef-fc6e-48f1-8b2c-cc46f001dff2",
           "title": "✅ Accept"
         },
         {
-          "id": "offer:reject:90e8d783-37c1-4bb3-8737-24249a9e72f5",
+          "id": "offer:reject:4fdd3bef-fc6e-48f1-8b2c-cc46f001dff2",
           "title": "❌ Reject"
         },
         {
-          "id": "offer:counter:90e8d783-37c1-4bb3-8737-24249a9e72f5",
+          "id": "offer:counter:4fdd3bef-fc6e-48f1-8b2c-cc46f001dff2",
           "title": "💬 Counter"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348019115892",
+      "phone": "2348016813872",
       "wamid": "wamid.sim.000954",
       "statuses": [
         "sent"
       ],
-      "at": 1790820089317,
+      "at": 1790834568117,
       "kind": "text",
-      "body": "🤝 Got it — your offer of ₦4,000.00 for 1 × W44 Preorder j346c is with the store (ref 90e8d783). We'll message you here as soon as they respond."
+      "body": "🤝 Got it — your offer of ₦4,000.00 for 1 × W44 Preorder j346c is with the store (ref 4fdd3bef). We'll message you here as soon as they respond."
     },
     {
       "dir": "out",
-      "phone": "2348019115892",
+      "phone": "2348016813872",
       "wamid": "wamid.sim.000955",
       "statuses": [
         "sent"
       ],
-      "at": 1790820089828,
+      "at": 1790834568615,
       "kind": "text",
       "body": "Your offer for W44 Preorder j346c expired before it was decided. Feel free to make a new one."
     },
     {
       "dir": "out",
-      "phone": "2348013590847",
+      "phone": "2348011788682",
       "wamid": "wamid.sim.000956",
       "statuses": [
         "sent"
       ],
-      "at": 1790820089876,
+      "at": 1790834568667,
       "kind": "interactive",
-      "body": "🤝 Offer d062eb1a: a customer offers ₦4,200.00 for 1 × W44 Preorder j346tg. Accept, reject, or counter (OFFER COUNTER d062eb1a <amount>).",
+      "body": "🤝 Offer c0528f79: a customer offers ₦4,200.00 for 1 × W44 Preorder j346tg. Accept, reject, or counter (OFFER COUNTER c0528f79 <amount>).",
       "buttons": [
         {
-          "id": "offer:accept:d062eb1a-7961-467e-93ef-5cfd31550440",
+          "id": "offer:accept:c0528f79-1e58-4528-be13-79aae2db75b6",
           "title": "✅ Accept"
         },
         {
-          "id": "offer:reject:d062eb1a-7961-467e-93ef-5cfd31550440",
+          "id": "offer:reject:c0528f79-1e58-4528-be13-79aae2db75b6",
           "title": "❌ Reject"
         },
         {
-          "id": "offer:counter:d062eb1a-7961-467e-93ef-5cfd31550440",
+          "id": "offer:counter:c0528f79-1e58-4528-be13-79aae2db75b6",
           "title": "💬 Counter"
         }
       ]

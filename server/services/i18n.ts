@@ -792,7 +792,14 @@ export type MessageKey =
   // === W55 parity (PARITY-8) === customer wallet balance self-serve
   // (WA+TG+SMS keyword + USSD read-only balance query)
   | "walletBalanceLine" | "walletBalanceNone" | "walletLedgerHeader"
-  | "walletLedgerEntry";
+  | "walletLedgerEntry"
+  // === W56 credit === merchant credit-intelligence chat keywords (WA+TG)
+  | "creditScoreLine" | "creditScoreNotFound" | "creditScoreUsage"
+  | "bureauConsentPrompt" | "bureauConsentRecorded" | "bureauConsentRequired"
+  | "bureauPullSummary" | "bureauPullFailed"
+  // === W56 credit (Feature 3) === servicing notices (fee adjust /
+  // reschedule / grace period) — buyer-facing, WA+TG parity, fail-open
+  | "creditFeeAdjusted" | "creditRescheduled" | "creditGraceExtended";
 
 export type MessageCatalog = Record<MessageKey, string>;
 
@@ -911,6 +918,19 @@ const EN_CATALOG: MessageCatalog = {
   walletBalanceNone: "👛 You don't have a wallet with this store yet — refunds and store credit land here.",
   walletLedgerHeader: "Recent wallet activity:",
   walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
+  // === W56 credit ===
+  creditScoreLine: "📊 Credit score for {subject}: {score}/1000 (grade {grade}).",
+  creditScoreNotFound: "I couldn't find a customer matching {ref} for this store.",
+  creditScoreUsage: "Reply CREDIT SCORE <customer phone> to check a buyer's credit score.",
+  bureauConsentPrompt: "🔒 Bureau check for {subject}. Consent text: {consentText} Reply BUREAU CONFIRM {ref} to record consent and pull the report.",
+  bureauConsentRecorded: "✅ Consent recorded for {subject} ({channel}).",
+  bureauConsentRequired: "🔒 I need {subject}'s consent before a bureau check — reply BUREAU CHECK {ref} to see the consent text.",
+  bureauPullSummary: "✅ Bureau report ({provider}) for {subject}: score {score}, {facilities} facilities, {defaults} active defaults. Ref {ref}.",
+  bureauPullFailed: "⚠️ Bureau check for {subject} couldn't complete right now — please try again later.",
+  // === W56 credit (Feature 3) ===
+  creditFeeAdjusted: "📉 Your credit facility fee changed from {oldBps} to {newBps} bps — applies to future draws only. Reason: {reason}",
+  creditRescheduled: "📅 Your installment plan was rescheduled: {count} future payment(s) updated (fee change {delta}). Reason: {reason}",
+  creditGraceExtended: "⏳ Your credit due dates were extended by {days} day(s) on {count} open draw(s). Reason: {reason}",
 };
 
 /** Partial translations per locale — any missing key falls back to English. */
@@ -1025,6 +1045,18 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     ussdLoyaltyDisabled: "Les récompenses fidélité ne sont pas actives dans cette boutique.",
     // === W55 parity (PARITY-8) ===
     walletBalanceLine: "👛 Solde du portefeuille : {balance}.",
+    creditScoreLine: "📊 Score de crédit de {subject} : {score}/1000 (note {grade}).",
+    creditScoreNotFound: "Je n'ai trouvé aucun client correspondant à {ref} pour cette boutique.",
+    creditScoreUsage: "Répondez CREDIT SCORE <téléphone client> pour vérifier le score d'un acheteur.",
+    bureauConsentPrompt: "🔒 Vérification bureau pour {subject}. Texte de consentement : {consentText} Répondez BUREAU CONFIRM {ref} pour enregistrer le consentement et tirer le rapport.",
+    bureauConsentRecorded: "✅ Consentement enregistré pour {subject} ({channel}).",
+    bureauConsentRequired: "🔒 Il me faut le consentement de {subject} avant une vérification bureau — répondez BUREAU CHECK {ref} pour voir le texte.",
+    bureauPullSummary: "✅ Rapport bureau ({provider}) pour {subject} : score {score}, {facilities} facilités, {defaults} défauts actifs. Réf {ref}.",
+    bureauPullFailed: "⚠️ La vérification bureau de {subject} n'a pas abouti — réessayez plus tard.",
+    // === W56 credit (Feature 3) ===
+    creditFeeAdjusted: "📉 Les frais de votre facilité de crédit passent de {oldBps} à {newBps} bps — uniquement pour les futurs tirages. Motif : {reason}",
+    creditRescheduled: "📅 Votre plan d'échéances a été rééchelonné : {count} paiement(s) futur(s) mis à jour (variation de frais {delta}). Motif : {reason}",
+    creditGraceExtended: "⏳ Vos échéances de crédit ont été prolongées de {days} jour(s) sur {count} tirage(s) ouvert(s). Motif : {reason}",
     walletBalanceNone: "👛 Vous n'avez pas encore de portefeuille dans cette boutique — les remboursements et avoirs arrivent ici.",
     walletLedgerHeader: "Activité récente du portefeuille :",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
@@ -1138,6 +1170,18 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     ussdLoyaltyDisabled: "Ba a amfani da kyautar loyalti a wannan shago.",
     // === W55 parity (PARITY-8) ===
     walletBalanceLine: "👛 Balansin walat: {balance}.",
+    creditScoreLine: "📊 Sakamakon kiredit na {subject}: {score}/1000 (mataki {grade}).",
+    creditScoreNotFound: "Ban sami abokin ciniki da ya dace da {ref} a wannan shago ba.",
+    creditScoreUsage: "Amsa CREDIT SCORE <lambar abokin ciniki> don duba sakamakon kiredit.",
+    bureauConsentPrompt: "🔒 Binciken ofishin kiredit na {subject}. Rubutun amincewa: {consentText} Amsa BUREAU CONFIRM {ref} don yin rikodin amincewa da fitar da rahoton.",
+    bureauConsentRecorded: "✅ An yi rikodin amincewa na {subject} ({channel}).",
+    bureauConsentRequired: "🔒 Ina buƙatar amincewar {subject} kafin binciken — amsa BUREAU CHECK {ref} don ganin rubutun.",
+    bureauPullSummary: "✅ Rahoton ofishin kiredit ({provider}) na {subject}: maki {score}, {facilities} faciloti, {defaults} tsoffin bashi. Ref {ref}.",
+    bureauPullFailed: "⚠️ Binciken {subject} bai yi aiki yanzu ba — sake gwadawa an jinkiri.",
+    // === W56 credit (Feature 3) ===
+    creditFeeAdjusted: "📉 Kuɗin facilotin kiredit ɗinka ya sauya daga {oldBps} zuwa {newBps} bps — kan sababbin ja da gaba kawai. Dalili: {reason}",
+    creditRescheduled: "📅 An sake tsara shirin biya ɗinka: an sabunta biya {count} na gaba (sauyin kuɗi {delta}). Dalili: {reason}",
+    creditGraceExtended: "⏳ An tsawaita ranar biyan bashinka da kwana {days} a kan ja {count} da suka buɗe. Dalili: {reason}",
     walletBalanceNone: "👛 Ba ku da walat a wannan kantin tukuna — maida kuɗi da bashin kantin suna zuwa nan.",
     walletLedgerHeader: "Ayyukan walat na baya-bayan nan:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
@@ -1251,6 +1295,18 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     ussdLoyaltyDisabled: "Ẹ̀bùn ìfẹ́rarẹ kò ṣiṣẹ́ ní ilé ìtajà yìí.",
     // === W55 parity (PARITY-8) ===
     walletBalanceLine: "👛 Balónsì apó-owó: {balance}.",
+    creditScoreLine: "📊 Àbùdá kírédìtì {subject}: {score}/1000 (ipele {grade}).",
+    creditScoreNotFound: "Mi ò rí oníbàárá tó bá {ref} mu fún ìtajà yìí.",
+    creditScoreUsage: "Dáhùn CREDIT SCORE <nọ́ńbà oníbàárá> láti ṣàyẹ̀wò kírédìtì olùráàní.",
+    bureauConsentPrompt: "🔒 Àyẹ̀wò ilé-iṣẹ́ kírédìtì {subject}. Ọ̀rọ̀ ìfàràdà: {consentText} Dáhùn BUREAU CONFIRM {ref} láti gba ìfàràdà àti fa ìròyìn jáde.",
+    bureauConsentRecorded: "✅ Ìfàràdà ti wà fún {subject} ({channel}).",
+    bureauConsentRequired: "🔒 Mo nílò ìfàràdà {subject} ṣáájú àyẹ̀wò — dáhùn BUREAU CHECK {ref} láti rí ọ̀rọ̀ náà.",
+    bureauPullSummary: "✅ Ìròyìn kírédìtì ({provider}) {subject}: oógun {score}, {facilities} gbèsè, {defaults} aiyésan. Ref {ref}.",
+    bureauPullFailed: "⚠️ Àyẹ̀wò {subject} ò pé parí báyìí — jọ̀wọ́ gbìyànjú lẹ́ẹ̀kansi.",
+    // === W56 credit (Feature 3) ===
+    creditFeeAdjusted: "📉 Ètò kírédìtì rẹ yí padà láti {oldBps} sí {newBps} bps — fún àwọn yíyà ọ̀la nìkan. Ìdí: {reason}",
+    creditRescheduled: "📅 Àtòjọ̀ ìsanwó rẹ ti yí padà: ìsanwó {count} ọ̀la ti ṣe àtúnṣe (àyípadà ètò {delta}). Ìdí: {reason}",
+    creditGraceExtended: "⏳ Ọjọ́ ìsanwó kírédìtì rẹ ti fẹ̀ sí ọjọ́ {days} lórí yíyà {count} tó ṣì í ṣílẹ̀. Ìdí: {reason}",
     walletBalanceNone: "👛 Kò sí apó-owó fún ọ ní ilé ìtajà yìí — àpèyìn owó àti kírédìtì ilé ìtajà máa wá síbí.",
     walletLedgerHeader: "Àwọn ìṣẹ̀lẹ̀ apó-owó tuntun:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
@@ -1367,6 +1423,18 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     ussdLoyaltyDisabled: "Onyinye loyalty anaghị arụ ọrụ n'ụlọ ahịa a.",
     // === W55 parity (PARITY-8) ===
     walletBalanceLine: "👛 Balansị akpa ego: {balance}.",
+    creditScoreLine: "📊 Akara kredit nke {subject}: {score}/1000 (ogo {grade}).",
+    creditScoreNotFound: "Achọpụtaghị m onye ahịa dabara na {ref} n'ụlọ ahịa a.",
+    creditScoreUsage: "Zaghachi CREDIT SCORE <ekwentị onye ahịa> iji lelee akara kredit.",
+    bureauConsentPrompt: "🔒 Nnyocha ụlọ ọrụ kredit maka {subject}. Okwu nkwenye: {consentText} Zaghachi BUREAU CONFIRM {ref} iji dekọọ nkwenye wee dọpụta akụkọ.",
+    bureauConsentRecorded: "✅ Edekọtala nkwenye {subject} ({channel}).",
+    bureauConsentRequired: "🔒 Achọrọ m nkwenye {subject} tupu nnyocha — zaghachi BUREAU CHECK {ref} iji hụ okwu ahụ.",
+    bureauPullSummary: "✅ Akụkọ kredit ({provider}) maka {subject}: akara {score}, {facilities} ụlọ ọrụ, {defaults} nda ọ bụla. Ref {ref}.",
+    bureauPullFailed: "⚠️ Nnyocha {subject} agaghị ugbu a — biko nwaa ọzọ mgbe echi.",
+    // === W56 credit (Feature 3) ===
+    creditFeeAdjusted: "📉 Ụgwọ kredit gị agbanweela site {oldBps} ruo {newBps} bps — na mbinye ọhụrụ naanị. Ihe kpatara: {reason}",
+    creditRescheduled: "📅 Ahazigharịrị atụmatụ ịkwụ ụgwọ gị: emelitere ịkwụ ụgwọ {count} n'ọdịnihu (mgbanwe ụgwọ {delta}). Ihe kpatara: {reason}",
+    creditGraceExtended: "⏳ Ụbọchị ịkwụ ụgwọ kredit gị ekwetilere ụbọchị {days} na mbinye {count} mepere emepe. Ihe kpatara: {reason}",
     walletBalanceNone: "👛 I nwebeghị akpa ego na ụlọ ahịa a — nkwụghachi ụgwọ na kredit ụlọ ahịa na-abịa ebe a.",
     walletLedgerHeader: "Ihe omume akpa ego ọhụrụ:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
@@ -1480,6 +1548,18 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     ussdLoyaltyDisabled: "Zawadi za uongozi hazijawashwa dukani hapa.",
     // === W55 parity (PARITY-8) ===
     walletBalanceLine: "👛 Salio la pochi: {balance}.",
+    creditScoreLine: "📊 Alama ya mkopo ya {subject}: {score}/1000 (daraja {grade}).",
+    creditScoreNotFound: "Sikuweza kupata mteja anayelingana na {ref} kwa duka hili.",
+    creditScoreUsage: "Jibu CREDIT SCORE <simu ya mteja> kuangalia alama ya mkopo.",
+    bureauConsentPrompt: "🔒 Ukaguzi wa ofisi ya mkopo kwa {subject}. Maandishi ya ridhaa: {consentText} Jibu BUREAU CONFIRM {ref} kurekodi ridhaa na kutoa ripoti.",
+    bureauConsentRecorded: "✅ Ridhaa imerekodiwa kwa {subject} ({channel}).",
+    bureauConsentRequired: "🔒 Nahitaji ridhaa ya {subject} kabla ya ukaguzi — jibu BUREAU CHECK {ref} kuona maandishi.",
+    bureauPullSummary: "✅ Ripoti ya ofisi ({provider}) kwa {subject}: alama {score}, {facilities} mikopo, {defaults} madeni. Rej {ref}.",
+    bureauPullFailed: "⚠️ Ukaguzi wa {subject} haujakamilika sasa — jaribu tena baadaye.",
+    // === W56 credit (Feature 3) ===
+    creditFeeAdjusted: "📉 Ada ya mkopo wako imebadilika kutoka {oldBps} hadi {newBps} bps — kwa mikopo ijayo pekee. Sababu: {reason}",
+    creditRescheduled: "📅 Mpango wako wa malipo umepangwa upya: malipo {count} yajayo yamesasishwa (mabadiliko ya ada {delta}). Sababu: {reason}",
+    creditGraceExtended: "⏳ Tarehe za malipo ya mkopo wako zimeongezewa siku {days} kwenye mikopo {count} wazi. Sababu: {reason}",
     walletBalanceNone: "👛 Huna pochi na duka hili bado — marejesho na mikopo ya duka hufika hapa.",
     walletLedgerHeader: "Shughuli za hivi karibuni za pochi:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
@@ -1592,6 +1672,18 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     ussdLoyaltyDisabled: "የትጋት ሽልማቶች በዚህ ሱቅ አልነቁም።",
     // === W55 parity (PARITY-8) ===
     walletBalanceLine: "👛 የዋሌት ቀሪ ሂሳብ: {balance}።",
+    creditScoreLine: "📊 የ{subject} የብድር ነጥብ: {score}/1000 (ደረጃ {grade}).",
+    creditScoreNotFound: "ከ{ref} ጋር የሚዛመድ ደንበኛ በዚህ ሱቅ ማግኘት አልቻልኩም።",
+    creditScoreUsage: "የገዢውን የብድር ነጥብ ለማየት CREDIT SCORE <የደንበኛ ስልክ> ይመልሱ።",
+    bureauConsentPrompt: "🔒 የብድር ቢሮ ማረጋገጫ ለ{subject}. የፍቃድ ጽሑፍ: {consentText} ፍቃዱን ለመመዝገብ እና ሪፖርቱን ለማውጣት BUREAU CONFIRM {ref} ይመልሱ።",
+    bureauConsentRecorded: "✅ ፍቃድ ተመዝግቧል ለ{subject} ({channel}).",
+    bureauConsentRequired: "🔒 ከማረጋገጫ በፊት የ{subject} ፍቃድ ያስፈልገኛል — ጽሑፉን ለማየት BUREAU CHECK {ref} ይመልሱ።",
+    bureauPullSummary: "✅ የብድር ቢሮ ሪፖርት ({provider}) ለ{subject}: ነጥብ {score}, {facilities} ብድሮች, {defaults} ንቁ ካሳ። ማጣቀሻ {ref}.",
+    bureauPullFailed: "⚠️ የ{subject} ማረጋገጫ አሁን አልተሳካም — እባክዎ ቆይተው ይሞክሩ።",
+    // === W56 credit (Feature 3) ===
+    creditFeeAdjusted: "📉 የብድር ክፍያዎ ከ{oldBps} ወደ {newBps} bps ተቀይሯል — ለወደፊት ማውጫዎች ብቻ። ምክንያት: {reason}",
+    creditRescheduled: "📅 የክፍያ እቅድዎ እንደገና ተዘጋጅቷል: {count} የወደፊት ክፍያዎች ተዘምነዋል (የክፍያ ልውውጥ {delta})። ምክንያት: {reason}",
+    creditGraceExtended: "⏳ የብድር ክፍያ ቀኖችዎ በ{days} ቀን(ዎች) በ{count} ክፍት ማውጫዎች ላይ ተራዝመዋል። ምክንያት: {reason}",
     walletBalanceNone: "👛 እስካሁን በዚህ ሱቅ ዋሌት የለዎትም — ተመላሾች እና የሱቅ ክሬዲቶች እዚህ ይደርሳሉ።",
     walletLedgerHeader: "የቅርብ ጊዜ የዋሌት እንቅስቃሴ:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
@@ -1712,6 +1804,18 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     ussdLoyaltyDisabled: "Loyalty rewards no dey active for this shop.",
     // === W55 parity (PARITY-8) ===
     walletBalanceLine: "👛 Wallet balance: {balance}.",
+    creditScoreLine: "📊 Credit score for {subject}: {score}/1000 (grade {grade}).",
+    creditScoreNotFound: "I no fit find customer wey match {ref} for dis shop.",
+    creditScoreUsage: "Reply CREDIT SCORE <customer phone> to check buyer credit score.",
+    bureauConsentPrompt: "🔒 Bureau check for {subject}. Consent text: {consentText} Reply BUREAU CONFIRM {ref} make we record consent and pull di report.",
+    bureauConsentRecorded: "✅ Consent don record for {subject} ({channel}).",
+    bureauConsentRequired: "🔒 I need {subject} consent before bureau check — reply BUREAU CHECK {ref} to see di consent text.",
+    bureauPullSummary: "✅ Bureau report ({provider}) for {subject}: score {score}, {facilities} facilities, {defaults} active defaults. Ref {ref}.",
+    bureauPullFailed: "⚠️ Bureau check for {subject} no complete now — abeg try again later.",
+    // === W56 credit (Feature 3) ===
+    creditFeeAdjusted: "📉 Your credit facility fee don change from {oldBps} to {newBps} bps — na only future draws e go touch. Reason: {reason}",
+    creditRescheduled: "📅 Dem don reschedule your installment plan: {count} future payment(s) don update (fee change {delta}). Reason: {reason}",
+    creditGraceExtended: "⏳ Your credit due dates don extend by {days} day(s) on {count} open draw(s). Reason: {reason}",
     walletBalanceNone: "👛 You never get wallet for dis shop yet — refund and store credit go land here.",
     walletLedgerHeader: "Recent wallet activity:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",

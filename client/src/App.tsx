@@ -34,6 +34,10 @@ const EscalationInbox = lazy(() => import("./pages/EscalationInbox"));
 const Riders = lazy(() => import("./pages/Riders"));
 const InventoryDepth = lazy(() => import("./pages/InventoryDepth"));
 const BuyerCredit = lazy(() => import("./pages/BuyerCredit"));
+// === W56 credit ===
+const CreditScores = lazy(() => import("./pages/CreditScores"));
+const Bureau = lazy(() => import("./pages/Bureau"));
+// === END W56 credit ===
 const ReturnsExchanges = lazy(() => import("./pages/ReturnsExchanges"));
 const CreditFacilities = lazy(() => import("./pages/CreditFacilities"));
 const EmbeddedClients = lazy(() => import("./pages/EmbeddedClients"));
@@ -197,6 +201,10 @@ function Router() {
       <Route path="/riders" component={Riders} />
       <Route path="/inventory-depth" component={InventoryDepth} />
       <Route path="/buyer-credit" component={BuyerCredit} />
+      {/* === W56 credit === */}
+      <Route path="/credit-scores" component={CreditScores} />
+      <Route path="/bureau" component={Bureau} />
+      {/* === END W56 credit === */}
       <Route path="/returns" component={ReturnsExchanges} />
       <Route path="/credit-facilities" component={CreditFacilities} />
       <Route path="/embedded-clients" component={EmbeddedClients} />

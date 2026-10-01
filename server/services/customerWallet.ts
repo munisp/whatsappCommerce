@@ -225,7 +225,7 @@ export async function refundToWallet(
     return { ok: false, error: "amountCents must be a positive integer" };
   }
   const d = await resolveDb(db);
-  return d.transaction(async (tx) => {
+  const result = await d.transaction(async (tx) => {
     // Lock the order row so concurrent refunds serialize on the cap check.
     const orderRows = (await tx.execute(sql`
       SELECT id, "totalAmount", "paymentStatus" FROM orders
@@ -278,6 +278,19 @@ export async function refundToWallet(
       cumulativeRefundedCents: priorCents + amountCents,
     };
   });
+  // === W56 credit ===
+  // Post-commit credit-score recompute seam (refund event): additive and
+  // non-blocking — recomputeAfterPaymentEvent never throws and never
+  // touches the committed money outcome (receipts/payment-confirm pattern).
+  if ((result as any)?.ok) {
+    void import("./creditScoring")
+      .then((m) => m.recomputeAfterPaymentEvent(d as any, {
+        tenantId, buyerSubjectId: phone, merchantId: tenantId, kind: "refund",
+      }))
+      .catch(() => { /* fail-open telemetry only */ });
+  }
+  // === END W56 credit ===
+  return result;
 }
 
 /**

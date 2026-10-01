@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348014282577",
-      "profileName": "Sim User 2577",
+      "phone": "2348014160158",
+      "profileName": "Sim User 0158",
       "inboundId": "wamid.sim.in.text.00619",
-      "at": 1790820301476,
+      "at": 1790834787631,
       "kind": "text",
       "text": "membership"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00619",
-      "at": 1790820301488
+      "at": 1790834787638
     },
     {
       "dir": "out",
-      "phone": "2348014282577",
+      "phone": "2348014160158",
       "wamid": "wamid.sim.001281",
       "statuses": [
         "sent"
       ],
-      "at": 1790820301509,
+      "at": 1790834787667,
       "kind": "text",
       "body": "💎 Shirye-shiryen zama memba:\n1. J554 Gold — KYAUTA (rangwame 10% + maki x2)\nAmsa JOIN MEMBERSHIP <lamba> don shiga, ko MY MEMBERSHIP don duba matsayinka."
     },
     {
       "dir": "in",
-      "phone": "2348014282577",
-      "profileName": "Sim User 2577",
+      "phone": "2348014160158",
+      "profileName": "Sim User 0158",
       "inboundId": "wamid.sim.in.text.00620",
-      "at": 1790820302022,
+      "at": 1790834788176,
       "kind": "text",
       "text": "join membership 1"
     },
@@ -44,25 +44,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00620",
-      "at": 1790820302029
+      "at": 1790834788184
     },
     {
       "dir": "out",
-      "phone": "2348014282577",
+      "phone": "2348014160158",
       "wamid": "wamid.sim.001282",
       "statuses": [
         "sent"
       ],
-      "at": 1790820302055,
+      "at": 1790834788223,
       "kind": "text",
       "body": "🎉 Barka da zuwa J554 Gold! Membarki ta yi aiki — rangwame 10% + maki x2. Ana amfani da ita kai tsaye yayin biya."
     },
     {
       "dir": "in",
-      "phone": "2348014282577",
-      "profileName": "Sim User 2577",
+      "phone": "2348014160158",
+      "profileName": "Sim User 0158",
       "inboundId": "wamid.sim.in.text.00621",
-      "at": 1790820302569,
+      "at": 1790834788722,
       "kind": "text",
       "text": "my membership"
     },
@@ -70,77 +70,77 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00621",
-      "at": 1790820302575
+      "at": 1790834788730
     },
     {
       "dir": "out",
-      "phone": "2348014282577",
+      "phone": "2348014160158",
       "wamid": "wamid.sim.001283",
       "statuses": [
         "sent"
       ],
-      "at": 1790820302601,
+      "at": 1790834788756,
       "kind": "text",
       "body": "💎 Membarki: J554 Gold — rangwame 10% + maki x2."
     },
     {
       "dir": "in",
-      "phone": "2348014282577",
-      "profileName": "Sim User 2577",
+      "phone": "2348014160158",
+      "profileName": "Sim User 0158",
       "inboundId": "wamid.sim.in.text.00622",
-      "at": 1790820303112,
+      "at": 1790834789266,
       "kind": "text",
-      "text": "i want these [6c44b8ba]"
+      "text": "i want these [6d36e4c5]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00622",
-      "at": 1790820303119
+      "at": 1790834789274
     },
     {
       "dir": "out",
-      "phone": "2348014282577",
+      "phone": "2348014160158",
       "wamid": "wamid.sim.001284",
       "statuses": [
         "sent"
       ],
-      "at": 1790820303144,
+      "at": 1790834789306,
       "kind": "text",
       "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348014282577",
-      "profileName": "Sim User 2577",
+      "phone": "2348014160158",
+      "profileName": "Sim User 0158",
       "inboundId": "wamid.sim.in.text.00623",
-      "at": 1790820303658,
+      "at": 1790834789814,
       "kind": "text",
-      "text": "confirm please [6c44b8ba]"
+      "text": "confirm please [6d36e4c5]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00623",
-      "at": 1790820303664
+      "at": 1790834789837
     },
     {
       "dir": "out",
-      "phone": "2348014282577",
+      "phone": "2348014160158",
       "wamid": "wamid.sim.001285",
       "statuses": [
         "sent"
       ],
-      "at": 1790820303689,
+      "at": 1790834789891,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦2,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348014282577",
-      "profileName": "Sim User 2577",
+      "phone": "2348014160158",
+      "profileName": "Sim User 0158",
       "inboundId": "wamid.sim.in.text.00624",
-      "at": 1790820304205,
+      "at": 1790834790363,
       "kind": "text",
       "text": "1"
     },
@@ -148,58 +148,58 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00624",
-      "at": 1790820304212
+      "at": 1790834790370
     },
     {
       "dir": "out",
-      "phone": "2348014282577",
+      "phone": "2348014160158",
       "wamid": "wamid.sim.001286",
       "statuses": [
         "sent"
       ],
-      "at": 1790820304263,
+      "at": 1790834790432,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MUOW66B9*\n1 × Jollof Rice — ₦2,500.00 each\n💎 J554 Gold member −10%: −₦250.00\n*Total: ₦2,250.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/41d76015-c5af-45bd-822f-22e5e8705952\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/95904b76-b4a8-41b5-aec5-424732e939dd.dktgRqahJbyGXr-DV7ku3SW2"
+      "body": "🧾 *Pickup Order ORD-MUP4SNWT*\n1 × Jollof Rice — ₦2,500.00 each\n💎 J554 Gold member −10%: −₦250.00\n*Total: ₦2,250.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/d058fb73-7984-403c-9706-d0c045ea65b9\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/42876dc8-6754-45bf-8ede-7232b1243bdb.EOZ7SEUhiqIwxvkaB4826Sit"
     },
     {
       "dir": "out",
-      "phone": "2348014282577",
+      "phone": "2348014160158",
       "wamid": "wamid.sim.001287",
       "statuses": [
         "sent"
       ],
-      "at": 1790820304267,
+      "at": 1790834790437,
       "kind": "interactive",
-      "body": "💳 Order ORD-MUOW66B9 is awaiting payment. Tap below to pay securely.",
+      "body": "💳 Order ORD-MUP4SNWT is awaiting payment. Tap below to pay securely.",
       "buttons": [
         {
-          "id": "https://checkout.paystack.com/sim/41d76015-c5af-45bd-822f-22e5e8705952",
+          "id": "https://checkout.paystack.com/sim/d058fb73-7984-403c-9706-d0c045ea65b9",
           "title": "cta_url"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348014282577",
+      "phone": "2348014160158",
       "wamid": "wamid.sim.001288",
       "statuses": [
         "sent"
       ],
-      "at": 1790820304269,
+      "at": 1790834790440,
       "kind": "interactive",
-      "body": "Order ORD-MUOW66B9 — manage it here:",
+      "body": "Order ORD-MUP4SNWT — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:95904b76-b4a8-41b5-aec5-424732e939dd",
+          "id": "order_track:42876dc8-6754-45bf-8ede-7232b1243bdb",
           "title": "📦 Track Order"
         },
         {
-          "id": "order_pay:95904b76-b4a8-41b5-aec5-424732e939dd",
+          "id": "order_pay:42876dc8-6754-45bf-8ede-7232b1243bdb",
           "title": "💳 Pay Now"
         },
         {
-          "id": "order_cancel:95904b76-b4a8-41b5-aec5-424732e939dd",
+          "id": "order_cancel:42876dc8-6754-45bf-8ede-7232b1243bdb",
           "title": "❌ Cancel"
         }
       ]

@@ -730,6 +730,22 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j563-tg-menu-financeqa"),
     import("./journeys/j564-wallet-balance-keyword"),
     import("./journeys/j565-i18n-parity-gaps"),
+    // === W56 credit ===
+    import("./journeys/j566-credit-score-deterministic"),
+    import("./journeys/j567-credit-score-seam-update"),
+    import("./journeys/j568-credit-score-sweep-registered"),
+    import("./journeys/j569-buyercredit-score-advisory"),
+    import("./journeys/j570-bureau-pull-requires-consent"),
+    import("./journeys/j571-bureau-consent-pull-history"),
+    import("./journeys/j572-bureau-report-outbox"),
+    import("./journeys/j573-credit-chat-parity"),
+    // === W56 credit (Feature 3): servicing ===
+    import("./journeys/j574-fee-adjust-future-only"),
+    import("./journeys/j575-reschedule-math"),
+    import("./journeys/j576-reschedule-approval-gate"),
+    import("./journeys/j577-grace-dunning"),
+    import("./journeys/j578-servicing-notify-parity"),
+    // === END W56 credit ===
     // === END W55 parity ===
     // === END W54 CAPABILITIES ===
     // === END W51 PROMOS ===

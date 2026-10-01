@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348019949671",
-      "profileName": "Sim User 9671",
+      "phone": "2348018103785",
+      "profileName": "Sim User 3785",
       "inboundId": "wamid.sim.in.text.00580",
-      "at": 1790820259667,
+      "at": 1790834744676,
       "kind": "text",
-      "text": "DEAL DEAL33 REF REF-Y32XBW"
+      "text": "DEAL DEAL33 REF REF-S5E9KS"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00580",
-      "at": 1790820259672
+      "at": 1790834744683
     },
     {
       "dir": "out",
-      "phone": "2348019949671",
+      "phone": "2348018103785",
       "wamid": "wamid.sim.001187",
       "statuses": [
         "sent"
       ],
-      "at": 1790820259702,
+      "at": 1790834744720,
       "kind": "text",
       "body": "✅ Deal DEAL33 locked in — it applies automatically at checkout. Happy shopping!"
     }

@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348019386050",
-      "profileName": "Sim User 6050",
+      "phone": "2348019642949",
+      "profileName": "Sim User 2949",
       "inboundId": "wamid.sim.in.loc.00321",
-      "at": 1790819818799,
+      "at": 1790834290567,
       "kind": "location",
       "lat": 6.53,
       "lng": 3.3792,
@@ -21,25 +21,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.loc.00321",
-      "at": 1790819818805
+      "at": 1790834290577
     },
     {
       "dir": "out",
-      "phone": "2348019386050",
+      "phone": "2348019642949",
       "wamid": "wamid.sim.000576",
       "statuses": [
         "sent"
       ],
-      "at": 1790819818836,
+      "at": 1790834290601,
       "kind": "text",
       "body": "📍 Businesses near you (within 5 km):\n1. Sim Store — sim · 0.6 km\n   🗺️ https://maps.google.com/?q=6.5244,3.3792\n💡 Share a different location anytime to search around another area.\n\nReply with a category to filter, or tell me what you're looking for."
     },
     {
       "dir": "in",
-      "phone": "2348019386050",
-      "profileName": "Sim User 6050",
+      "phone": "2348019642949",
+      "profileName": "Sim User 2949",
       "inboundId": "wamid.sim.in.text.00322",
-      "at": 1790819819343,
+      "at": 1790834291114,
       "kind": "text",
       "text": "Sim"
     },
@@ -47,16 +47,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00322",
-      "at": 1790819819349
+      "at": 1790834291121
     },
     {
       "dir": "out",
-      "phone": "2348019386050",
+      "phone": "2348019642949",
       "wamid": "wamid.sim.000577",
       "statuses": [
         "sent"
       ],
-      "at": 1790819819377,
+      "at": 1790834291157,
       "kind": "text",
       "body": "📍 Businesses near you (within 5 km):\n1. Sim Store — sim · 0.6 km\n   🗺️ https://maps.google.com/?q=6.5244,3.3792\n💡 Share a different location anytime to search around another area."
     }

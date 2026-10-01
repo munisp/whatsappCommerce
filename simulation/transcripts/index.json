@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-01T02:05:42.543Z",
+  "generatedAt": "2026-10-01T06:07:14.818Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -4171,12 +4171,116 @@
       "messageCount": 0
     },
     {
+      "id": "J566",
+      "title": "credit score computed from seeded history deterministically",
+      "feature": "W56 creditScoring: deterministic integer model + credit_scores cache",
+      "pass": true,
+      "file": "J566.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J567",
+      "title": "credit score updates after repayment event via post-commit seam",
+      "feature": "W56 creditScoring: recomputeAfterPaymentEvent seam",
+      "pass": true,
+      "file": "J567.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J568",
+      "title": "credit-score-refresh sweep route registered + stale recompute",
+      "feature": "W56 creditScoring: scheduled sweep (J178 contract)",
+      "pass": true,
+      "file": "J568.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J569",
+      "title": "buyerCredit decision carries the credit-score advisory",
+      "feature": "W56 creditScoring: scoreAdvisory stamp on createBuyerPlan",
+      "pass": true,
+      "file": "J569.json",
+      "messageCount": 0
+    },
+    {
       "id": "J57",
       "title": "KYB-gated go-live",
       "feature": "onboarding.activate KYB precondition",
       "pass": true,
       "file": "J57.json",
       "messageCount": 0
+    },
+    {
+      "id": "J570",
+      "title": "bureau pull requires consent (no consent → blocked)",
+      "feature": "W56 bureau: consent-gated pulls, fail-closed on consent",
+      "pass": true,
+      "file": "J570.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J571",
+      "title": "bureau consent → pull → history (deterministic + fail-open)",
+      "feature": "W56 bureau: pullCreditReport lifecycle",
+      "pass": true,
+      "file": "J571.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J572",
+      "title": "bureau report-back outbox idempotent retry with backoff",
+      "feature": "W56 bureau: reportRepayment + runBureauReportSweep",
+      "pass": true,
+      "file": "J572.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J573",
+      "title": "WA+TG parity of credit score / bureau keywords",
+      "feature": "W56 credit chat: admin-gated score + consent-first bureau flow",
+      "pass": true,
+      "file": "J573.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J574",
+      "title": "adjustFeeBps applies to future accruals only — settled rows untouched",
+      "feature": "W56 credit servicing: fee re-point, append-only audit, idempotent no-op",
+      "pass": true,
+      "file": "J574.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J575",
+      "title": "installment reschedule: principal sum invariant + explicit fee delta + audit",
+      "feature": "W56 credit servicing: reschedule math",
+      "pass": true,
+      "file": "J575.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J576",
+      "title": "reschedule above threshold parks via credit_servicing approval; approve executes once",
+      "feature": "W56 credit servicing: W31 approvals gate composition",
+      "pass": true,
+      "file": "J576.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J577",
+      "title": "grace period extends open draws; dunning respects the extended due dates",
+      "feature": "W56 credit servicing: gracePeriod + dunning interplay, claim-first idempotency",
+      "pass": true,
+      "file": "J577.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J578",
+      "title": "servicing notices reach the buyer on WA and TG (parity, fail-open, ×8)",
+      "feature": "W56 credit servicing: channelParity notify",
+      "pass": true,
+      "file": "J578.json",
+      "messageCount": 1
     },
     {
       "id": "J58",
