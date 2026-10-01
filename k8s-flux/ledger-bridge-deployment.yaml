@@ -133,7 +133,7 @@ spec:
         # (flux-system:whatsapp-tb-adapter). The live cluster may still run a hand-shipped qa-local tag
         # ahead of whatever's here — that's normal during active QA, see reference_cluster_access notes;
         # this line is what a Flux resume would apply, and now that's a real, currently-pullable image.
-        image: registry.digitalocean.com/talentgraph-auth/whatsapp-tb-adapter:20260922-0600 # {"$imagepolicy": "flux-system:whatsapp-tb-adapter"}
+        image: registry.digitalocean.com/talentgraph-auth/whatsapp-tb-adapter:20261001-0606 # {"$imagepolicy": "flux-system:whatsapp-tb-adapter"}
         imagePullPolicy: IfNotPresent
         env:
         - name: HOST
