@@ -40,6 +40,9 @@ const Bureau = lazy(() => import("./pages/Bureau"));
 // === END W56 credit ===
 const ReturnsExchanges = lazy(() => import("./pages/ReturnsExchanges"));
 const CreditFacilities = lazy(() => import("./pages/CreditFacilities"));
+// === W57 risk-shield ===
+const CreditInsurance = lazy(() => import("./pages/CreditInsurance"));
+// === END W57 risk-shield ===
 const EmbeddedClients = lazy(() => import("./pages/EmbeddedClients"));
 // === END W55 ui-c ===
 const ServiceHealth = lazy(() => import("./pages/ServiceHealth"));
@@ -207,6 +210,8 @@ function Router() {
       {/* === END W56 credit === */}
       <Route path="/returns" component={ReturnsExchanges} />
       <Route path="/credit-facilities" component={CreditFacilities} />
+      {/* === W57 risk-shield === */}
+      <Route path="/credit-insurance" component={CreditInsurance} />
       <Route path="/embedded-clients" component={EmbeddedClients} />
       {/* === END W55 ui-c === */}
       <Route path="/health" component={ServiceHealth} />

@@ -193,6 +193,16 @@ export async function applyRepaymentTx(
           occurredAt: now.toISOString(),
         },
       });
+      // === W57 risk-shield === cure the cross-tenant default-registry row
+      // for this account (claim-first active→cured). Post-commit, fail-open.
+      try {
+        const { cureDefault } = await import("../creditDefaultRegistry");
+        const acct = await getCreditAccountByIdTx(db, args.accountId);
+        await cureDefault(db as any, { tenantId: acct?.supplierTenantId, accountId: args.accountId, now });
+      } catch (e: any) {
+        console.warn("[repayment] default-registry cure failed (fail-open):", e?.message);
+      }
+      // === END W57 risk-shield ===
     }
   }
   return result;

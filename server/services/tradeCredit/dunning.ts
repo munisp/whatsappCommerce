@@ -256,6 +256,23 @@ export async function runDunningCheckTx(
             supplierTenantId: account.supplierTenantId,
             reason: "dunning_freeze_+7d",
           }, now);
+          // === W57 risk-shield === the +7d freeze is the platform default
+          // moment → write the cross-tenant default registry (idempotent;
+          // fail-open — dunning must never break on registry errors).
+          try {
+            const { recordDefault } = await import("../creditDefaultRegistry");
+            await recordDefault(db as any, {
+              tenantId: account.supplierTenantId,
+              accountId: account.id,
+              amountCents: Math.max(0, (account as any).outstandingCents ?? draw.amountCents),
+              subjectType: "merchant",
+              subjectId: account.buyerTenantId,
+              defaultedAt: now,
+            });
+          } catch (e: any) {
+            console.warn("[tradeCredit/dunning] default-registry write failed (fail-open):", e?.message);
+          }
+          // === END W57 risk-shield ===
         }
       }
 
@@ -291,6 +308,19 @@ export async function runDunningCheckTx(
               .where(eq(creditAccounts.id, draw.creditAccountId));
           });
           result.feesApplied += 1;
+          // === W57 risk-shield === first-loss provision accrual: divert the
+          // configured bps of this fee accrual to the provision fund.
+          // Post-commit seam, idempotent (prov:accr:latefee:<drawId>),
+          // fail-open — never throws into the sweep.
+          try {
+            const { accrueFromFeeEvent } = await import("../provisionFund");
+            await accrueFromFeeEvent(db as any, {
+              tenantId: account.supplierTenantId,
+              feeRef: `latefee:${draw.id}`,
+              feeCents,
+            });
+          } catch { /* accrueFromFeeEvent is fail-open; belt-and-braces */ }
+          // === END W57 risk-shield ===
           // W14: bureau 'delinquency' event at the +3d late-fee milestone.
           // Fire-and-forget; never throws. (The +7d freeze escalates with a
           // second delinquency event, severity 'freeze'.)

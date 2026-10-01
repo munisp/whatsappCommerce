@@ -7,47 +7,47 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348014243938",
+      "phone": "2348011787967",
       "wamid": "wamid.sim.000823",
       "statuses": [
         "sent"
       ],
-      "at": 1790834510104,
+      "at": 1790840809921,
       "kind": "text",
-      "body": "You've been invited to split order j299-1790834510084: your share is ₦1000.00 of ₦2000.00. Reply PAY SPLIT a4d6eb0f-24cf-4367-b6d7-90e7f2eae6c3 to pay from your wallet, or ask for a payment link. Expires in 48h."
+      "body": "You've been invited to split order j299-1790840809909: your share is ₦1000.00 of ₦2000.00. Reply PAY SPLIT 13d363b0-eaa0-4ed3-b7de-2041b1a44f7d to pay from your wallet, or ask for a payment link. Expires in 48h."
     },
     {
       "dir": "out",
-      "phone": "2348018820102",
+      "phone": "2348017999857",
       "wamid": "wamid.sim.000824",
       "statuses": [
         "sent"
       ],
-      "at": 1790834510108,
+      "at": 1790840809924,
       "kind": "text",
-      "body": "You've been invited to split order j299-1790834510084: your share is ₦1000.00 of ₦2000.00. Reply PAY SPLIT a4d6eb0f-24cf-4367-b6d7-90e7f2eae6c3 to pay from your wallet, or ask for a payment link. Expires in 48h."
+      "body": "You've been invited to split order j299-1790840809909: your share is ₦1000.00 of ₦2000.00. Reply PAY SPLIT 13d363b0-eaa0-4ed3-b7de-2041b1a44f7d to pay from your wallet, or ask for a payment link. Expires in 48h."
     },
     {
       "dir": "out",
-      "phone": "2348014243938",
+      "phone": "2348011787967",
       "wamid": "wamid.sim.000825",
       "statuses": [
         "sent"
       ],
-      "at": 1790834510131,
+      "at": 1790840809946,
       "kind": "text",
-      "body": "The split payment for order j299-1790834510084 timed out before it was fully funded — your ₦1000.00 has been refunded to your wallet."
+      "body": "The split payment for order j299-1790840809909 timed out before it was fully funded — your ₦1000.00 has been refunded to your wallet."
     },
     {
       "dir": "out",
-      "phone": "2348018820102",
+      "phone": "2348017999857",
       "wamid": "wamid.sim.000826",
       "statuses": [
         "sent"
       ],
-      "at": 1790834510134,
+      "at": 1790840809949,
       "kind": "text",
-      "body": "The split payment for order j299-1790834510084 timed out before it was fully funded — your ₦500.00 has been refunded to your wallet."
+      "body": "The split payment for order j299-1790840809909 timed out before it was fully funded — your ₦500.00 has been refunded to your wallet."
     }
   ]
 }

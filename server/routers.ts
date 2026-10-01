@@ -45,6 +45,7 @@ import { buyerCreditRouter } from "./routers/buyerCredit";
 import { creditScoringRouter } from "./routers/creditScoring";
 import { bureauRouter } from "./routers/bureau";
 import { creditServicingRouter } from "./routers/creditServicing";
+import { creditInsuranceRouter } from "./routers/creditInsurance";
 // === END W56 credit ===
 import { rmaRouter } from "./routers/rma";
 import { exchangesRouter } from "./routers/exchanges"; // === W43 exchanges (Coder B) ===
@@ -232,6 +233,7 @@ export const appRouter = router({
   // === W56 credit ===
   creditScoring: creditScoringRouter,
   bureau: bureauRouter,
+  creditInsurance: creditInsuranceRouter,
   creditServicing: creditServicingRouter,
   // === END W56 credit ===
   // === W41 rma-fx (Coder C): returns lifecycle + display-FX config ===

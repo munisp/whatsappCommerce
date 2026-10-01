@@ -48,7 +48,11 @@ function normPhone(p: string): string {
 export type CreditIntelCommand =
   | { cmd: "buyerScore"; ref: string }
   | { cmd: "bureauCheck"; ref: string }
-  | { cmd: "bureauConfirm"; ref: string };
+  | { cmd: "bureauConfirm"; ref: string }
+  // === W57 risk-shield === "CREDIT RISK <customer>" — score + identity-flag
+  // status (WA+TG parity, admin-phone authz like the other commands).
+  | { cmd: "creditRisk"; ref: string };
+  // === END W57 risk-shield ===
 
 /**
  * Deterministic keyword parse. Returns null for anything else (falls
@@ -70,6 +74,10 @@ export function parseCreditIntelCommand(text: string): CreditIntelCommand | null
   if (m) return { cmd: "bureauCheck", ref: m[1] };
   m = t.match(/^BUREAU\s+CONFIRM\s+(\S+)\s*$/i);
   if (m) return { cmd: "bureauConfirm", ref: m[1] };
+  // === W57 risk-shield ===
+  m = t.match(/^CREDIT\s+RISK\s+(\S+)\s*$/i);
+  if (m) return { cmd: "creditRisk", ref: m[1] };
+  // === END W57 risk-shield ===
   return null;
 }
 
@@ -124,6 +132,31 @@ export async function handleCreditIntelCommand(opts: {
       reply: t27(locale, "creditScoreLine", { subject: subjectLabel, score: r.score, grade: r.grade ?? gradeForScore(r.score) }),
     };
   }
+
+  // === W57 risk-shield ===
+  // "CREDIT RISK <customer>": score + identity-flag freeze status +
+  // cross-tenant default AGGREGATE (bool+count only — no financial details).
+  if (parsed.cmd === "creditRisk") {
+    const ig = await import("./identityGraph");
+    const reg = await import("./creditDefaultRegistry");
+    const r = await computeAndStoreSubjectScore(opts.db, opts.tenantId, "buyer", buyer.id);
+    if (!r) return { handled: true, reply: t27(locale, "creditScoreNotFound", { ref: parsed.ref }) };
+    const frozen = await ig.isCreditFrozen(opts.db, opts.tenantId, "buyer", buyer.id);
+    const hash = await reg.resolveIdentityHash(opts.db, "buyer", buyer.id);
+    const agg = await reg.crossTenantDefaultStatus(opts.db, hash);
+    const status = frozen
+      ? t27(locale, "creditRiskStatusFrozen", {})
+      : agg.hasActiveDefault
+        ? t27(locale, "creditRiskStatusDefault", { count: agg.activeDefaults })
+        : t27(locale, "creditRiskStatusClear", {});
+    return {
+      handled: true,
+      reply: t27(locale, "creditRiskLine", {
+        subject: subjectLabel, score: r.score, grade: r.grade ?? gradeForScore(r.score), status,
+      }),
+    };
+  }
+  // === END W57 risk-shield ===
 
   if (parsed.cmd === "bureauCheck") {
     const live = await getLiveBureauConsent(opts.db, opts.tenantId, "buyer", buyer.id);

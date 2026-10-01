@@ -8,50 +8,50 @@
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348017675276",
-      "sessionId": "ussd-j526-1790834739614",
+      "phone": "2348012400027",
+      "sessionId": "ussd-j526-1790841038927",
       "text": "(dial)",
-      "at": 1790834739985
+      "at": 1790841039235
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348017675276",
-      "sessionId": "ussd-j526-1790834739614",
+      "phone": "2348012400027",
+      "sessionId": "ussd-j526-1790841038927",
       "text": "CON Big menu — pick one:\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n4. Extra Service 1\n5. Extra Service 2\n6. Extra Service 3\n7. Extra Service 4\n8. Extra Service 5\n9. Extra Service 6\n10. Extra Service 7\n11. Extra Service 8",
-      "at": 1790834739986
+      "at": 1790841039236
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348017675276",
-      "sessionId": "ussd-j526-1790834739614",
+      "phone": "2348012400027",
+      "sessionId": "ussd-j526-1790841038927",
       "text": "1",
-      "at": 1790834740368
+      "at": 1790841039564
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348017675276",
-      "sessionId": "ussd-j526-1790834739614",
+      "phone": "2348012400027",
+      "sessionId": "ussd-j526-1790841038927",
       "text": "END DEAL: Promo USSD5 — 5% off. Use code USSD5\nForward: 🔥 Promo USSD5 — 5% off at our store! Use code USSD5. https://wa.me/2347000000000?text=DEAL%20USSD5\nSorry, I didn't quite get that — type 'menu' to see options.",
-      "at": 1790834740369
+      "at": 1790841039565
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348018342987",
-      "sessionId": "ussd-j526b-1790834740368",
+      "phone": "2348014846619",
+      "sessionId": "ussd-j526b-1790841039564",
       "text": "popular",
-      "at": 1790834740677
+      "at": 1790841039875
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348018342987",
-      "sessionId": "ussd-j526b-1790834740368",
+      "phone": "2348014846619",
+      "sessionId": "ussd-j526b-1790841039564",
       "text": "END ⭐ Most ordered items:\n1. ⭐ Jollof Rice — NGN 2500.00\n2. ⭐ Recharge PIN Pack J351 — NGN 50.00\n3. ⭐ W43 Backorder Widget — NGN 500.00\n4. W43 Widget j324-0 — NGN 500.00\n5. W43 Restock Widget — NGN 500.00\n6. W43 Widget j323-0 — NGN 500.00",
-      "at": 1790834740678
+      "at": 1790841039876
     }
   ]
 }

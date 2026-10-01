@@ -64,7 +64,11 @@ export type ApprovalKind =
   // === W56 credit === large mid-flight servicing changes (installment
   // reschedule) park through the same threshold gate. Executor lives at
   // module scope of routers/creditServicing.ts.
-  | "credit_servicing";
+  | "credit_servicing"
+  // === W57 risk-shield === first-loss provision-fund draws park through the
+  // same threshold gate (additive kind). Executor lives at module scope of
+  // routers/creditInsurance.ts.
+  | "provision_draw";
 
 export const APPROVAL_KINDS: readonly ApprovalKind[] = [
   "vendor_bill_payment",
@@ -72,6 +76,7 @@ export const APPROVAL_KINDS: readonly ApprovalKind[] = [
   "withdrawal",
   "payout",
   "credit_servicing",
+  "provision_draw",
 ];
 
 // ─── Executor map ───────────────────────────────────────────────────────────

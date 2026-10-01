@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-01T06:07:14.818Z",
+  "generatedAt": "2026-10-01T07:52:16.663Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -4283,11 +4283,75 @@
       "messageCount": 1
     },
     {
+      "id": "J579",
+      "title": "identity link detects multi-account default at signup (cash unaffected)",
+      "feature": "W57 risk-shield F1: identity graph + default freeze",
+      "pass": true,
+      "file": "J579.json",
+      "messageCount": 1
+    },
+    {
       "id": "J58",
       "title": "KYB-gated credit",
       "feature": "tradeCredit.approveAccount dual-KYB gate",
       "pass": true,
       "file": "J58.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J580",
+      "title": "subject dispute → admin clear restores credit eligibility",
+      "feature": "W57 risk-shield F1: identity-flag due process",
+      "pass": true,
+      "file": "J580.json",
+      "messageCount": 3
+    },
+    {
+      "id": "J581",
+      "title": "default registry write/cure lifecycle + cross-tenant privacy",
+      "feature": "W57 risk-shield F2: cross-tenant default registry",
+      "pass": true,
+      "file": "J581.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J582",
+      "title": "insurance quote determinism + bind + claim file + paid payout (sim)",
+      "feature": "W57 risk-shield F3: credit insurance adapter",
+      "pass": true,
+      "file": "J582.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J583",
+      "title": "insurance claim status machine (claim-first settle)",
+      "feature": "W57 risk-shield F3: claim lifecycle",
+      "pass": true,
+      "file": "J583.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J584",
+      "title": "provision fund accrual / draw gate / recovery credit",
+      "feature": "W57 risk-shield F4: first-loss provision fund",
+      "pass": true,
+      "file": "J584.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J585",
+      "title": "WA+TG parity of 'credit risk <customer>' keyword",
+      "feature": "W57 risk-shield F1: credit risk keyword parity",
+      "pass": true,
+      "file": "J585.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J586",
+      "title": "i18n ×8 completeness for W57 risk-shield strings",
+      "feature": "W57 risk-shield: MESSAGE_CATALOG coverage",
+      "pass": true,
+      "file": "J586.json",
       "messageCount": 0
     },
     {
