@@ -34,6 +34,13 @@ import {
   UserPlus, Rocket, KeyRound, Building2, ScrollText,
   Paperclip, BarChart2, Cpu, Plug, SlidersHorizontal, Map, HeartPulse,
   ClipboardCheck, ShoppingCart, ShieldCheck, Wallet, Route,
+  Ticket, Gift, Repeat, Crown,
+  // === W55 ui-b ===
+  Receipt, ArrowRightLeft, Landmark, FileSpreadsheet,
+  // === END W55 ui-b ===
+  // === W55 ui-c ===
+  CalendarClock, HandMetal, Bike, Boxes, ArrowLeftRight,
+  // === END W55 ui-c ===
 } from "lucide-react";
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -81,6 +88,9 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
       { icon: Package,         label: "Products",        path: "/products" },
       { icon: Smartphone,      label: "WhatsApp Menu",   path: "/menu-builder" },
       { icon: Warehouse,       label: "Inventory",       path: "/inventory" },
+      // W55 ui-c
+      { icon: Boxes,           label: "Inventory Depth", path: "/inventory-depth" },
+      // END W55 ui-c
       { icon: Store,           label: "Sales Channels",  path: "/sales-channels" },
     ],
   },
@@ -102,6 +112,9 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
     icon: MessagesSquare,
     items: [
       { icon: MessageSquare,   label: "Conversations",   path: "/conversations" },
+      // W55 ui-c
+      { icon: HandMetal,       label: "Human Handoffs",  path: "/escalations" },
+      // END W55 ui-c
       { icon: Globe,           label: "Multi-Channel",   path: "/multi-channel" },
       { icon: Megaphone,       label: "Broadcasts",      path: "/broadcast" },
       { icon: MessageSquare,   label: "Templates",       path: "/templates" },
@@ -121,6 +134,10 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
       { icon: BarChart3,       label: "Orders",          path: "/orders" },
       { icon: AlertTriangle,   label: "Disputes",        path: "/disputes" },
       { icon: Truck,           label: "COD & Offline",   path: "/cod" },
+      // W55 ui-c
+      { icon: ArrowLeftRight,  label: "Returns & Exchanges", path: "/returns" },
+      { icon: Bike,            label: "Riders",          path: "/riders" },
+      // END W55 ui-c
     ],
   },
   {
@@ -129,11 +146,37 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
     icon: CreditCard,
     items: [
       { icon: CreditCard,      label: "Payments",        path: "/payments" },
+      // W55 ui-c
+      { icon: CalendarClock,   label: "Scheduled Payments", path: "/scheduled-payments" },
+      { icon: Repeat,          label: "Recurring Rules", path: "/recurring-rules" },
+      { icon: ClipboardCheck,  label: "Approvals",       path: "/approvals" },
+      { icon: CreditCard,      label: "Buyer Credit",    path: "/buyer-credit" },
+      // END W55 ui-c
       { icon: Lock,            label: "Escrow",          path: "/escrow" },
       { icon: TrendingUp,      label: "Revenue",         path: "/revenue" },
       { icon: FileText,        label: "Invoices",        path: "/invoices" },
       { icon: Smartphone,      label: "Mobile Money",    path: "/mobile-money" },
       { icon: Wallet,          label: "Wallet",          path: "/portal/wallet" },
+      // === W55 ui-b === finance documents & cash-flow (tenant-portal routes)
+      { icon: FileSpreadsheet, label: "Documents",       path: "/finance/documents" },
+      { icon: Receipt,         label: "Vendor Bills",    path: "/finance/vendor-bills" },
+      { icon: FileText,        label: "AR Invoices",     path: "/finance/ar-invoices" },
+      { icon: Landmark,        label: "Tax Statements",  path: "/finance/tax-statements" },
+      { icon: ArrowRightLeft,  label: "FX Payouts",      path: "/finance/fx-payouts" },
+      { icon: TrendingUp,      label: "Cash-flow",       path: "/finance/cashflow" },
+      // === END W55 ui-b ===
+    ],
+  },
+  {
+    // === W55 ui-a ===
+    id: "growth",
+    label: "Customers & Growth",
+    icon: Crown,
+    items: [
+      { icon: Ticket,          label: "Events & Ticketing", path: "/events" },
+      { icon: Crown,           label: "Membership Plans",  path: "/membership-plans" },
+      { icon: Gift,            label: "Gift Cards",        path: "/gift-cards" },
+      { icon: Repeat,          label: "Subscriptions",     path: "/subscription-plans" },
     ],
   },
   {
@@ -202,6 +245,9 @@ const PLATFORM_NAV_GROUPS: NavGroup[] = [
       { icon: Shield,          label: "SSO Users",        path: "/sso-users" },
       { icon: KeyRound,        label: "Phone Auth",       path: "/phone-auth" },
       { icon: MessageSquare,   label: "WhatsApp Profile", path: "/whatsapp-profile" },
+      // W55 ui-c
+      { icon: KeyRound,        label: "API Clients",      path: "/embedded-clients" },
+      // END W55 ui-c
     ],
   },
   {
@@ -243,6 +289,9 @@ const PLATFORM_NAV_GROUPS: NavGroup[] = [
     icon: GitMerge,
     items: [
       { icon: GitMerge,        label: "Reconciliation",   path: "/reconciliation" },
+      // W55 ui-c
+      { icon: Landmark,        label: "Lender Facilities", path: "/credit-facilities" },
+      // END W55 ui-c
       { icon: AlertTriangle,   label: "Webhook DLQ",      path: "/webhook-dlq" },
       { icon: AlertTriangle,   label: "COGS Disputes",    path: "/cogs-disputes" },
     ],

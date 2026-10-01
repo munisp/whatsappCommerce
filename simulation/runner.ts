@@ -723,6 +723,14 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j557-membership-cancel-expiry"),
     import("./journeys/j558-ussd-savings-loyalty-balance"),
     import("./journeys/j559-ussd-balance-locales"),
+    // === W55 parity ===
+    import("./journeys/j560-tg-savings-keywords"),
+    import("./journeys/j561-ussd-ticket-sms-codes"),
+    import("./journeys/j562-tg-sms-failover"),
+    import("./journeys/j563-tg-menu-financeqa"),
+    import("./journeys/j564-wallet-balance-keyword"),
+    import("./journeys/j565-i18n-parity-gaps"),
+    // === END W55 parity ===
     // === END W54 CAPABILITIES ===
     // === END W51 PROMOS ===
     // === W50 IMAGES END ===

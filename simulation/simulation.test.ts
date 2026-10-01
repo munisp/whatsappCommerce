@@ -36,7 +36,7 @@ describe("WhatsApp feature simulation (496 journeys)", () => {
   });
 
   it("loads the full journey registry", () => {
-    expect(journeys.length).toBe(558); // W54 merger: 544 (W53) + J546-J552 (disputes, 7) + J553-J559 (capabilities renumbered, 7) = 558 ACTUAL via loadJourneys (0 dupes).
+    expect(journeys.length).toBe(564); // W55 parity: 558 (W54) + J560-J565 (channel-parity fixes, 6) = 564 ACTUAL via loadJourneys (0 dupes).
     const ids = journeys.map((j) => j.id);
     expect(new Set(ids).size).toBe(ids.length);
   });

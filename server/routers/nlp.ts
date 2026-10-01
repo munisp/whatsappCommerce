@@ -980,6 +980,12 @@ const USSD_MENUS: Record<string, Record<string, string>> = {
     ha: "Menu kayayyaki:\n1. Duba dukkan kayayyaki\n2. Nema da suna\n3. Duba kwando\n4. Koma babban menu",
     yo: "Menu ọjà:\n1. Wo gbogbo ọjà\n2. Wa ní orúkọ\n3. Wo àpò\n4. Padà sí menu gbangba",
     ig: "Menu ngwaahịa:\n1. Lee ngwaahịa niile\n2. Chọọ site na aha\n3. Lee ngọdo\n4. Laghachi na menu isi",
+    // === W55 parity (PARITY-7) === browse state for fr/sw/am (was EN
+    // fallback).
+    fr: "Menu produits :\n1. Voir tous les produits\n2. Rechercher par nom\n3. Voir le panier\n4. Retour au menu principal",
+    sw: "Menyu ya bidhaa:\n1. Tazama bidhaa zote\n2. Tafuta kwa jina\n3. Tazama kikapu\n4. Rudi kwenye menyu kuu",
+    am: "የምርቶች ምናሌ:\n1. ሁሉንም ምርቶች ይመልከቱ\n2. በስም ይፈልጉ\n3. ቅርጫት ይመልከቱ\n4. ወደ ዋናው ምናሌ ተመለስ",
+    // === END W55 parity ===
   },
   checkout_address: {
     en: "Checkout:\n1. Enter delivery address\n2. Use saved address\n3. Cancel order",
@@ -989,6 +995,12 @@ const USSD_MENUS: Record<string, Record<string, string>> = {
     ha: "Biya:\n1. Shigar da adireshin isarwa\n2. Yi amfani da adireshin da aka adana\n3. Soke oda",
     yo: "Ìsanwó:\n1. Tẹ àdírẹ́sì ìfíranṣẹ́ sílẹ̀\n2. Lo àdírẹ́sì tí a ti fipamọ́\n3. Fagi lé àṣẹ náà",
     ig: "Ịkwụ ụgwọ:\n1. Tinye adreesị nnyefe\n2. Jiri adreesị echekwara\n3. Kagbuo ọrụ",
+    // === W55 parity (PARITY-7) === checkout_address state for fr/sw/am
+    // (was EN fallback).
+    fr: "Paiement :\n1. Saisir l'adresse de livraison\n2. Utiliser l'adresse enregistrée\n3. Annuler la commande",
+    sw: "Malipo:\n1. Weka anwani ya uwasilishaji\n2. Tumia anwani iliyohifadhiwa\n3. Ghairi oda",
+    am: "ክፍያ:\n1. የመላኪያ አድራሻ ያስገቡ\n2. የተቀመጠውን አድራሻ ይጠቀሙ\n3. ትዕዛዝ ይሰርዙ",
+    // === END W55 parity ===
   },
   // === W54 capabilities (CAP-2): USSD depth — balance-query menu state ===
   balances: {
@@ -1048,10 +1060,13 @@ function detectLanguage(text: string): string {
     // boundaries — substring matching mis-detected "vegetables" (ha "ta"
     // inside "…tables") and "near me" (ig "m" inside "me"). Longer hints
     // keep the historical substring behaviour. ===
+    // === W55 MERGER (J545 flake): digits are word chars too — random hex
+    // ticket/order codes like "T-6A00C3BA" put ha "ba"/"da" at a digit
+    // "boundary" and mis-detected Hausa, breaking the English assertion. ===
     if (hints.some((h) => {
       if (h.length > 2) return lower.includes(h);
       const re = new RegExp(
-        `(^|[^a-zà-ỹ])${h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-zà-ỹ]|$)`,
+        `(^|[^a-zà-ỹ0-9])${h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-zà-ỹ0-9]|$)`,
         "i",
       );
       return re.test(lower);
@@ -2433,6 +2448,64 @@ export const nlpRouter = router({
         // === END W52 SHARE ===
       }
       // === END W44 giftcards-referrals ===
+      // === W55 parity (PARITY-8): customer "wallet balance" self-serve —
+      // READ-ONLY (customerWallet.walletBalance + last ledger entries; no
+      // writes, no money movement). One deterministic block in this shared
+      // engine gives WA + TG + SMS identical behavior (TG inbound feeds this
+      // same engine; TG session keys resolve to the linked E.164 phone).
+      // USSD reuses the same read via ussdBalances ("wallet" keyword). ===
+      {
+        const w55Wallet = /^wallet(?:\s+balance)?$/i.exec(input.message.trim());
+        if (w55Wallet) {
+          const w55Locale = localeFromSessionLanguage(session?.language);
+          // TG session key → linked E.164 phone (wallets key on phone).
+          let w55Ref = input.waPhoneNumber;
+          if (/^telegram:/i.test(w55Ref)) {
+            const chatId = w55Ref.replace(/^telegram:/i, "");
+            const [ident] = await db.select({ phone: telegramIdentities.phoneE164 })
+              .from(telegramIdentities)
+              .where(and(eq(telegramIdentities.tenantId, input.tenantId), eq(telegramIdentities.chatId, chatId)))
+              .limit(1).catch(() => [] as any[]);
+            if (ident?.phone) w55Ref = ident.phone;
+          }
+          const w55Phone = w55Ref.replace(/^\+/, "");
+          const { walletBalance } = await import("../services/customerWallet");
+          const { customerWallets, customerWalletEntries } = await import("../../drizzle/schema");
+          const [walletRow] = await db.select({ id: customerWallets.id, currency: customerWallets.currency })
+            .from(customerWallets)
+            .where(and(eq(customerWallets.tenantId, input.tenantId), eq(customerWallets.customerPhone, w55Phone)))
+            .limit(1).catch(() => [] as any[]);
+          const balanceCents = await walletBalance(input.tenantId, w55Phone, db).catch(() => 0);
+          let reply: string;
+          if (!walletRow) {
+            reply = t27(w55Locale, "walletBalanceNone");
+          } else {
+            const fmt = (cents: number) =>
+              `${walletRow.currency} ${(cents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+            reply = t27(w55Locale, "walletBalanceLine", { balance: fmt(balanceCents) });
+            const entries = await db.select().from(customerWalletEntries)
+              .where(and(eq(customerWalletEntries.tenantId, input.tenantId), eq(customerWalletEntries.customerPhone, w55Phone)))
+              .orderBy(desc(customerWalletEntries.createdAt))
+              .limit(3)
+              .catch(() => [] as any[]);
+            if (entries.length) {
+              const lines = entries.map((e: any) => t27(w55Locale, "walletLedgerEntry", {
+                sign: e.direction === "credit" ? "+" : "−",
+                amount: fmt(e.amountCents),
+                reason: String(e.reason ?? ""),
+                date: e.createdAt instanceof Date ? e.createdAt.toISOString().slice(0, 10) : "",
+              }));
+              reply += `\n${t27(w55Locale, "walletLedgerHeader")}\n${lines.join("\n")}`;
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "wallet_balance", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+      }
+      // === END W55 parity ===
       // === W53 EVENTS (Coder B): events/ticketing chat flow — buyer
       // "events"/"tickets" → published events list (WA image card when the
       // event has a header image, else text), "TICKET <n>" → ticket types,

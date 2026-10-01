@@ -788,7 +788,11 @@ export type MessageKey =
   | "membershipStatusNone" | "membershipCancelPeriodEnd" | "membershipCancelImmediate"
   | "membershipCancelNone"
   | "ussdSavingsHeader" | "ussdSavingsNone" | "ussdSavingsLine"
-  | "ussdLoyaltyBalance" | "ussdLoyaltyDisabled";
+  | "ussdLoyaltyBalance" | "ussdLoyaltyDisabled"
+  // === W55 parity (PARITY-8) === customer wallet balance self-serve
+  // (WA+TG+SMS keyword + USSD read-only balance query)
+  | "walletBalanceLine" | "walletBalanceNone" | "walletLedgerHeader"
+  | "walletLedgerEntry";
 
 export type MessageCatalog = Record<MessageKey, string>;
 
@@ -902,6 +906,11 @@ const EN_CATALOG: MessageCatalog = {
   ussdSavingsLine: "{name}: {amount}/{freq}, cycle {cycle}. Next payout: {next}.",
   ussdLoyaltyBalance: "Loyalty points balance: {points} pts.",
   ussdLoyaltyDisabled: "Loyalty rewards are not active at this store.",
+  // === W55 parity (PARITY-8) ===
+  walletBalanceLine: "👛 Wallet balance: {balance}.",
+  walletBalanceNone: "👛 You don't have a wallet with this store yet — refunds and store credit land here.",
+  walletLedgerHeader: "Recent wallet activity:",
+  walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
 };
 
 /** Partial translations per locale — any missing key falls back to English. */
@@ -1014,6 +1023,11 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     ussdSavingsLine: "{name} : {amount}/{freq}, cycle {cycle}. Prochain versement : {next}.",
     ussdLoyaltyBalance: "Solde de points fidélité : {points} pts.",
     ussdLoyaltyDisabled: "Les récompenses fidélité ne sont pas actives dans cette boutique.",
+    // === W55 parity (PARITY-8) ===
+    walletBalanceLine: "👛 Solde du portefeuille : {balance}.",
+    walletBalanceNone: "👛 Vous n'avez pas encore de portefeuille dans cette boutique — les remboursements et avoirs arrivent ici.",
+    walletLedgerHeader: "Activité récente du portefeuille :",
+    walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
   },
   ha: {
     languageMenuPrompt: "🌐 Zaɓi harshenka:",
@@ -1122,6 +1136,11 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     ussdSavingsLine: "{name}: {amount}/{freq}, zagaye {cycle}. Na gaba biya: {next}.",
     ussdLoyaltyBalance: "Makin loyalti: {points} pts.",
     ussdLoyaltyDisabled: "Ba a amfani da kyautar loyalti a wannan shago.",
+    // === W55 parity (PARITY-8) ===
+    walletBalanceLine: "👛 Balansin walat: {balance}.",
+    walletBalanceNone: "👛 Ba ku da walat a wannan kantin tukuna — maida kuɗi da bashin kantin suna zuwa nan.",
+    walletLedgerHeader: "Ayyukan walat na baya-bayan nan:",
+    walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
   },
   yo: {
     languageMenuPrompt: "🌐 Yan èdè rẹ:",
@@ -1230,6 +1249,11 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     ussdSavingsLine: "{name}: {amount}/{freq}, yìí {cycle}. Ènì tó kàn ní ìsanwó tó nbọ̀: {next}.",
     ussdLoyaltyBalance: "Àmì ìfẹ́rarẹ: {points} pts.",
     ussdLoyaltyDisabled: "Ẹ̀bùn ìfẹ́rarẹ kò ṣiṣẹ́ ní ilé ìtajà yìí.",
+    // === W55 parity (PARITY-8) ===
+    walletBalanceLine: "👛 Balónsì apó-owó: {balance}.",
+    walletBalanceNone: "👛 Kò sí apó-owó fún ọ ní ilé ìtajà yìí — àpèyìn owó àti kírédìtì ilé ìtajà máa wá síbí.",
+    walletLedgerHeader: "Àwọn ìṣẹ̀lẹ̀ apó-owó tuntun:",
+    walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
   },
   ig: {
     languageMenuPrompt: "🌐 Họrọ asụsụ gị:",
@@ -1263,8 +1287,10 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     paymentLinkReady: "Pịa iji kwụọ ụgwọ n'enweghị nsogbu: {url}",
     paymentReceived: "✅ Enwetala ụgwọ — daalụ! Ana m akọzi ihe ị zụrụ.",
     paymentFailed: "❌ Ịkwụ ụgwọ agaghị — nwaa ọzọ ma ọ bụ họrọ ụzọ ọzọ.",
-    // paymentPending intentionally untranslated in Igbo — exercises the
-    // locale→en fallback chain (see J137).
+    // === W55 parity (PARITY-7) === Igbo translation added (was the last
+    // intentionally-missing key; fallback chain now exercised via J137's
+    // unknown-locale seam).
+    paymentPending: "A na-akwenye ụgwọ gị ugbu a — anyị ga-agwa gị n'oge na-adịghị anya.",
     // === W51 PROMOS ===
     promoSpotlightBody: "🔥 {title} — {discount} site na koodu {code}",
     promoShopNow: "🛍️ Zụta ugbu a",
@@ -1339,6 +1365,11 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     ussdSavingsLine: "{name}: {amount}/{freq}, okirikiri {cycle}. Ịkwụ ụgwọ na-esote: {next}.",
     ussdLoyaltyBalance: "Isi loyalty: {points} pts.",
     ussdLoyaltyDisabled: "Onyinye loyalty anaghị arụ ọrụ n'ụlọ ahịa a.",
+    // === W55 parity (PARITY-8) ===
+    walletBalanceLine: "👛 Balansị akpa ego: {balance}.",
+    walletBalanceNone: "👛 I nwebeghị akpa ego na ụlọ ahịa a — nkwụghachi ụgwọ na kredit ụlọ ahịa na-abịa ebe a.",
+    walletLedgerHeader: "Ihe omume akpa ego ọhụrụ:",
+    walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
   },
   sw: {
     languageMenuPrompt: "🌐 Chagua lugha yako:",
@@ -1447,6 +1478,11 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     ussdSavingsLine: "{name}: {amount}/{freq}, mzunguko {cycle}. Malipo yajayo: {next}.",
     ussdLoyaltyBalance: "Salio la pointi: {points} pts.",
     ussdLoyaltyDisabled: "Zawadi za uongozi hazijawashwa dukani hapa.",
+    // === W55 parity (PARITY-8) ===
+    walletBalanceLine: "👛 Salio la pochi: {balance}.",
+    walletBalanceNone: "👛 Huna pochi na duka hili bado — marejesho na mikopo ya duka hufika hapa.",
+    walletLedgerHeader: "Shughuli za hivi karibuni za pochi:",
+    walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
   },
   am: {
     languageMenuPrompt: "🌐 ቋንቋዎን ይምረጡ:",
@@ -1554,11 +1590,19 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     ussdSavingsLine: "{name}: {amount}/{freq}፣ ዙር {cycle}። ቀጣይ ክፍያ: {next}።",
     ussdLoyaltyBalance: "የትጋት ነጥብ ሂሳብ: {points} pts።",
     ussdLoyaltyDisabled: "የትጋት ሽልማቶች በዚህ ሱቅ አልነቁም።",
-    // paymentPending intentionally untranslated in Amharic — exercises the
-    // locale→en fallback chain (see J137).
+    // === W55 parity (PARITY-8) ===
+    walletBalanceLine: "👛 የዋሌት ቀሪ ሂሳብ: {balance}።",
+    walletBalanceNone: "👛 እስካሁን በዚህ ሱቅ ዋሌት የለዎትም — ተመላሾች እና የሱቅ ክሬዲቶች እዚህ ይደርሳሉ።",
+    walletLedgerHeader: "የቅርብ ጊዜ የዋሌት እንቅስቃሴ:",
+    walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
+    // === W55 parity (PARITY-7) === Amharic translation added (was the last
+    // intentionally-missing key; fallback chain now exercised via J137's
+    // unknown-locale seam).
+    paymentPending: "ክፍያዎ እየተረጋገጠ ነው — በቅርቡ እናሳውቆታለን።",
   },
-  // === W49 I18N-PCM === full catalog (all 27 MessageKeys — complete, not
-  // leaning on the Partial fallback like ig/am paymentPending).
+  // === W49 I18N-PCM === full catalog (all 27 MessageKeys — complete).
+  // W55 parity (PARITY-7): ig/am paymentPending filled too — every locale
+  // is now 101/101; the en fallback only ever fires for unknown locales.
   pcm: {
     languageMenuPrompt: "🌐 Choose your language / Wetin you wan speak:",
     languageSetConfirm: "Language don set to {language}. You fit change am any time — just type LANGUAGE.",
@@ -1666,6 +1710,11 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     ussdSavingsLine: "{name}: {amount}/{freq}, cycle {cycle}. Next payout: {next}.",
     ussdLoyaltyBalance: "Loyalty points balance: {points} pts.",
     ussdLoyaltyDisabled: "Loyalty rewards no dey active for this shop.",
+    // === W55 parity (PARITY-8) ===
+    walletBalanceLine: "👛 Wallet balance: {balance}.",
+    walletBalanceNone: "👛 You never get wallet for dis shop yet — refund and store credit go land here.",
+    walletLedgerHeader: "Recent wallet activity:",
+    walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
   },
 };
 

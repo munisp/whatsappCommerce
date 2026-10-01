@@ -174,6 +174,23 @@ const pwaPlugin = VitePWA({
           expiration: { maxEntries: 64, maxAgeSeconds: 30 * 24 * 60 * 60 },
         },
       },
+      // === W55 pwa (MOB-5): offline runtime caching for SAFE READS ONLY ===
+      // tRPC queries are GET /api/trpc/<proc>; ALL mutations (orders,
+      // payments, escrow, wallet, evidence upload) are POST and can never
+      // match this entry — money-moving writes are never cached or queued.
+      // NetworkFirst with a short TTL: fresh data wins, cache is a 4s-timeout
+      // offline fallback only. navigateFallbackDenylist above already keeps
+      // /api/ out of the SPA fallback, so writes fail loudly offline.
+      {
+        urlPattern: /\/api\/trpc\/[\w.]+/,
+        method: "GET",
+        handler: "NetworkFirst",
+        options: {
+          cacheName: "w55-api-reads",
+          networkTimeoutSeconds: 4,
+          expiration: { maxEntries: 128, maxAgeSeconds: 5 * 60 },
+        },
+      },
     ],
   },
   devOptions: { enabled: false },

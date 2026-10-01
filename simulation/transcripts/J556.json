@@ -7,116 +7,116 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348015177571",
-      "profileName": "Sim User 7571",
-      "inboundId": "wamid.sim.in.text.00049",
-      "at": 1790548137026,
+      "phone": "2348016930013",
+      "profileName": "Sim User 0013",
+      "inboundId": "wamid.sim.in.text.00625",
+      "at": 1790820305942,
       "kind": "text",
       "text": "membership"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00049",
-      "at": 1790548137032
+      "wamid": "wamid.sim.in.text.00625",
+      "at": 1790820305949
     },
     {
       "dir": "out",
-      "phone": "2348015177571",
-      "wamid": "wamid.sim.000123",
+      "phone": "2348016930013",
+      "wamid": "wamid.sim.001289",
       "statuses": [
         "sent"
       ],
-      "at": 1790548137063,
+      "at": 1790820305982,
       "kind": "text",
       "body": "💎 Shirye-shiryen zama memba:\n1. J556 Gold — NGN 1,000.00/month (rangwamen 10% akan odoci)\nAmsa JOIN MEMBERSHIP <lamba> don shiga, ko MY MEMBERSHIP don duba matsayinka."
     },
     {
       "dir": "in",
-      "phone": "2348015177571",
-      "profileName": "Sim User 7571",
-      "inboundId": "wamid.sim.in.text.00050",
-      "at": 1790548137569,
+      "phone": "2348016930013",
+      "profileName": "Sim User 0013",
+      "inboundId": "wamid.sim.in.text.00626",
+      "at": 1790820306487,
       "kind": "text",
       "text": "join membership 1"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00050",
-      "at": 1790548137576
+      "wamid": "wamid.sim.in.text.00626",
+      "at": 1790820306493
     },
     {
       "dir": "out",
-      "phone": "2348015177571",
-      "wamid": "wamid.sim.000124",
+      "phone": "2348016930013",
+      "wamid": "wamid.sim.001290",
       "statuses": [
         "sent"
       ],
-      "at": 1790548137609,
+      "at": 1790820306523,
       "kind": "text",
-      "body": "💎 Membarki J556 Gold — jimla NGN 1,000.00 (oda MBR-MUKE4P6P).\nPay: https://checkout.paystack.com/sim/MBR-1790548137601-4339AAB8"
+      "body": "💎 Membarki J556 Gold — jimla NGN 1,000.00 (oda MBR-MUOW682C).\nPay: https://checkout.paystack.com/sim/MBR-1790820306516-9B244D93"
     },
     {
       "dir": "out",
-      "phone": "2348015177571",
-      "wamid": "wamid.sim.000125",
+      "phone": "2348016930013",
+      "wamid": "wamid.sim.001291",
       "statuses": [
         "sent"
       ],
-      "at": 1790548138146,
+      "at": 1790820307059,
       "kind": "text",
-      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: MBR-MUKE4P6P\n\n1 × J556 Gold membership (month) — ₦1,000.00\n\n*Total paid: ₦1,000.00*\nPayment ref: MBR-1790548137601-4339AAB8\n\n🔎 Track your order: http://localhost:4173/track/9024b90f-41fe-4a48-8cc3-35be265acd79.aMBIUHdm5Mi0jCntNu_CvmKW"
+      "body": "🧾 *Sim Store (j471) — Payment Receipt*\nOrder: MBR-MUOW682C\n\n1 × J556 Gold membership (month) — ₦1,000.00\n\n*Total paid: ₦1,000.00*\nPayment ref: MBR-1790820306516-9B244D93\n\n🔎 Track your order: http://localhost:4173/track/b45d9d4f-4cc0-43b7-9498-8d68b1f0660d.3c0jsl4Hz-CmKAyh5V_-K2Zq"
     },
     {
       "dir": "out",
-      "phone": "2348015177571",
-      "wamid": "wamid.sim.000126",
+      "phone": "2348016930013",
+      "wamid": "wamid.sim.001292",
       "statuses": [
         "sent"
       ],
-      "at": 1790548138160,
+      "at": 1790820307064,
       "kind": "text",
       "body": "🎉 Your membership is now ACTIVE — member discounts and bonus points apply from your next order. Reply \"my membership\" anytime to check it."
     },
     {
       "dir": "out",
-      "phone": "2348015177571",
-      "wamid": "wamid.sim.000127",
+      "phone": "2348016930013",
+      "wamid": "wamid.sim.001293",
       "statuses": [
         "sent"
       ],
-      "at": 1790548138166,
+      "at": 1790820307068,
       "kind": "document",
       "mediaKind": "document",
-      "caption": "🧾 Receipt for order MBR-MUKE4P6P",
-      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-MBR-MUKE4P6P.pdf"
+      "caption": "🧾 Receipt for order MBR-MUOW682C",
+      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-MBR-MUOW682C.pdf"
     },
     {
       "dir": "in",
-      "phone": "2348015177571",
-      "profileName": "Sim User 7571",
-      "inboundId": "wamid.sim.in.text.00051",
-      "at": 1790548138547,
+      "phone": "2348016930013",
+      "profileName": "Sim User 0013",
+      "inboundId": "wamid.sim.in.text.00627",
+      "at": 1790820307486,
       "kind": "text",
       "text": "my membership"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00051",
-      "at": 1790548138553
+      "wamid": "wamid.sim.in.text.00627",
+      "at": 1790820307492
     },
     {
       "dir": "out",
-      "phone": "2348015177571",
-      "wamid": "wamid.sim.000128",
+      "phone": "2348016930013",
+      "wamid": "wamid.sim.001294",
       "statuses": [
         "sent"
       ],
-      "at": 1790548138580,
+      "at": 1790820307529,
       "kind": "text",
-      "body": "💎 Membarki: J556 Gold — rangwamen 10% akan odoci. Tana aiki har 2026-10-27."
+      "body": "💎 Membarki: J556 Gold — rangwamen 10% akan odoci. Tana aiki har 2026-11-01."
     }
   ]
 }

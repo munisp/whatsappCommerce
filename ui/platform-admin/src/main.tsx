@@ -30,6 +30,15 @@ window.addEventListener("vite:preloadError", () => {
 });
 setTimeout(() => sessionStorage.removeItem("vitePreloadReloaded"), 10_000);
 
+// === W55 pwa (MOB-4): register the PWA service worker (autoUpdate). ===
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  import("virtual:pwa-register")
+    .then(({ registerSW }) => registerSW({ immediate: true }))
+    .catch(() => {
+      /* SW registration is best-effort: fail open */
+    });
+}
+
 // === W48 perf (PERF-FE-3): shared react-query defaults ===
 const queryClient = new QueryClient({
   defaultOptions: {
