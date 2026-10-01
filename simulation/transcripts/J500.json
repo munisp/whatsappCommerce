@@ -1,0 +1,8 @@
+{
+  "id": "J500",
+  "title": "telegram menu_<n> callback resolves through the menu engine",
+  "feature": "W50 TG menu parity: callback → handleInteractiveInbound",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

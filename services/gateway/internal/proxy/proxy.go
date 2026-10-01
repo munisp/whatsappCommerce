@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"bytes"
 	"io"
 	"net/http"
 	"strings"
@@ -57,18 +56,23 @@ func ForwardToStripPrefix(baseURL, stripPrefix string) gin.HandlerFunc {
 	}
 }
 
-// forward performs the actual upstream request and copies the response back.
-func forward(c *gin.Context, targetURL string) {
-	body, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read request body"})
-		return
-	}
+// === W48 sidecars (PERF-SC-22) === maxProxyBodyBytes caps proxied request
+// bodies (previously io.ReadAll with no limit — OOM vector).
+const maxProxyBodyBytes = 10 << 20 // 10 MiB
 
-	req, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, targetURL, bytes.NewReader(body))
+// forward performs the actual upstream request and copies the response back.
+// PERF-SC-22: bodies are STREAMED both ways (no full io.ReadAll buffering of
+// request + response in gateway memory); the inbound body is capped by
+// http.MaxBytesReader.
+func forward(c *gin.Context, targetURL string) {
+	reqBody := http.MaxBytesReader(c.Writer, c.Request.Body, maxProxyBodyBytes)
+	req, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, targetURL, reqBody)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to create upstream request"})
 		return
+	}
+	if c.Request.ContentLength > 0 {
+		req.ContentLength = c.Request.ContentLength
 	}
 
 	// Forward relevant headers. NOTE: the client-supplied X-Tenant-ID header is
@@ -103,16 +107,15 @@ func forward(c *gin.Context, targetURL string) {
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read upstream response"})
-		return
-	}
-
 	for k, vs := range resp.Header {
 		for _, v := range vs {
 			c.Header(k, v)
 		}
 	}
-	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), respBody)
+	// Stream the upstream response straight to the client (no full-buffer).
+	c.Status(resp.StatusCode)
+	if _, err := io.Copy(c.Writer, resp.Body); err != nil {
+		// Headers already sent — only log-worthy, nothing to return.
+		_ = c.Error(err)
+	}
 }

@@ -1,11 +1,17 @@
 /**
- * Bundle code-splitting sanity (wave-10): the client entry must stay lean.
+ * Bundle code-splitting sanity (wave-10; W48 updated):
+ * the client entry must stay lean.
  *
  *  - App.tsx lazy-loads non-essential routes (React.lazy + Suspense) while
  *    keeping the shell routes (Home/Dashboard/login/404) eager.
  *  - vite.config manualChunks pins heavy vendor stacks (maplibre, recharts,
  *    react core) into named vendor chunks so route chunks stay cacheable and
  *    the map/chart code is only fetched by routes that import it.
+ *  - W48 (PERF-FE-2): Dashboard still ships in the shell, but its recharts
+ *    widgets moved to the lazy-loaded DashboardCharts chunk, so vendor-charts
+ *    is no longer fetched at startup. The contract below guards that: the
+ *    Dashboard page module must not import recharts, and DashboardCharts must
+ *    be lazy-loaded.
  *
  * These are static source-level guards: they fail the moment someone
  * re-imports a heavy page eagerly or drops a vendor chunk mapping.
@@ -17,6 +23,7 @@ import path from "node:path";
 const root = path.resolve(import.meta.dirname, "..");
 const appSrc = readFileSync(path.join(root, "client/src/App.tsx"), "utf8");
 const viteSrc = readFileSync(path.join(root, "vite.config.ts"), "utf8");
+const dashboardSrc = readFileSync(path.join(root, "client/src/pages/Dashboard.tsx"), "utf8");
 
 describe("client bundle code-splitting", () => {
   it("heavy routes are lazy-loaded, not statically imported", () => {
@@ -60,5 +67,19 @@ describe("client bundle code-splitting", () => {
     expect(viteSrc).toContain('"vendor-react"');
     expect(viteSrc).toContain("maplibre-gl");
     expect(viteSrc).toContain("recharts");
+  });
+
+  // W48 (PERF-FE-2): recharts is lazy — Dashboard must not pull it into the shell.
+  it("dashboard charts are lazy (recharts stays out of the initial bundle)", () => {
+    expect(dashboardSrc).not.toMatch(/from "recharts"/);
+    expect(dashboardSrc).toContain('lazy(() => import("@/components/DashboardCharts"))');
+    expect(dashboardSrc).toContain("<Suspense");
+  });
+
+  // W48 (PERF-FE-1): PWA plugin wired into the client build.
+  it("vite config wires vite-plugin-pwa (offline shell + asset caching)", () => {
+    expect(viteSrc).toContain("VitePWA");
+    expect(viteSrc).toContain('registerType: "autoUpdate"');
+    expect(viteSrc).toContain('navigateFallback: "/offline.html"');
   });
 });

@@ -1,6 +1,9 @@
 /**
  * server/temporal.ts — Temporal workflow client integration
  *
+ * === W48 sidecars === PERF-SC-15: deterministic workflowId + reject-duplicate
+ * reuse policy + bounded start retry (see startWorkflow below).
+ *
  * Connects to the Temporal server to start and query workflows.
  * Falls back gracefully when TEMPORAL_ADDRESS is not configured.
  *
@@ -70,6 +73,14 @@ export interface WorkflowStartResult {
  * Start a Temporal workflow and record it in the DB.
  * Falls back to a no-op with a local DB record if Temporal is unavailable.
  */
+// === W48 sidecars (PERF-SC-15) ===
+// - Deterministic workflowId when an entityId is provided (e.g.
+//   `order-fulfillment-{orderId}`) + WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE
+//   so caller retries dedupe instead of starting duplicate workflows per
+//   checkout retry (was `${type}-${Date.now()}-${rand}` — always unique).
+// - Explicit start RPC retry policy with maximumAttempts (bounded retries).
+const WORKFLOW_START_MAX_ATTEMPTS = 5;
+
 export async function startWorkflow(
   workflowType: string,
   input: Record<string, unknown>,
@@ -80,7 +91,10 @@ export async function startWorkflow(
     executionTimeout?: string;
   } = {}
 ): Promise<WorkflowStartResult> {
-  const workflowId = options.workflowId ?? `${workflowType}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const workflowId = options.workflowId
+    ?? (options.entityId
+      ? `${workflowType}-${options.entityId}` // deterministic → dedup on retry
+      : `${workflowType}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const db = await getDb();
 
   // Configured but not opted in for THIS workflow type: behave exactly as if Temporal were down
@@ -96,6 +110,10 @@ export async function startWorkflow(
         workflowId,
         args: [input],
         workflowExecutionTimeout: options.executionTimeout ?? "7 days",
+        // PERF-SC-15: reject duplicate starts of an existing workflowId
+        workflowIdReusePolicy: "WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE",
+        // PERF-SC-15: bounded start-RPC retry policy
+        retry: { maximumAttempts: WORKFLOW_START_MAX_ATTEMPTS },
       });
       const runId: string = handle.firstExecutionRunId;
       // Persist to DB
@@ -116,6 +134,12 @@ export async function startWorkflow(
       return { workflowId, runId, started: true };
     }
   } catch (err: any) {
+    // PERF-SC-15: a duplicate start is NOT an error — report dedup honestly.
+    const msg: string = err?.message ?? "";
+    if (/already started|WorkflowExecutionAlreadyStarted|already exists/i.test(msg)) {
+      console.info(`[Temporal] Dedup: ${workflowType} workflowId=${workflowId} already running`);
+      return { workflowId, runId: "", started: false, error: "duplicate_workflow_id" };
+    }
     console.warn(`[Temporal] Failed to start ${workflowType}:`, err.message);
   }
 

@@ -539,10 +539,15 @@ export async function confirmProviderPayment(
     // the ledger settle in case an earlier attempt failed (see settleIntentLedger).
     await settleLedgerNow();
     await ensureEscrowHoldOnReplay();
-    await maybeCreditWalletTopUp();
-    await maybeApplyCreditRepayment();
-    await maybeSettlePoPayment();
-    await maybeMarkInvoicePaid();
+    // === W48 PERF-API-2: the four maybe* hooks are independent (each is
+    // claim-first/idempotent and never throws into the confirm path), so run
+    // them in parallel instead of serially. Money semantics unchanged. ===
+    await Promise.allSettled([
+      maybeCreditWalletTopUp(),
+      maybeApplyCreditRepayment(),
+      maybeSettlePoPayment(),
+      maybeMarkInvoicePaid(),
+    ]);
     return { ok: true, action: "already-completed" };
   }
   let transitioned = false;
@@ -568,10 +573,13 @@ export async function confirmProviderPayment(
     // Lost a race with a concurrent webhook delivery — already handled.
     await settleLedgerNow();
     await ensureEscrowHoldOnReplay();
-    await maybeCreditWalletTopUp();
-    await maybeApplyCreditRepayment();
-    await maybeSettlePoPayment();
-    await maybeMarkInvoicePaid();
+    // === W48 PERF-API-2: parallel hooks (see note above). ===
+    await Promise.allSettled([
+      maybeCreditWalletTopUp(),
+      maybeApplyCreditRepayment(),
+      maybeSettlePoPayment(),
+      maybeMarkInvoicePaid(),
+    ]);
     return { ok: true, action: "already-completed" };
   }
   // ── Drive order confirmation + escrow hold creation (either path) ─────────
@@ -668,37 +676,53 @@ export async function confirmProviderPayment(
     // Digital receipt to the buyer (additive, non-throwing): exact figures
     // from the confirmed order row — business name, itemized lines, discount,
     // delivery fee, total paid, payment ref, delivery PIN, tracking link.
-    try {
-      // Delivery-fulfillment orders get a shipment (+ fresh PIN) created right here, right after
-      // payment — see ensureDeliveryShipment's own comment for why nothing did this before.
-      const freshPin = await ensureDeliveryShipment(db, orderId, tenantId);
-      const { sendOrderReceipt } = await import("./receipts");
-      const receipt = await sendOrderReceipt(db, orderId, reference, freshPin);
-      if (!receipt.sent) {
-        console.warn(`[payment-confirm] receipt skipped for order ${orderId}: ${receipt.reason}`);
+    // Delivery-fulfillment orders get a shipment (+ fresh PIN) created right here, right after payment — see
+    // ensureDeliveryShipment's own comment for why nothing did this before (QA-061). Awaited synchronously
+    // (unlike the receipt send below): it's a local DB insert, not the external API call PERF-API-2 is about,
+    // and the receipt needs its freshPin result before it can be composed. Never throws (own internal try/catch).
+    const freshPin = await ensureDeliveryShipment(db, orderId, tenantId);
+    // === W48 PERF-API-2: the receipt send is an external Meta API call —
+    // run it POST-COMMIT / fire-and-forget so it no longer sits in-band on
+    // the webhook ack / buyer confirm path. The payment + order state are
+    // already committed above; a receipt failure was never blocking (the
+    // catch below only logged) so this changes no money semantics. ===
+    void (async () => {
+      try {
+        const { sendOrderReceipt } = await import("./receipts");
+        const receipt = await sendOrderReceipt(db, orderId, reference, freshPin);
+        if (!receipt.sent) {
+          console.warn(`[payment-confirm] receipt skipped for order ${orderId}: ${receipt.reason}`);
+        }
+      } catch (err: any) {
+        console.error(`[payment-confirm] receipt send failed for order ${orderId}:`, err?.message);
+        captureException(err, {
+          service: "paymentConfirm",
+          operation: "receiptSend",
+          tenantId,
+          severity: "warn",
+          extra: { orderId, reference },
+        });
       }
-    } catch (err: any) {
-      console.error(`[payment-confirm] receipt send failed for order ${orderId}:`, err?.message);
-      captureException(err, {
-        service: "paymentConfirm",
-        operation: "receiptSend",
-        tenantId,
-        severity: "warn",
-        extra: { orderId, reference },
-      });
-    }
+    })();
+    // === END W48 PERF-API-2 (receipt post-commit) ===
 
     await ensureEscrowHold(orderId);
   }
 
-  // Credit the merchant wallet for wallet_topup payment intents (idempotent).
-  await maybeCreditWalletTopUp();
-  // Apply the trade-credit repayment for credit_repayment intents (dedupe-guarded).
-  await maybeApplyCreditRepayment();
-  // Settle paynow purchase orders for po_payment intents (idempotent).
-  await maybeSettlePoPayment();
-  // Mark the invoice paid for invoice_payment intents (idempotent).
-  await maybeMarkInvoicePaid();
+  // === W48 PERF-API-2: run the four independent maybe* hooks in parallel
+  // (Promise.allSettled). Each is claim-first/idempotent and handles its own
+  // errors — money semantics (claim-first, idempotency,
+  // verify-before-compensate) are unchanged. ===
+  await Promise.allSettled([
+    // Credit the merchant wallet for wallet_topup payment intents (idempotent).
+    maybeCreditWalletTopUp(),
+    // Apply the trade-credit repayment for credit_repayment intents (dedupe-guarded).
+    maybeApplyCreditRepayment(),
+    // Settle paynow purchase orders for po_payment intents (idempotent).
+    maybeSettlePoPayment(),
+    // Mark the invoice paid for invoice_payment intents (idempotent).
+    maybeMarkInvoicePaid(),
+  ]);
 
   // Transactional outbox: enqueue Medusa/Odoo sync for the confirmed order.
   // Enqueue failures are logged but never fail the payment confirmation.

@@ -37,7 +37,9 @@ func main() {
 		GroupID:        envOr("KAFKA_GROUP_ID", "notification-service-v1"),
 		DispatchTopic:  envOr("KAFKA_TOPIC_DISPATCH", "notifications.dispatch"),
 		DLQTopic:       envOr("KAFKA_TOPIC_DLQ", "notifications.dlq"),
-		RedisURL:       envOr("REDIS_URL", "redis://localhost:6379/0"),
+		// === W48 sidecars (PERF-SC-16) === ns:idem:* idempotency keys go to
+		// the noeviction instance when REDIS_DURABLE_URL is set.
+		RedisURL:       envOr("REDIS_DURABLE_URL", envOr("REDIS_URL", "redis://localhost:6379/0")),
 		NotifyURL:      os.Getenv("NOTIFY_URL"), // required — no default target
 		InternalAPIKey: os.Getenv("INTERNAL_API_KEY"),
 		MaxAttempts:    maxAttempts,

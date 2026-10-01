@@ -1,0 +1,8 @@
+{
+  "id": "J519",
+  "title": "Ollama timeout fails open; tenant opt-out disables generation",
+  "feature": "W50 IMAGES: bounded timeout + fail-open + tenant opt-out",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

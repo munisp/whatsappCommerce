@@ -194,15 +194,16 @@ async function logSend(opts: LogSendOpts, outcome: {
   errorText?: string | null;
   /** Failure classification — retriable failures get a nextRetryAt. */
   failureClass?: WaFailureClass;
-}): Promise<void> {
-  if (opts.skipLog) return;
+}): Promise<string | null> {
+  if (opts.skipLog) return null;
   try {
     const db = await getDb();
-    if (!db) return;
+    if (!db) return null;
     const now = new Date();
+    const id = crypto.randomUUID();
     const retriable = outcome.status === "failed" && (outcome.failureClass ?? "permanent") === "retriable";
     await db.insert(whatsappNotificationLog).values({
-      id: crypto.randomUUID(),
+      id,
       userId: opts.userId ?? null,
       orderId: opts.orderId ?? null,
       tenantId: opts.tenantId,
@@ -220,10 +221,53 @@ async function logSend(opts: LogSendOpts, outcome: {
       nextRetryAt: retriable ? new Date(now.getTime() + retryBackoffMs(1)) : null,
       statusTimestamps: outcome.status === "sent" ? { sent: now.toISOString() } : null,
     });
+    return id;
   } catch (e: any) {
     console.warn("[waSender] notification log insert failed:", e?.message);
+    return null;
   }
 }
+
+// === W50 SMS failover (W50 SMS) ===
+/**
+ * WA→SMS failover consumer for the smsFailoverEnabled tenant flag
+ * (previously written by routers/tenant.ts + routers/whatsappMedia.ts with
+ * NO consumer). On a PERMANENT WA text-send failure (recipient invalid /
+ * number not on WhatsApp / other non-retriable 4xx), fall back to SMS with
+ * the same text body. Fail-open: a failover error never masks the original
+ * WA failure. Idempotent: deduped by the WA notification-log row id via
+ * smsSender.smsAlreadySent.
+ */
+async function maybeFailoverToSms(opts: {
+  tenantId: string;
+  toPhone: string;
+  body: string;
+  notifType: string;
+  failureClass: WaFailureClass;
+  waLogId: string | null;
+}): Promise<void> {
+  if (opts.failureClass !== "permanent") return;
+  try {
+    const db = await getDb();
+    if (!db) return;
+    const [t] = await db
+      .select({ smsFailoverEnabled: tenants.smsFailoverEnabled })
+      .from(tenants)
+      .where(eq(tenants.id, opts.tenantId))
+      .limit(1);
+    if (!t?.smsFailoverEnabled) return;
+    const failoverKey = opts.waLogId ?? `${opts.tenantId}:${opts.toPhone}:${opts.notifType}`;
+    const sms = await import("./smsSender");
+    if (await sms.smsAlreadySent(opts.tenantId, failoverKey)) return;
+    const res = await sms.sendSms(opts.tenantId, opts.toPhone, sms.stripSmsChrome(opts.body) || opts.body, {
+      idempotencyKey: failoverKey,
+    });
+    console.info(`[waSender] WA permanent failure → SMS failover (${opts.tenantId}, sent=${res.sent}, simulated=${res.simulated})`);
+  } catch (e: any) {
+    console.warn("[waSender] SMS failover failed (fail-open):", e?.message);
+  }
+}
+// === END W50 SMS failover ===
 
 /**
  * Send a free-text WhatsApp message to a phone number as a tenant.
@@ -288,20 +332,30 @@ export async function sendWhatsAppText(
         errorText: String(netErr?.message ?? netErr).slice(0, 1000),
         failureClass: "retriable",
       });
-      throw new Error(`WhatsApp send failed (network): ${netErr?.message ?? netErr}`);
+      const err = new Error(`WhatsApp send failed (network): ${netErr?.message ?? netErr}`) as Error & { httpStatus?: number | null; failureClass?: WaFailureClass };
+      err.httpStatus = null;
+      err.failureClass = "retriable";
+      throw err;
     }
 
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
       console.error(`[waSender] API error ${res.status}: ${errBody}`);
       await noteBanSignal(tenantId, creds, res.status, errBody); // W45 MSG-25
-      await logSend(logBase, {
+      const failureClass = classifyWaSendError(res.status);
+      const waLogId = await logSend(logBase, {
         status: "failed",
         failReason: `Graph API ${res.status}: ${errBody.slice(0, 500)}`,
         errorText: errBody.slice(0, 1000),
-        failureClass: classifyWaSendError(res.status),
+        failureClass,
       });
-      throw new Error(`WhatsApp send failed (${res.status}): ${errBody.slice(0, 200)}`);
+      // === W50 SMS failover === permanent failure (recipient invalid / not
+      // on WhatsApp) falls back to SMS when the tenant flag is enabled.
+      await maybeFailoverToSms({ tenantId, toPhone: to, body: chunk, notifType, failureClass, waLogId });
+      const err = new Error(`WhatsApp send failed (${res.status}): ${errBody.slice(0, 200)}`) as Error & { httpStatus?: number | null; failureClass?: WaFailureClass };
+      err.httpStatus = res.status;
+      err.failureClass = failureClass;
+      throw err;
     }
 
     const data = (await res.json().catch(() => ({}))) as any;
@@ -347,16 +401,29 @@ export interface WaInteractiveListSection {
   rows: WaInteractiveListRow[];
 }
 
+// === W49 RICHMEDIA (RICH-1/RICH-7) ===
 export type WaInteractiveAction =
   | { type: "button"; buttons: WaInteractiveButton[] }
-  | { type: "list"; buttonLabel?: string; sections: WaInteractiveListSection[] };
+  | { type: "list"; buttonLabel?: string; sections: WaInteractiveListSection[] }
+  /**
+   * RICH-7: Call-To-Action URL button — a single "Pay now"-style button that
+   * opens `url`. Cloud API shape: interactive.type="cta_url",
+   * action={name:"cta_url",parameters:{display_text,url}}.
+   */
+  | { type: "cta_url"; displayText: string; url: string };
 
 export interface SendInteractiveInput {
   headerText?: string;
+  /**
+   * RICH-1: image header for a one-message product card. Mutually exclusive
+   * with headerText (an interactive header is a single element).
+   */
+  headerImage?: { link: string } | { mediaId: string };
   bodyText: string;
   footerText?: string;
   action: WaInteractiveAction;
 }
+// === END W49 RICHMEDIA ===
 
 function truncate(text: string, limit: number): string {
   return text.length > limit ? text.slice(0, limit - 1).trimEnd() + "…" : text;
@@ -373,12 +440,39 @@ export function buildInteractivePayload(input: SendInteractiveInput): Record<str
     type: input.action.type,
     body: { text: truncate(input.bodyText, WA_INTERACTIVE_BODY_LIMIT) },
   };
-  if (input.headerText?.trim()) {
+  // === W49 RICHMEDIA (RICH-1): image header support ===
+  if (input.headerImage) {
+    const hi = input.headerImage as { link?: string; mediaId?: string };
+    if (hi.link?.trim()) {
+      interactive.header = { type: "image", image: { link: hi.link.trim() } };
+    } else if (hi.mediaId?.trim()) {
+      interactive.header = { type: "image", image: { id: hi.mediaId.trim() } };
+    } else {
+      throw new Error("headerImage requires link or mediaId");
+    }
+  } else if (input.headerText?.trim()) {
     interactive.header = { type: "text", text: truncate(input.headerText.trim(), WA_HEADER_TEXT_LIMIT) };
   }
+  // === END W49 RICHMEDIA ===
   if (input.footerText?.trim()) {
     interactive.footer = { text: truncate(input.footerText.trim(), WA_FOOTER_TEXT_LIMIT) };
   }
+  // === W49 RICHMEDIA (RICH-7): cta_url action ===
+  if (input.action.type === "cta_url") {
+    if (!input.action.url?.trim() || !/^https:\/\//.test(input.action.url.trim())) {
+      throw new Error("cta_url interactive requires an absolute https url");
+    }
+    interactive.type = "cta_url";
+    interactive.action = {
+      name: "cta_url",
+      parameters: {
+        display_text: truncate(input.action.displayText.trim() || "Open", WA_BUTTON_TITLE_LIMIT),
+        url: input.action.url.trim(),
+      },
+    };
+    return interactive;
+  }
+  // === END W49 RICHMEDIA ===
   if (input.action.type === "button") {
     const buttons = input.action.buttons ?? [];
     if (buttons.length === 0) throw new Error("button interactive message requires at least 1 button");
@@ -421,8 +515,9 @@ export function buildInteractivePayload(input: SendInteractiveInput): Record<str
 
 // ── Media messages (image / document) ───────────────────────────────────────
 
+// === W49 RICHMEDIA (RICH-13): video/audio media types ===
 export interface SendMediaInput {
-  type: "image" | "document";
+  type: "image" | "document" | "video" | "audio";
   /** Public URL of the media — XOR with mediaId. */
   link?: string;
   /** Previously uploaded Cloud API media id — XOR with link. */
@@ -434,14 +529,15 @@ export interface SendMediaInput {
 
 /** Build the Cloud API media object ({ link | id, caption?, filename? }). */
 export function buildMediaPayload(input: SendMediaInput): Record<string, unknown> {
-  if (input.type !== "image" && input.type !== "document") {
+  // === W49 RICHMEDIA (RICH-13): audio/video allowed (audio has no caption/filename) ===
+  if (!["image", "document", "video", "audio"].includes(input.type)) {
     throw new Error(`unsupported media type: ${(input as SendMediaInput).type}`);
   }
   const hasLink = !!input.link?.trim();
   const hasId = !!input.mediaId?.trim();
   if (hasLink === hasId) throw new Error("media message requires exactly one of link or mediaId");
   const media: Record<string, unknown> = hasLink ? { link: input.link!.trim() } : { id: input.mediaId!.trim() };
-  if (input.caption?.trim()) media.caption = truncate(input.caption.trim(), WA_INTERACTIVE_BODY_LIMIT);
+  if (input.type !== "audio" && input.caption?.trim()) media.caption = truncate(input.caption.trim(), WA_INTERACTIVE_BODY_LIMIT);
   if (input.type === "document" && input.filename?.trim()) media.filename = input.filename.trim();
   return media;
 }
@@ -565,6 +661,67 @@ export async function sendWhatsAppMedia(
     opts,
   );
 }
+
+// === W49 RICHMEDIA (RICH-4): catalog product_list messages ===
+export interface SendProductListInput {
+  /** Meta catalog id (from metaCatalog.getMetaCatalogConfig). */
+  catalogId: string;
+  headerText?: string;
+  bodyText: string;
+  footerText?: string;
+  /** ≤10 sections; each ≤10 product retailer ids (Meta caps: 30 items total). */
+  sections: Array<{ title?: string; productRetailerIds: string[] }>;
+}
+
+/** Build the Cloud API interactive product_list object (cap-enforcing). */
+export function buildProductListPayload(input: SendProductListInput): Record<string, unknown> {
+  if (!input.catalogId?.trim()) throw new Error("product_list requires catalogId");
+  if (!input.bodyText?.trim()) throw new Error("product_list requires bodyText");
+  const sections = input.sections ?? [];
+  if (sections.length === 0) throw new Error("product_list requires at least 1 section");
+  let total = 0;
+  return {
+    type: "product_list",
+    ...(input.headerText?.trim() ? { header: { type: "text", text: truncate(input.headerText.trim(), WA_HEADER_TEXT_LIMIT) } } : {}),
+    body: { text: truncate(input.bodyText, WA_INTERACTIVE_BODY_LIMIT) },
+    ...(input.footerText?.trim() ? { footer: { text: truncate(input.footerText.trim(), WA_FOOTER_TEXT_LIMIT) } } : {}),
+    action: {
+      catalog_id: input.catalogId.trim(),
+      sections: sections.map((s) => {
+        const ids = (s.productRetailerIds ?? []).filter((x) => x?.trim());
+        if (ids.length === 0) throw new Error("product_list section requires ≥1 product_retailer_id");
+        if (ids.length > WA_LIST_ROWS_MAX) throw new Error(`product_list section supports ≤${WA_LIST_ROWS_MAX} items (got ${ids.length})`);
+        total += ids.length;
+        if (total > 30) throw new Error("product_list supports ≤30 items total");
+        return {
+          ...(s.title?.trim() ? { title: truncate(s.title.trim(), WA_LIST_ROW_TITLE_LIMIT) } : {}),
+          product_items: ids.map((id) => ({ product_retailer_id: id.trim() })),
+        };
+      }),
+    },
+  };
+}
+
+/**
+ * Send a WhatsApp catalog product_list message (multi-product card with
+ * images pulled from the tenant's synced Meta catalog — see metaCatalog.ts).
+ */
+export async function sendWhatsAppProductList(
+  tenantId: string,
+  toPhone: string,
+  input: SendProductListInput,
+  opts?: SendOpts,
+): Promise<SendTemplateResult> {
+  const interactive = buildProductListPayload(input);
+  return deliverWaPayload(
+    tenantId,
+    toPhone,
+    { type: "interactive", interactive },
+    { notifType: opts?.notifType ?? "product_list", simulationNote: "interactive:product_list" },
+    opts,
+  );
+}
+// === END W49 RICHMEDIA ===
 
 /**
  * Send a WhatsApp *template* message (required outside the 24h customer

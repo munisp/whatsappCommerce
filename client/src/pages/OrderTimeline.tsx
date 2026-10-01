@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { useCallback, useRef, useState } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { usePollInterval } from "@/hooks/usePollInterval";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -265,10 +266,12 @@ const MSG_TYPE_ICON: Record<string, React.ElementType> = {
 };
 
 function CustomerRepliesPanel({ orderId }: { orderId: string }) {
+  // W48 PERF-FE-5: visibility-gated polling
+  const timelinePoll = usePollInterval(30_000);
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.whatsappNotifications.getCustomerReplies.useQuery(
     { orderId },
-    { refetchInterval: 30_000 }
+    { refetchInterval: timelinePoll }
   );
   const markRead = trpc.whatsappNotifications.markReplyRead.useMutation({
     onSuccess: () => {
@@ -624,6 +627,10 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
                           <img
                             src={reply.mediaUrl}
                             alt="Customer image"
+                            width={240}
+                            height={128}
+                            loading="lazy"
+                            decoding="async"
                             className="max-h-32 max-w-[240px] rounded border border-border object-contain cursor-zoom-in hover:opacity-90 transition-opacity"
                           />
 
@@ -685,6 +692,10 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
                   <img
                     src={attachment.previewUrl}
                     alt="Attachment preview"
+                    width={48}
+                    height={48}
+                    loading="lazy"
+                    decoding="async"
                     className="h-12 w-12 rounded object-cover border border-border"
                   />
                 ) : (
@@ -947,6 +958,9 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
               <img
                 src={pendingDropPreview}
                 alt="File preview"
+                height={192}
+                loading="lazy"
+                decoding="async"
                 className="w-full max-h-48 object-contain rounded-lg border border-border bg-muted"
               />
             ) : (
@@ -1050,6 +1064,8 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
             <img
               src={lightboxUrl}
               alt="Customer image"
+              loading="lazy"
+              decoding="async"
               className="max-h-[80vh] w-auto mx-auto rounded object-contain"
             />
           )}

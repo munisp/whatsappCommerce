@@ -718,6 +718,9 @@ export async function resetGeoDiscovery(world: World): Promise<void> {
   await world.db.delete(schema.merchantLocations).catch(() => {});
   await world.db.delete(schema.productTaxonomy)
     .where(like(schema.productTaxonomy.id, "geo-sim-%")).catch(() => {});
+  // === W50 CHANNELS === seedDiscoverableMerchant products are hermetic too.
+  await world.db.delete(schema.products)
+    .where(like(schema.products.id, "w50-%")).catch(() => {});
 }
 
 /** Give a tenant an approved KYB application (discovery gates on it). */
@@ -758,3 +761,43 @@ export async function seedOrderForInitiate(
     paymentStatus: "unpaid",
   });
 }
+
+// === W50 CHANNELS ===
+/**
+ * Seed a discoverable merchant location (+ optional product in a category)
+ * for geo-discovery journeys. KYB-approved, discoverable, hermetic (call
+ * resetGeoDiscovery first).
+ */
+export async function seedDiscoverableMerchant(
+  world: World,
+  tenantId: string,
+  opts: { lat: number; lng: number; addressLine?: string; city?: string; serviceRadiusKm?: number; category?: string; productName?: string },
+): Promise<void> {
+  await approveKyb(world, tenantId);
+  const merchant = await tenantCaller(tenantId);
+  await merchant.geo.merchant.setLocation({
+    label: "Sim Branch",
+    latitude: opts.lat,
+    longitude: opts.lng,
+    addressLine: opts.addressLine ?? "1 Sim Way",
+    city: opts.city ?? "Lagos",
+    country: "Nigeria",
+    serviceRadiusKm: opts.serviceRadiusKm ?? 50,
+  });
+  await merchant.geo.merchant.setDiscoverable({ discoverable: true });
+  if (opts.category && opts.productName) {
+    const schema = await import("../../drizzle/schema");
+    await world.db.insert(schema.products).values({
+      id: `w50-${tenantId}-${opts.category}`.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 36),
+      tenantId,
+      sku: `W50-${opts.category}`.toUpperCase().slice(0, 60),
+      name: opts.productName,
+      price: "100.00",
+      currency: "NGN",
+      category: opts.category,
+      status: "active",
+      stockQuantity: 10,
+    }).onConflictDoNothing();
+  }
+}
+// === END W50 CHANNELS ===

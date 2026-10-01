@@ -190,6 +190,11 @@ export const tenantRouter = router({
         webhookVerifyToken: input.verifyToken,
         settings,
       });
+      // W48 (PERF-INT-6): invalidate the cached phone_number_id → tenant
+      // lookup for BOTH the old and new ids (reassignment).
+      const { invalidateWaTenantLookupPair } = await import("../services/waTenantLookup");
+      await invalidateWaTenantLookupPair(t.whatsappPhoneNumberId ?? null, input.phoneNumberId)
+        .catch(() => { /* cache invalidation is best-effort */ });
       // W40 (TEN-4): channel-config changes are security-relevant — audit.
       await writeAuditLog({
         actorId: String(ctx.user.id),

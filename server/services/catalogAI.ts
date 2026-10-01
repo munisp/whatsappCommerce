@@ -395,12 +395,48 @@ export function centsToDecimal(priceCents: number): string {
   return (priceCents / 100).toFixed(2);
 }
 
+// === W50 IMAGES ===
+export interface PublishDraftDeps {
+  /** Object-storage put (defaults to storagePut; journeys inject a spy). */
+  putImpl?: (key: string, data: Buffer, contentType: string) => Promise<{ key: string; url: string }>;
+}
+
+/**
+ * W50 IMAGES (Coder C, Q2c P0): a merchant's own WhatsApp product photo must
+ * survive publish. Photo drafts carry mediaId; download via the existing
+ * downloadWaMedia seam and mirror into the public product-images namespace.
+ * Returns the app-relative /api/storage/... URL (W49 publicMediaUrl
+ * absolutizes at send time) or null — never throws.
+ */
+export async function preserveDraftPhoto(
+  draft: Pick<CatalogAiDraft, "tenantId" | "mediaId" | "source">,
+  productId: string,
+  deps?: PublishDraftDeps,
+): Promise<string | null> {
+  try {
+    if (draft.source !== "photo" || !draft.mediaId) return null;
+    const downloaded = await downloadWaMedia(draft.tenantId, draft.mediaId);
+    if (!downloaded) return null;
+    const mime = downloaded.mimeType || "image/jpeg";
+    const ext = (mime.split("/")[1] ?? "jpg").split(";")[0].replace("jpeg", "jpg");
+    const key = `product-images/${draft.tenantId}/${productId}.${ext}`;
+    const put = deps?.putImpl ?? (await import("../storage")).storagePut;
+    const stored = await put(key, downloaded.buffer, mime);
+    return stored.url ?? `/api/storage/${key}`;
+  } catch (e: any) {
+    console.warn("[catalogAI] draft photo preservation failed (fail-open):", e?.message ?? e);
+    return null;
+  }
+}
+// === END W50 IMAGES ===
+
 /** Publish a draft into the products catalog. Idempotent per draft. */
 export async function publishDraft(
   db: Db,
   draftId: string,
   actor: string,
   overrides?: { name?: string; description?: string; category?: string; priceCents?: number },
+  deps?: PublishDraftDeps,
 ): Promise<{ ok: boolean; productId?: string; error?: string }> {
   const [draft] = await db.select().from(catalogAiDrafts).where(eq(catalogAiDrafts.id, draftId)).limit(1);
   if (!draft) return { ok: false, error: "not_found" };
@@ -417,6 +453,9 @@ export async function publishDraft(
   const category = overrides?.category ?? draft.category ?? null;
 
   const productId = `ai-${draft.id.slice(0, 8)}`;
+  // === W50 IMAGES === merchant's own WA photo is preserved (Q2c P0) before insert.
+  const imageUrl = await preserveDraftPhoto(draft, productId, deps);
+  // === END W50 IMAGES ===
   await db.insert(products).values({
     id: productId,
     tenantId: draft.tenantId,
@@ -426,10 +465,30 @@ export async function publishDraft(
     category,
     price: centsToDecimal(priceCents),
     currency: draft.currency,
+    // === W50 IMAGES ===
+    imageUrl,
+    // === END W50 IMAGES ===
     status: "active",
     stockQuantity: 0,
-    metadata: { source: "catalog_ai", draftId: draft.id, aiSource: draft.source },
+    metadata: {
+      source: "catalog_ai",
+      draftId: draft.id,
+      aiSource: draft.source,
+      // === W50 IMAGES === provenance for send-path/UI badging (NDPR).
+      ...(imageUrl ? { imageSource: "wa-photo" as const } : {}),
+      // === END W50 IMAGES ===
+    },
   }).onConflictDoNothing();
+
+  // === W50 IMAGES === no merchant photo → local Ollama Qwen generation
+  // (fail-open; bounded by OLLAMA_IMAGE_TIMEOUT_MS; tenant opt-out honored).
+  if (!imageUrl) {
+    const { maybeGenerateProductImage } = await import("./productImageGen");
+    await maybeGenerateProductImage(db, {
+      tenantId: draft.tenantId, productId, name, description,
+    }, { putImpl: deps?.putImpl });
+  }
+  // === END W50 IMAGES ===
 
   await db.update(catalogAiDrafts).set({
     status: "published",

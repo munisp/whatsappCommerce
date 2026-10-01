@@ -1,7 +1,7 @@
 {
   "id": "J469",
-  "title": "telegram is off unless TELEGRAM_ENABLED is exactly true; suspended tenant leaks nothing",
-  "feature": "W37 telegram: global kill switch + closed-tenant fail-closed",
+  "title": "journeys.enroll batched (PERF-API-3)",
+  "feature": "inArray select + bulk frequency-cap + chunked multi-row insert; tenant scoping + phone filter preserved",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
   "messages": []

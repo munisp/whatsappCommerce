@@ -147,21 +147,22 @@ export const templateRouter = router({
       // Auto-seed defaults if empty
       const count = await db.select({ c: sql<number>`count(*)` }).from(whatsappTemplates).where(eq(whatsappTemplates.tenantId, tenantId));
       if (Number(count[0]?.c ?? 0) === 0) {
-        for (const t of DEFAULT_TEMPLATES) {
-          await db.insert(whatsappTemplates).values({
-            id: nanoid(),
-            tenantId,
-            name: t.name,
-            category: t.category,
-            language: t.language,
-            headerText: t.headerText,
-            bodyText: t.bodyText,
-            footerText: t.footerText,
-            variables: t.variables as any,
-            buttons: t.buttons as any,
-            isActive: true,
-          });
-        }
+        // === W48 PERF-API-13 (api-db): one multi-row insert instead of a
+        // per-template serial insert loop. ===
+        await db.insert(whatsappTemplates).values(DEFAULT_TEMPLATES.map((t) => ({
+          id: nanoid(),
+          tenantId,
+          name: t.name,
+          category: t.category,
+          language: t.language,
+          headerText: t.headerText,
+          bodyText: t.bodyText,
+          footerText: t.footerText,
+          variables: t.variables as any,
+          buttons: t.buttons as any,
+          isActive: true,
+        })));
+        // === END W48 ===
       }
 
       const conditions = [eq(whatsappTemplates.tenantId, tenantId)];

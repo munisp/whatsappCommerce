@@ -1,7 +1,7 @@
 /**
  * W26 security wave — unit tests for the authorization hardening:
  *  F8/F10: internalProcedure shared-secret gate (nlp.processMessage,
- *          channels.processUssd/Sms/Telegram, temporal.recordRun/updateStatus,
+ *          channels.processSms/Telegram, temporal.recordRun/updateStatus,
  *          infra.record*, deliveryReceipts.ingestStatusUpdate,
  *          heartbeat.inventorySync).
  *  F9:     alertRules mutations are admin-only.
@@ -48,7 +48,6 @@ afterAll(() => {
 describe("F8/F10: internalProcedure API-key gate", () => {
   const internalCalls: Array<[string, (caller: any) => Promise<unknown>]> = [
     ["nlp.processMessage", (c) => c.nlp.processMessage({ tenantId: "t1", waPhoneNumber: "+2348000000000", message: "hi" })],
-    ["channels.processUssd", (c) => c.channels.processUssd({ sessionId: "s1", phoneNumber: "+2348000000000", text: "" })],
     ["channels.processSms", (c) => c.channels.processSms({ from: "+2348000000000", to: "*384#", body: "hi" })],
     ["channels.processTelegram", (c) => c.channels.processTelegram({ updateId: 1, chatId: 2, from: "user" })],
     ["temporal.recordRun", (c) => c.temporal.recordRun({ workflowId: "w1", runId: "r1", workflowType: "t" })],

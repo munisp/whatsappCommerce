@@ -34,6 +34,38 @@ export interface PermifyCheckInput {
  *   - development/test: fail open with a warning so local dev doesn't require
  *     a running Permify instance.
  */
+// === W48 integrations (PERF-INT-5) ===
+// Read-through TTL cache for permission checks. The admin-plane check
+// (`user:N manage system:global`) is essentially static per user, yet every
+// adminProcedure call paid a Permify network RTT (p99 up to the 3s timeout).
+// Cache key = (subject, permission, entity); TTL default 45s
+// (PERMIFY_CHECK_CACHE_TTL_MS, clamped 30–60s per the audit band).
+//
+// Semantics preserved:
+//   - Cache HIT serves the cached verdict (both allow and deny are cached —
+//     only definitive answers from a successful Permify response enter the
+//     cache; errors/timeouts NEVER do).
+//   - Cache MISS + Permify down → exactly the pre-W48 fail-closed (prod) /
+//     fail-open (dev) behavior below.
+//   - Invalidation: any permifyWriteRelationship / permifyDeleteRelationship
+//     (membership/role writes) flushes the cache, so revocations take effect
+//     immediately rather than after TTL.
+const PERMIFY_CHECK_CACHE_TTL_MS = (() => {
+  const raw = Number(process.env.PERMIFY_CHECK_CACHE_TTL_MS ?? 45_000);
+  if (!Number.isFinite(raw) || raw <= 0) return 45_000;
+  return Math.min(60_000, Math.max(30_000, raw));
+})();
+const checkCache = new Map<string, { allowed: boolean; expiresAt: number }>();
+
+/** Test hook: wipe the check cache. */
+export function __clearPermifyCheckCache(): void {
+  checkCache.clear();
+}
+
+function checkCacheKey(input: PermifyCheckInput): string {
+  return `${input.subject.type}:${input.subject.id}${input.subject.relation ? `#${input.subject.relation}` : ""}|${input.permission}|${input.entity.type}:${input.entity.id}`;
+}
+
 export async function permifyCheck(input: PermifyCheckInput): Promise<boolean> {
   if (!process.env.PERMIFY_URL) {
     if (ENV.isProduction) {
@@ -41,6 +73,13 @@ export async function permifyCheck(input: PermifyCheckInput): Promise<boolean> {
       return false;
     }
     return true; // dev fallback
+  }
+  // W48 (PERF-INT-5): serve definitive cached verdicts inside the TTL.
+  const key = checkCacheKey(input);
+  const hit = checkCache.get(key);
+  if (hit) {
+    if (hit.expiresAt > Date.now()) return hit.allowed;
+    checkCache.delete(key);
   }
   try {
     const resp = await fetch(
@@ -59,7 +98,11 @@ export async function permifyCheck(input: PermifyCheckInput): Promise<boolean> {
     );
     if (!resp.ok) return false;
     const data = await resp.json() as { can?: string };
-    return data.can === "CHECK_RESULT_ALLOWED";
+    const allowed = data.can === "CHECK_RESULT_ALLOWED";
+    // Only definitive answers are cached (bounded map: flush when huge).
+    if (checkCache.size > 10_000) checkCache.clear();
+    checkCache.set(key, { allowed, expiresAt: Date.now() + PERMIFY_CHECK_CACHE_TTL_MS });
+    return allowed;
   } catch (err: any) {
     if (ENV.isProduction) {
       console.warn("[Permify] check errored in production — denying (fail closed):", err?.message);
@@ -79,6 +122,7 @@ export interface PermifyRelationship {
 /** Write (grant) a relationship tuple */
 export async function permifyWriteRelationship(rel: PermifyRelationship): Promise<void> {
   if (!process.env.PERMIFY_URL) return;
+  checkCache.clear(); // PERF-INT-5: membership/role write invalidates cached verdicts
   await fetch(`${BASE()}/v1/tenants/${TENANT()}/relationships/write`, {
     method: "POST",
     headers: headers(),
@@ -93,6 +137,7 @@ export async function permifyWriteRelationship(rel: PermifyRelationship): Promis
 /** Delete (revoke) a relationship tuple */
 export async function permifyDeleteRelationship(rel: PermifyRelationship): Promise<void> {
   if (!process.env.PERMIFY_URL) return;
+  checkCache.clear(); // PERF-INT-5: revocation invalidates cached verdicts immediately
   await fetch(`${BASE()}/v1/tenants/${TENANT()}/relationships/delete`, {
     method: "POST",
     headers: headers(),

@@ -252,3 +252,63 @@ export async function nextAllowedSendAtForTenant(
   } catch { /* defaults */ }
   return nextAllowedSendAt(db, { tenantId, phone, now, policy, skipQuietHours: opts.skipQuietHours });
 }
+
+// === W48 PERF-API-3 (api-db): bulk variant — ONE settings read + ONE
+// grouped marketing-sends query for N phones instead of 2 queries per phone
+// (journeys.enroll loops up to 500 customers). Scheduling semantics are
+// identical to nextAllowedSendAtForTenant per phone. ===
+export async function nextAllowedSendAtForTenantBulk(
+  db: DbLike,
+  tenantId: string,
+  phones: string[],
+  now: Date = new Date(),
+  opts: { skipQuietHours?: boolean } = {},
+): Promise<Map<string, Date>> {
+  const out = new Map<string, Date>();
+  const normalized = Array.from(new Set(phones.map((p) => normalizeWaPhone(p))));
+  let basePolicy = DEFAULT_MARKETING_FREQUENCY_POLICY;
+  try {
+    const res: any = await db.execute(sql`SELECT "settings" FROM tenants WHERE "id" = ${tenantId} LIMIT 1`);
+    const rows: any[] = Array.isArray(res) ? res : (res?.rows ?? []);
+    basePolicy = parseMarketingFrequencyPolicy(rows[0]?.settings);
+  } catch { /* defaults */ }
+  const policy = opts.skipQuietHours ? withoutQuietHours(basePolicy) : basePolicy;
+
+  const sendsByPhone = new Map<string, Date[]>();
+  if (normalized.length > 0) {
+    try {
+      const cutoff = new Date(now.getTime() - policy.windowDays * 24 * 60 * 60_000);
+      // Chunk the IN list so a 500-phone enroll stays well under parameter
+      // limits even with other bindings present.
+      const CHUNK = 500;
+      for (let i = 0; i < normalized.length; i += CHUNK) {
+        const chunk = normalized.slice(i, i + CHUNK);
+        const res: any = await db.execute(sql`
+          SELECT "phone" AS phone, "sentAt" AS sent_at FROM whatsapp_notification_log
+          WHERE "tenantId" = ${tenantId}
+            AND "phone" IN (${sql.join(chunk.map((p) => sql`${p}`), sql`, `)})
+            AND "notifType" IN ('broadcast', 'journey_template')
+            AND "sentAt" IS NOT NULL
+            AND "sentAt" > ${cutoff.toISOString()}
+          ORDER BY "sentAt" ASC
+        `);
+        const rows: any[] = Array.isArray(res) ? res : (res?.rows ?? []);
+        for (const r of rows) {
+          const phone = typeof r?.phone === "string" ? normalizeWaPhone(r.phone) : null;
+          const d = r?.sent_at ? new Date(r.sent_at) : null;
+          if (!phone || !d || Number.isNaN(d.getTime())) continue;
+          const arr = sendsByPhone.get(phone) ?? [];
+          arr.push(d);
+          sendsByPhone.set(phone, arr);
+        }
+      }
+    } catch (e: any) {
+      console.warn("[frequencyCap] bulk marketing-send lookup failed (treating as none):", e?.message);
+      sendsByPhone.clear();
+    }
+  }
+  for (const p of normalized) {
+    out.set(p, computeNextAllowedSendAt(now, sendsByPhone.get(p) ?? [], policy));
+  }
+  return out;
+}

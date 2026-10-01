@@ -63,7 +63,7 @@ import { matchFaq, parseFaqSettings } from "../services/faq";
 import { buildReorder, buildReorderReply } from "../services/reorder";
 import { raiseChatDispute, buildDisputeReply } from "../services/chatDispute";
 import { touchCartMarker } from "../services/cartRecovery";
-import { localeFromSessionLanguage, tr, detectLocaleDetailed } from "../services/i18n";
+import { localeFromSessionLanguage, tr, t27, detectLocaleDetailed, getStickyLocale } from "../services/i18n";
 import { validatePromo, applyPromo } from "../services/promos";
 import { subscribeToWaitlist, unsubscribeFromWaitlist } from "../services/waitlist";
 import { toMinorUnitsExact, minorUnitsToString } from "../../shared/escrowAmounts";
@@ -535,25 +535,31 @@ export async function createChatOrder(
   const total = Number(minorUnitsToString(totalMinor));
   const currency = items[0].currency;
 
-  // ── Fraud gate: call /api/ml/predict before creating the order ──────
+  // ── Fraud gate: score before creating the order ──────────────────────
+  // === W48 integrations (PERF-INT-3) ===
+  // Was: synchronous self-HTTP POST to /api/ml/predict on our own Express
+  // server with NO timeout — a full loopback round-trip per order that
+  // self-amplified under load and could hang the order indefinitely.
+  // Now: direct in-process function call into the shared scoring module
+  // (services/mlPredict.ts — the SAME logic the /api/ml/predict route
+  // serves), with the ml-stack probe bounded at 800ms
+  // (INTEGRATION_TIMEOUTS.fraudGate) and a bounded fail-open: on
+  // timeout/error the in-process statistical heuristic scores the order
+  // instead, so the gate still runs but never stalls checkout.
   try {
-    const fraudResp = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/ml/predict`, {
-      method: "POST",
-      // === W34 otel-core === traceparent propagation on the internal ml call.
-      headers: injectTraceHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({
+    const { predictMlScore, INTEGRATION_TIMEOUTS } = await import("../services/mlPredict");
+    const fraudResult = await predictMlScore(
+      {
         tenantId: opts.tenantId,
         amount: total,
         phone: opts.waPhoneNumber,
         items: items.map(i => ({ productId: i.productId, qty: i.quantity })),
         customerId: opts.waPhoneNumber,
-      }),
-    });
-    if (fraudResp.ok) {
-      const fraudResult = await fraudResp.json() as { fraudProbability: number; riskLevel: string };
-      if (fraudResult.riskLevel === "high" || fraudResult.fraudProbability > 0.7) {
-        return { created: false, fraudBlocked: true, riskLevel: fraudResult.riskLevel };
-      }
+      },
+      { mlTimeoutMs: INTEGRATION_TIMEOUTS.fraudGate, traceHeaders: injectTraceHeaders({}) },
+    );
+    if (fraudResult.riskLevel === "high" || fraudResult.fraudProbability > 0.7) {
+      return { created: false, fraudBlocked: true, riskLevel: fraudResult.riskLevel };
     }
   } catch { /* fraud gate failure is non-blocking — allow order through */ }
 
@@ -824,22 +830,40 @@ export async function createChatOrder(
       // address format; a non-resolving placeholder domain like the old
       // "@wa.commerce" gets rejected with "Invalid Email Address Passed").
       const customerEmail = `${opts.waPhoneNumber.replace(/\D/g, "") || "customer"}@wa-app.newfire.app`;
+      // === W48 integrations (PERF-INT-11/13): bounded PSP initialize ===
+      // These raw fetches had NO timeout — during a PSP brownout the buyer
+      // waited 30s+ in-chat for a payment link. Now routed through the shared
+      // resilientFetch helper: 10s AbortController timeout + per-provider
+      // circuit breaker (fails fast while the PSP is down). The whole
+      // payment-link section stays best-effort (catch below) and the
+      // provider chain carries a hard overall deadline
+      // (PAYMENT_INITIATE_DEADLINE_MS) so the chat turn is never held
+      // hostage.
+      const { fetchJson, INTEGRATION_TIMEOUTS } = await import("../services/net/resilientFetch");
       if (provider === "paystack") {
-        const resp = await fetch("https://api.paystack.co/transaction/initialize", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${ENV.paystackSecretKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ email: customerEmail, amount: Math.round(chargeNowMajor * 100), currency, reference: txId, callback_url: callbackUrl }),
-        }).then(r => r.json()).catch((err: unknown) => { console.error(`[nlp] Paystack initialize request failed for order ${orderId}:`, (err as Error)?.message); return null; });
+        const resp = await fetchJson("https://api.paystack.co/transaction/initialize", {
+          integration: "paystack",
+          timeoutMs: INTEGRATION_TIMEOUTS.psp,
+          init: {
+            method: "POST",
+            headers: { Authorization: `Bearer ${ENV.paystackSecretKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ email: customerEmail, amount: Math.round(chargeNowMajor * 100), currency, reference: txId, callback_url: callbackUrl }),
+          },
+        }).then(r => r.data as any).catch((err: unknown) => { console.error(`[nlp] Paystack initialize request failed for order ${orderId}:`, (err as Error)?.message); return null; });
         if (resp && resp.status === false) {
           console.error(`[nlp] Paystack initialize rejected for order ${orderId}: ${resp.message ?? "unknown error"}`);
         }
         paymentUrl = resp?.data?.authorization_url ?? null;
       } else {
-        const resp = await fetch("https://api.flutterwave.com/v3/payments", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${ENV.flwSecretKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ tx_ref: txId, amount: chargeNowMajor, currency, redirect_url: callbackUrl, customer: { phone_number: opts.waPhoneNumber, email: customerEmail } }),
-        }).then(r => r.json()).catch((err: unknown) => { console.error(`[nlp] Flutterwave initialize request failed for order ${orderId}:`, (err as Error)?.message); return null; });
+        const resp = await fetchJson("https://api.flutterwave.com/v3/payments", {
+          integration: "flutterwave",
+          timeoutMs: INTEGRATION_TIMEOUTS.psp,
+          init: {
+            method: "POST",
+            headers: { Authorization: `Bearer ${ENV.flwSecretKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ tx_ref: txId, amount: chargeNowMajor, currency, redirect_url: callbackUrl, customer: { phone_number: opts.waPhoneNumber, email: customerEmail } }),
+          },
+        }).then(r => r.data as any).catch((err: unknown) => { console.error(`[nlp] Flutterwave initialize request failed for order ${orderId}:`, (err as Error)?.message); return null; });
         if (resp && resp.status === "error") {
           console.error(`[nlp] Flutterwave initialize rejected for order ${orderId}: ${resp.message ?? "unknown error"}`);
         }
@@ -893,20 +917,34 @@ const USSD_MENUS: Record<string, Record<string, string>> = {
     ha: "Barka da zuwa! Amsa:\n1. Duba kayayyaki\n2. Duba kwandon saye\n3. Duba oda\n4. Taimako",
     ig: "Nnọọ! Zaghachi:\n1. Lee ngwaahịa\n2. Lee ngọdo m\n3. Lelee ọrụ\n4. Enyemaka",
     pidgin: "Welcome! Reply:\n1. See products\n2. My cart\n3. Check order\n4. Help",
+    pcm: "How far! Reply:\n1. See products\n2. My cart\n3. Check order\n4. Help", // === W49 I18N-PCM ===
   },
   browse: {
     en: "Products menu:\n1. View all products\n2. Search by name\n3. View cart\n4. Back to main menu",
+    // === W49 I18N-PCM === fill missing browse states (I18N-9).
     pidgin: "Products:\n1. See all\n2. Search\n3. My cart\n4. Back",
+    pcm: "Products:\n1. See all\n2. Search\n3. My cart\n4. Back",
+    ha: "Menu kayayyaki:\n1. Duba dukkan kayayyaki\n2. Nema da suna\n3. Duba kwando\n4. Koma babban menu",
+    yo: "Menu ọjà:\n1. Wo gbogbo ọjà\n2. Wa ní orúkọ\n3. Wo àpò\n4. Padà sí menu gbangba",
+    ig: "Menu ngwaahịa:\n1. Lee ngwaahịa niile\n2. Chọọ site na aha\n3. Lee ngọdo\n4. Laghachi na menu isi",
   },
   checkout_address: {
     en: "Checkout:\n1. Enter delivery address\n2. Use saved address\n3. Cancel order",
+    // === W49 I18N-PCM === fill missing checkout_address states (I18N-9).
     pidgin: "Checkout:\n1. Enter address\n2. Saved address\n3. Cancel",
+    pcm: "Checkout:\n1. Enter address\n2. Saved address\n3. Cancel",
+    ha: "Biya:\n1. Shigar da adireshin isarwa\n2. Yi amfani da adireshin da aka adana\n3. Soke oda",
+    yo: "Ìsanwó:\n1. Tẹ àdírẹ́sì ìfíranṣẹ́ sílẹ̀\n2. Lo àdírẹ́sì tí a ti fipamọ́\n3. Fagi lé àṣẹ náà",
+    ig: "Ịkwụ ụgwọ:\n1. Tinye adreesị nnyefe\n2. Jiri adreesị echekwara\n3. Kagbuo ọrụ",
   },
 };
 
 function buildUssdMenu(state: string, lang: string): string {
   const menu = USSD_MENUS[state] ?? USSD_MENUS.greeting;
-  return menu[lang] ?? menu.en;
+  // === W49 I18N-PCM === sessions store language NAMES ("yoruba", "pidgin"…)
+  // but menu keys use locale codes — bridge via localeFromSessionLanguage so
+  // pcm/ha/yo/ig strings actually resolve (I18N-9/I18N-12).
+  return menu[lang] ?? menu[localeFromSessionLanguage(lang)] ?? menu.en;
 }
 
 // ── Multilingual fallback error messages ──────────────────────────────────────
@@ -1144,7 +1182,6 @@ export const nlpRouter = router({
       // sticky store in the first place, so it just kept whatever stale value (usually "english") it had
       // before the pick. `detectLanguage(text)` is now only the per-message fallback used when no sticky
       // lock is on file for this caller.
-      const { getStickyLocale } = await import("../services/i18n");
       const stickyLocale = await getStickyLocale(input.tenantId, sessionKey).catch(() => null);
       const detectedLang = stickyLocale ? (LOCALE_TO_NLP_LANGUAGE[stickyLocale] ?? "english") : detectLanguage(input.message);
       let session = existing[0];
@@ -1208,22 +1245,39 @@ export const nlpRouter = router({
       }
 
       // 2. Load tenant products for context
-      const tenantProducts = await db.select({
-        id: products.id,
-        name: products.name,
-        price: products.price,
-        currency: products.currency,
-        stockQuantity: products.stockQuantity,
-        description: products.description,
-        imageUrl: products.imageUrl,
-      }).from(products)
-        .where(and(eq(products.tenantId, input.tenantId), eq(products.status, "active")))
-        // Deterministic order: without one, LIMIT returns whichever 30 rows the query planner feels like, which
-        // silently drops products from what the assistant (LLM prompt AND the deterministic fallback's catalog
-        // listing) can ever mention once a tenant has more than 30 active products — found via a flaky-looking
-        // test failure that was actually this, not flakiness (J478 always failed in the full suite, never solo).
-        .orderBy(products.createdAt)
-        .limit(30);
+      // === W48 PERF-API-9 (api-db): Redis read-through cache for the
+      // per-tenant active-catalog context — previously a full SELECT on
+      // EVERY inbound chat message. Fail-open on miss; invalidated on
+      // product writes via the enqueueProductSync seam (routers/product.ts).
+      const tenantProducts = await (async () => {
+        const { cacheGetJson, cacheSetJson, cacheKeys, CATALOG_CTX_TTL_S } = await import("../services/readThroughCache");
+        const key = cacheKeys.catalogContext(input.tenantId);
+        const cached = await cacheGetJson<Array<{
+          id: string; name: string; price: string; currency: string;
+          stockQuantity: number; description: string | null; imageUrl: string | null;
+        }>>(key);
+        if (cached) return cached;
+        const rows = await db.select({
+          id: products.id,
+          name: products.name,
+          price: products.price,
+          currency: products.currency,
+          stockQuantity: products.stockQuantity,
+          description: products.description,
+          imageUrl: products.imageUrl,
+        }).from(products)
+          .where(and(eq(products.tenantId, input.tenantId), eq(products.status, "active")))
+          // Deterministic order: without one, LIMIT returns whichever 30 rows the query planner feels like, which
+          // silently drops products from what the assistant (LLM prompt AND the deterministic fallback's catalog
+          // listing) can ever mention once a tenant has more than 30 active products — found via a flaky-looking
+          // test failure that was actually this, not flakiness (J548 always failed in the full suite, never solo).
+          // Kept when W48 added the read-through cache below — the cache wraps this same query unchanged.
+          .orderBy(products.createdAt)
+          .limit(30);
+        await cacheSetJson(key, rows, CATALOG_CTX_TTL_S);
+        return rows;
+      })();
+      // === END W48 PERF-API-9 ===
 
       // 3. Load cart for context
       let cartSession = session.cartSessionId
@@ -1682,9 +1736,21 @@ export const nlpRouter = router({
               .where(eq(paymentTransactions.tenantId, input.tenantId))
               .orderBy(sql`${paymentTransactions.createdAt} DESC`)
               .limit(20);
+            // === W48 PERF-API-13 (api-db): batch the per-transaction order
+            // lookups into ONE inArray select; iteration order preserved. ===
+            const txOrderIds = Array.from(new Set(
+              candidates
+                .filter((tx) => tx.status === "completed" || tx.status === "success")
+                .map((tx) => tx.orderId)
+                .filter((id): id is string => !!id),
+            ));
+            const orderRows = txOrderIds.length > 0
+              ? await db.select().from(orders).where(inArray(orders.id, txOrderIds))
+              : [];
+            const orderById = new Map(orderRows.map((o) => [o.id, o]));
             for (const tx of candidates) {
               if (tx.status !== "completed" && tx.status !== "success") continue;
-              const [ord] = await db.select().from(orders).where(eq(orders.id, tx.orderId ?? "")).limit(1);
+              const ord = tx.orderId ? orderById.get(tx.orderId) : undefined;
               if (!ord || ord.customerId !== input.waPhoneNumber) continue;
               const saved = await tokensSvc.saveTokenFromPayment(db, {
                 tenantId: input.tenantId,
@@ -1844,7 +1910,8 @@ export const nlpRouter = router({
       {
         const { extractDiscoverQuery, resolveCategorySelection, formatDiscoveryMenu } =
           await import("../services/discoveryMenu");
-        const { discoverNearby, listCategories, defaultRadiusKm } =
+        // === W50 CHANNELS (B5) === widening wrapper retries ×2 radius on empty.
+        const { discoverNearbyWithWidening, listCategories, defaultRadiusKm } =
           await import("../services/geoDiscovery");
         const geoCtx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
         const lastDisc = geoCtx.lastDiscovery as { lat?: number; lng?: number; radiusKm?: number } | undefined;
@@ -1855,18 +1922,42 @@ export const nlpRouter = router({
           const cats = await listCategories(db).catch(() => [] as Awaited<ReturnType<typeof listCategories>>);
           category = resolveCategorySelection(input.message, cats);
         }
+        // === W50 CHANNELS (A3 + B1) ===
+        // Channel-aware location ask (Telegram native keyboard / typed area
+        // for USSD/SMS / WA pin) and the stale-center guard: when only the
+        // saved deliveryCoords exist (no fresh pin) the customer must
+        // confirm them first — settings.discovery.requireFreshPin (default
+        // true) gates the silent fallback.
+        const pendingDiscovery = geoCtx.discoveryPending as
+          { query?: string | null; category?: string | null } | undefined;
+        const dc = geoCtx.deliveryCoords as { latitude?: number; longitude?: number } | undefined;
+        const hasSavedCoords = typeof dc?.latitude === "number" && typeof dc?.longitude === "number";
+        const channel = (input.channel ?? "whatsapp").toLowerCase();
+        let confirmedStale = false;
+        let clearedPending = false;
+        if (pendingDiscovery && residual == null && category == null) {
+          if (/^(use\s+saved|use\s+my\s+saved|saved|yes|confirm)$/i.test(input.message.trim())) {
+            confirmedStale = true;
+          } else if (/^(no|cancel|never\s*mind)$/i.test(input.message.trim())) {
+            clearedPending = true;
+          }
+        }
 
-        // Found live 2026-09-26: a customer asked "what fast food restaurant is around me?", got the (correct)
-        // "share your location" prompt below, then replied with a TYPED place name ("I'm currently at yaba")
-        // instead of an actual location share. Nothing recognized that reply as a discovery follow-up (it doesn't
-        // say "near me" so extractDiscoverQuery returns null, and there's still no real pin), so it fell through
-        // all the way to the general LLM chat — which answered with real-world restaurant names (MacDonald's, KFC,
-        // Pizza Hut) that are not platform merchants at all. The bot must NEVER invent business data it doesn't
-        // have. This repo has no text→coordinates geocoder, so a typed place name genuinely can't be turned into
-        // real nearby results — the correct behavior is to say so plainly and ask again for a real location share,
-        // deterministically, never handing an unanswerable "what's near me" question to the free-chat LLM.
+        // QA-065, found live 2026-09-26: a customer asked "what fast food restaurant is around me?", got the
+        // (correct) "share your location" prompt below, then replied with a TYPED place name ("I'm currently at
+        // yaba") instead of an actual location share. Nothing above recognizes that as a discovery follow-up — it
+        // isn't a "near me" query, isn't a reply to the W50 stale-saved-coords confirmation above, and there's
+        // still no real pin or saved coords — so it fell through all the way to the general LLM chat, which
+        // answered with real-world restaurant names (MacDonald's, KFC, Pizza Hut) that are not platform merchants
+        // at all. This repo has no text→coordinates geocoder for WhatsApp/Telegram (USSD/SMS's
+        // discoveryAskLocationTyped is a DIFFERENT, intentional typed-area flow for those channels — this guard
+        // only applies where the ask was for a real pin/button, never a typed reply). One-shot: set only when we
+        // just asked via askLocation() below and got nothing usable back, cleared the moment anything else happens.
         const awaitingPin = geoCtx.awaitingDiscoveryLocation === true;
-        if (awaitingPin && !hasPin && residual == null && category == null) {
+        if (
+          awaitingPin && !hasPin && !hasSavedCoords && residual == null && category == null &&
+          !pendingDiscovery && (channel === "whatsapp" || channel === "telegram")
+        ) {
           await db.update(nlpSessions).set({
             context: { ...geoCtx, awaitingDiscoveryLocation: false },
             lastActivityAt: new Date(),
@@ -1878,43 +1969,87 @@ export const nlpRouter = router({
             language: session.language,
             sessionId: session.id,
             confidence: 1,
+            ...(channel === "telegram" ? { locationRequest: true } : {}),
           };
         }
 
-        if (residual != null || category != null) {
+        if (residual != null || category != null || confirmedStale || clearedPending) {
+          const query = residual ?? (confirmedStale ? pendingDiscovery?.query ?? null : null);
+          const cat = category ?? (confirmedStale ? pendingDiscovery?.category ?? null : null);
+          const [dTenantRow] = await db
+            .select({ settings: tenants.settings })
+            .from(tenants)
+            .where(eq(tenants.id, input.tenantId))
+            .limit(1)
+            .catch(() => [] as any[]);
+          const dSettings = ((((dTenantRow as any)?.settings) ?? {}) as Record<string, any>).discovery ?? {};
+          const requireFreshPin = dSettings.requireFreshPin !== false;
+          // B3: tenant-configurable ranking (default distance-first).
+          const sortBy: "distance" | "score" = dSettings.sortBy === "score" ? "score" : "distance";
+          // === W50 MERGER FIX === localize the new discovery prompts only
+          // for an explicit sticky (language-picker) locale. Session language
+          // comes from substring-based detection (a pre-W50 quirk misdetects
+          // e.g. "fresh vegetables near me" as hausa via the "ta" hint);
+          // pre-W50 these prompts were hardcoded English, so honoring a
+          // misdetected session language regresses English buyers (J123).
+          const stickyDiscoveryLocale = await getStickyLocale(input.tenantId, sessionKey).catch(() => null);
+          const locale = stickyDiscoveryLocale ?? localeFromSessionLanguage("english");
+          const askLocation = (): { text: string; locationRequest: boolean } => {
+            if (channel === "telegram") return { text: t27(locale, "discoveryAskLocationTelegram"), locationRequest: true };
+            if (channel === "ussd" || channel === "sms") return { text: t27(locale, "discoveryAskLocationTyped"), locationRequest: false };
+            return { text: t27(locale, "discoveryAskLocation"), locationRequest: false };
+          };
           let center: { lat: number; lng: number; radiusKm?: number } | null = null;
+          let staleCenter = false;
           if (hasPin) {
             center = { lat: lastDisc!.lat as number, lng: lastDisc!.lng as number, radiusKm: lastDisc!.radiusKm };
-          } else {
-            const dc = geoCtx.deliveryCoords as { latitude?: number; longitude?: number } | undefined;
-            if (typeof dc?.latitude === "number" && typeof dc?.longitude === "number") {
-              center = { lat: dc.latitude, lng: dc.longitude };
-            }
+          } else if (hasSavedCoords) {
+            center = { lat: dc!.latitude as number, lng: dc!.longitude as number };
+            staleCenter = true;
           }
           let reply: string;
-          if (!center) {
-            reply = "To see businesses near you, tap 📎 → Location and share your current location.";
+          let locationRequest = false;
+          let newPending: { query?: string | null; category?: string | null } | null = null;
+          if (clearedPending) {
+            ({ text: reply, locationRequest } = askLocation());
+          } else if (!center) {
+            ({ text: reply, locationRequest } = askLocation());
+          } else if (staleCenter && requireFreshPin && !confirmedStale) {
+            // B1: ask before searching around a stale saved pin.
+            newPending = { query, category: cat };
+            reply = t27(locale, "discoveryConfirmStaleLocation");
+            if (channel === "telegram") locationRequest = true;
           } else {
-            const result = await discoverNearby({
+            const { result, expandedFromKm } = await discoverNearbyWithWidening({
               lat: center.lat,
               lng: center.lng,
               radiusKm: center.radiusKm ?? defaultRadiusKm(),
-              ...(category ? { category } : {}),
-              ...(residual ? { query: residual } : {}),
+              sortBy,
+              ...(cat ? { category: cat } : {}),
+              ...(query ? { query } : {}),
             }, db);
-            reply = formatDiscoveryMenu(result.items, result.radiusKm);
+            const menu = formatDiscoveryMenu(result.items, result.radiusKm);
+            reply = expandedFromKm != null
+              ? `${t27(locale, "discoveryRadiusExpanded", { fromKm: String(Math.round(expandedFromKm)), radiusKm: String(Math.round(result.radiusKm)) })}\n${menu}`
+              : menu;
           }
           const geoHistory = [
             ...((session.messageHistory as Array<{ role: string; content: string }>).slice(-10)),
             { role: "user", content: input.message },
             { role: "assistant", content: reply },
           ].slice(-20);
+          const newGeoCtx: Record<string, unknown> = { ...geoCtx };
+          if (newPending) newGeoCtx.discoveryPending = newPending;
+          else delete newGeoCtx.discoveryPending;
+          // QA-065: remember we're waiting on a real pin ONLY when we just asked via askLocation() (clearedPending
+          // or !center — the only two branches that call it) — read by the awaitingPin check above so the
+          // customer's very next typed reply (on whatsapp/telegram) gets the deterministic can't-geocode-text
+          // answer instead of reaching the LLM. Cleared as soon as anything else happens (a real result, or the
+          // W50 stale-coords confirmation prompt, which resolves center and so isn't "asking for a pin").
+          newGeoCtx.awaitingDiscoveryLocation = clearedPending || !center;
           await db.update(nlpSessions).set({
             messageHistory: geoHistory,
-            // Remember we're waiting on a real pin ONLY when we just asked for one (no center resolved) — read by
-            // the awaitingPin check above so the customer's very next typed reply gets the deterministic
-            // can't-geocode-text answer instead of reaching the LLM. Cleared as soon as a real result is shown.
-            context: { ...geoCtx, awaitingDiscoveryLocation: !center },
+            context: newGeoCtx,
             lastActivityAt: new Date(),
           }).where(eq(nlpSessions.id, session.id));
           await db.insert(agentEvents).values({
@@ -1935,9 +2070,13 @@ export const nlpRouter = router({
             language: session.language,
             sessionId: session.id,
             confidence: 1,
+            // === W50 CHANNELS (A3) === Telegram renders the native
+            // request_location keyboard for this reply.
+            ...(locationRequest ? { locationRequest: true } : {}),
           };
         }
       }
+      // === END W50 CHANNELS (discovery block) ===
 
       // 3f. W27 loyalty balance + verified review commands — deterministic,
       // no LLM needed.
@@ -2304,6 +2443,47 @@ export const nlpRouter = router({
                   : `⚠️ I couldn't link that referral code (${res.error ?? "unknown error"}).`;
           return w44Return(reply, "referral_attribute");
         }
+
+        // === W52 SHARE === share-link inbound grammar "DEAL <PROMO> [REF
+        // <CODE>]" — the prefilled message a recipient's tap on a share-link
+        // delivers. Promo awareness = stick the validated active code to the
+        // session (ctx.promoCode — the confirm_order path applies it);
+        // referral attribution rides the W44 attributeReferral rail
+        // (self-referral + velocity guards, idempotent duplicates). The reply
+        // is transactional (confirming the recipient's own message) — no
+        // marketing content beyond the consent-gated transaction. Unknown /
+        // inactive codes FALL THROUGH unclaimed — "deal <id>" is also the
+        // group-buy progress command (J149), so only a validated active promo
+        // code may claim the message.
+        const dealShare = /^deal\s+([A-Za-z0-9_-]{2,32})(?:\s+ref\s+([A-Za-z0-9-]{4,64}))?$/i.exec(trimmedMsg);
+        if (dealShare) {
+          const w52Locale = localeFromSessionLanguage(session.language);
+          const promoCode = dealShare[1]!.toUpperCase();
+          const refCode = dealShare[2]?.trim() ?? null;
+          const { getActivePromos } = await import("../services/promoSpotlight");
+          const [w52Tenant] = await db.select({ settings: tenants.settings })
+            .from(tenants).where(eq(tenants.id, input.tenantId)).limit(1).catch(() => [] as any[]);
+          const promo = getActivePromos(w52Tenant?.settings ?? null)
+            .find((p) => p.code.toUpperCase() === promoCode);
+          if (promo) {
+          w44Ctx.promoCode = promo.code;
+          if (refCode) {
+            const { attributeReferral } = await import("../services/referrals");
+            const customerRef = await resolveCustomerRef();
+            const res = await attributeReferral(input.tenantId, { code: refCode, refereeCustomerId: customerRef }, db)
+              .catch((e: any) => ({ ok: false as const, error: e?.message ?? "error" }));
+            if (!res.ok && res.error === "self_referral_rejected") {
+              // Self-share: the guard fires BEFORE the promo sticks.
+              delete w44Ctx.promoCode;
+              return w44Return(t27(w52Locale, "shareDealSelfReferral"), "deal_share_self_referral");
+            }
+            // Other attribution outcomes (duplicate, not-first-order, bad
+            // code) never block the deal itself — the promo is already sticky.
+          }
+          return w44Return(t27(w52Locale, "shareDealRedeemed", { code: promo.code }), "deal_share_redeem");
+          }
+        }
+        // === END W52 SHARE ===
       }
       // === END W44 giftcards-referrals ===
       // === W44 preorders-offers (Coder B): haggling / custom offers — buyer
@@ -2961,6 +3141,25 @@ export const nlpRouter = router({
         await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
         return { reply: statusMsg, intent: "hermes_status", confidence: 1, state: session.state, language: session.language, sessionId: session.id };
       }
+      // === W51 PROMOS === "popular items" browse mode — deterministic
+      // keyword shortcut (no LLM): catalog ranked featured-pins → 90-day
+      // sales, as a localized numbered text list (USSD/SMS read the reply;
+      // WA/TG additionally get browseProducts for product_list/album).
+      if (/^(popular|popular items|most ordered|top items|popular_items)$/i.test(trimmedMsg)) {
+        const { buildPopularBrowseResult } = await import("../services/promoSpotlight");
+        const popular = await buildPopularBrowseResult(db, {
+          tenantId: input.tenantId,
+          locale: localeFromSessionLanguage(session.language),
+        });
+        await db.update(nlpSessions).set({ state: "browse", lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+        return {
+          reply: popular.reply,
+          intent: "browse", confidence: 1, state: "browse",
+          language: session.language, sessionId: session.id,
+          browseProducts: popular.browseProducts,
+        };
+      }
+      // === END W51 PROMOS ===
       let llmResult: {
         reply: string; intent: string; nextState: string;
         extractedItems?: Array<{ product?: string | null; quantity?: number | null }> | null;
@@ -3075,14 +3274,21 @@ export const nlpRouter = router({
             return !windowNames.has(q) &&
               !tenantProducts.some((p) => p.name.toLowerCase().includes(q) || q.includes(p.name.toLowerCase()));
           });
-          for (const name of rescueNames) {
+          // === W48 PERF-API-12 (api-db): ONE batched ILIKE round-trip (OR of
+          // all rescue names) instead of one query per unmatched item; the
+          // 0172 pg_trgm GIN index lets Postgres accelerate these. ===
+          if (rescueNames.length > 0) {
             const hits = await db.select({
               id: products.id, name: products.name, price: products.price,
               currency: products.currency, stockQuantity: products.stockQuantity,
               description: products.description, imageUrl: products.imageUrl,
             }).from(products)
-              .where(and(eq(products.tenantId, input.tenantId), eq(products.status, "active"), ilike(products.name, `%${name}%`)))
-              .limit(5)
+              .where(and(
+                eq(products.tenantId, input.tenantId),
+                eq(products.status, "active"),
+                or(...rescueNames.map((name) => ilike(products.name, `%${name}%`))),
+              ))
+              .limit(5 * rescueNames.length)
               .catch(() => [] as any[]);
             for (const h of hits) {
               if (!windowNames.has(h.name.toLowerCase())) {
@@ -3091,6 +3297,7 @@ export const nlpRouter = router({
               }
             }
           }
+          // === END W48 PERF-API-12 ===
           // Shortage recovery: a mention of a product that was JUST reported short (buildShortageReply told the
           // buyer to "adjust your quantities") means "change my order to this amount", not "add this on top of
           // the stuck quantity that already caused the shortage" — one-shot, consumed below regardless of outcome.
@@ -3284,8 +3491,10 @@ export const nlpRouter = router({
               .map((p: any) => p.id),
           );
           const removed = cartRows.filter((i) => gatedIds.has(i.productId));
-          for (const i of removed) {
-            await db.delete(cartItems).where(eq(cartItems.id, i.id));
+          // === W48 PERF-API-13 (api-db): one inArray delete instead of
+          // per-item serial deletes. ===
+          if (removed.length > 0) {
+            await db.delete(cartItems).where(inArray(cartItems.id, removed.map((i) => i.id)));
           }
           const { buildAgeGateDenialReply } = await import("../services/ageGate");
           llmResult.reply = buildAgeGateDenialReply(removed.map((i) => i.productName));
@@ -3351,7 +3560,6 @@ export const nlpRouter = router({
             if (order.ageGate) {
               const { buildAgeAttestationPrompt, buildAgeGateUnderageReply } = await import("../services/ageGate");
               // W47 (ONB-I18N-1): localized attestation prompt.
-              const { localeFromSessionLanguage } = await import("../services/i18n");
               const gated = new Set(order.ageGate.restrictedProductIds);
               const names = items.filter((i) => gated.has(i.productId)).map((i) => i.productName);
               // === W47 buyer (ONB-B-1): truthful minor — the attestation
@@ -3431,10 +3639,25 @@ export const nlpRouter = router({
         ctx.deliveryAddress = llmResult.extractedAddress;
       }
 
+      // === W51 PROMOS === shared promo/popularity context for 6b/6c/6d.
+      // One tenant-settings read + the cached 90-day popularity aggregation;
+      // both fail-open so promo chrome can never break an inquiry.
+      const w51Locale = localeFromSessionLanguage(session.language);
+      const [w51TenantRow] = await db
+        .select({ settings: tenants.settings })
+        .from(tenants).where(eq(tenants.id, input.tenantId)).limit(1)
+        .catch(() => [] as any[]);
+      const w51Settings = (w51TenantRow?.settings ?? null) as Record<string, unknown> | null;
+      const w51PromoSpot = (await import("../services/promoSpotlight"));
+      const w51Popular = await w51PromoSpot.getPopularProducts(db, input.tenantId, 10);
+      const w51Top3 = w51PromoSpot.topProductIds(w51Popular, 3);
+      // === END W51 PROMOS ===
+
       // 6b. Product image card — on a single-product query (search/browse or
       // a product_detail turn), annotate the best-match catalog image so the
       // webhook can deliver it as an image card.
-      let productImage: { link: string; caption: string } | undefined;
+      // === W49 RICHMEDIA (RICH-1): productId added for card buttons ===
+      let productImage: { link: string; caption: string; productId?: string } | undefined;
       const productQuery = llmResult.extractedProduct?.trim();
       if (
         productQuery &&
@@ -3446,9 +3669,23 @@ export const nlpRouter = router({
         (llmResult.intent === "search" || llmResult.intent === "browse" || llmResult.intent === "product_detail" || llmResult.nextState === "product_detail")
       ) {
         const q = productQuery.toLowerCase();
-        const match =
+        let match =
           tenantProducts.find((p) => p.name.toLowerCase() === q) ??
           tenantProducts.find((p) => p.name.toLowerCase().includes(q) || q.includes(p.name.toLowerCase()));
+        // === W51 MERGER FIX === tenantProducts is a bounded (LIMIT 30,
+        // cached) LLM-context window — a real product can exist beyond it
+        // in large catalogs. Fall back to a direct exact/contains lookup so
+        // the product card is never dropped for an existing product.
+        if (!match) {
+          const direct = await db
+            .select({ id: products.id, name: products.name, price: products.price, currency: products.currency, imageUrl: products.imageUrl })
+            .from(products)
+            .where(and(eq(products.tenantId, input.tenantId), eq(products.status, "active"), ilike(products.name, `%${productQuery}%`)))
+            .limit(1)
+            .catch(() => [] as any[]);
+          match = direct[0] ?? undefined;
+        }
+        // === END W51 MERGER FIX ===
         if (match?.imageUrl) {
           // W41 UC-5: catalog card shows the dual price when configured
           // (display-only — the charge stays in NGN).
@@ -3458,8 +3695,19 @@ export const nlpRouter = router({
             .catch(() => [] as any[]);
           const absImageUrl = absoluteImageUrl(match.imageUrl);
           productImage = {
+            // === W49 RICHMEDIA (RICH-1): productId lets the delivery layer
+            // build a real product card with action buttons.
+            productId: match.id,
+            // Absolute URL, not the raw relative match.imageUrl — found live 2026-09-26: Telegram/WhatsApp's
+            // media-by-URL APIs fetch the image themselves and were failing outright, silently, on every channel,
+            // on the raw "/api/storage/..." path (see absoluteImageUrl above). Keep this even though W49/W51
+            // introduced their own link field — reintroducing the relative path regresses that fix.
             link: absImageUrl,
-            caption: `${match.name} — ${formatPriceDual(fxTenant, Number(match.price), match.currency)}`,
+            // === W51 PROMOS === "⭐ Most ordered" badge line on the card
+            // body when the product is top-3 by 90-day sales.
+            caption: w51Top3.has(match.id)
+              ? `${t27(w51Locale, "popularBadge")}\n${match.name} — ${formatPriceDual(fxTenant, Number(match.price), match.currency)}`
+              : `${match.name} — ${formatPriceDual(fxTenant, Number(match.price), match.currency)}`,
           };
           // Also put the link in the plain reply TEXT, not just the native photo attachment — the user's own
           // request (2026-09-26), and genuinely more robust: the native photo send is one more network call
@@ -3468,6 +3716,71 @@ export const nlpRouter = router({
           llmResult.reply = `${llmResult.reply}\n📷 ${absImageUrl}`.trim();
         }
       }
+
+      // === W49 RICHMEDIA (RICH-4/RICH-5) ===
+      // 6c. Browse annotation — top-N catalog entries so the delivery layer
+      // can send a WA product_list (Meta catalog) or a TG media-group album
+      // instead of a bare numbered text menu.
+      let browseProducts: Array<{ id: string; name: string; priceText: string; imageUrl: string | null }> | undefined;
+      if (llmResult.intent === "browse" && tenantProducts.length > 0) {
+        const [fxTenantB] = await db
+          .select({ displayCurrency: tenants.displayCurrency, displayFxRates: tenants.displayFxRates })
+          .from(tenants).where(eq(tenants.id, input.tenantId)).limit(1)
+          .catch(() => [] as any[]);
+        // === W51 PROMOS === rank featured-pins → 90-day sales → catalog
+        // order; top-3 sellers carry the "⭐ Most ordered" badge prefix.
+        const ranked = w51PromoSpot.rankForDisplay(
+          tenantProducts as Array<{ id: string } & typeof tenantProducts[number]>,
+          w51Popular.map((r) => r.productId),
+          w51PromoSpot.getPromoSpotSettings(w51Settings).featuredProductIds,
+        );
+        browseProducts = ranked.slice(0, 6).map((p) => ({
+          id: p.id,
+          name: w51Top3.has(p.id) ? `${t27(w51Locale, "popularBadge")} ${p.name}` : p.name,
+          priceText: formatPriceDual(fxTenantB, Number(p.price), p.currency),
+          imageUrl: (p as any).imageUrl ?? null,
+        }));
+      }
+      // === END W49 RICHMEDIA ===
+
+      // === W51 PROMOS (6d) === promo spotlight card on inquiry turns
+      // (browse/search/product_detail), deduped to ONE card per session per
+      // 30 minutes via the session-context flag. USSD/SMS get a localized
+      // one-liner prepended to the reply instead of a card.
+      let promoCard: import("../services/promoSpotlight").SpotlightPromo | undefined;
+      {
+        const promoCfg = w51PromoSpot.getPromoSpotSettings(w51Settings);
+        const isInquiry =
+          llmResult.intent === "browse" || llmResult.intent === "search" ||
+          llmResult.nextState === "product_detail";
+        const textOnlyChannel =
+          isUssd || ((input.channel ?? "whatsapp").toLowerCase() === "sms");
+        if (
+          promoCfg.showActive && isInquiry &&
+          !w51PromoSpot.promoShownRecently(ctx)
+        ) {
+          const spotlight = (await w51PromoSpot.getSpotlightPromos(db, input.tenantId, w51Settings))[0];
+          if (spotlight) {
+            if (textOnlyChannel) {
+              const line = w51PromoSpot.renderPromoLine(w51Locale, spotlight);
+              llmResult.reply = `${line}\n${llmResult.reply ?? ""}`.trim();
+              // === W52 SHARE === SMS/USSD NLP path: the promo line APPENDS
+              // the forward text ("Forward: {blurb} {ctwaLink}") when the
+              // tenant has a public WA phone for the deep link.
+              try {
+                const { buildForwardText } = await import("../services/shareDeal");
+                const fwd = buildForwardText(w51Locale, spotlight, w51Settings);
+                if (fwd) llmResult.reply = `${line}\n${fwd}\n${llmResult.reply ?? ""}`.trim();
+              } catch { /* forward line is cosmetic — fail open */ }
+              // === END W52 SHARE ===
+            } else {
+              promoCard = spotlight;
+            }
+            ctx.promoShownAt = Date.now();
+          }
+        }
+      }
+      // === END W51 PROMOS ===
 
       // 7. Update session
       const newHistory = [
@@ -3505,6 +3818,8 @@ export const nlpRouter = router({
         confidence: llmResult.confidence ?? 0,
         orderCard,
         productImage,
+        browseProducts, // === W49 RICHMEDIA (RICH-4/5) ===
+        promoCard, // === W51 PROMOS ===
       };
     }),
 

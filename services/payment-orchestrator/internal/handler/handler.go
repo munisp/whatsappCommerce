@@ -19,6 +19,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	// === W35 otel ===
+	// (W48 PERF-SC-1 follow-up: otelx import dropped here — it was unused in
+	// this file and broke `go build`; otel/attribute/trace below are used.)
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"

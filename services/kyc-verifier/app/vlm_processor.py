@@ -43,6 +43,14 @@ class VLMProcessor:
         self.ollama_model = os.getenv("OLLAMA_VLM_MODEL", "llava:13b")
         self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
         self.use_mock = os.getenv("VLM_MOCK_MODE", "false").lower() == "true"
+        # === W48 sidecars (PERF-SC-25) === ONE shared async client per
+        # processor — was a new httpx.AsyncClient (TCP+TLS handshake) per VLM
+        # call, never reused.
+        import httpx
+        self._client = httpx.AsyncClient(timeout=60)
+
+    async def close(self) -> None:
+        await self._client.aclose()
 
     async def analyze_document(
         self,
@@ -78,18 +86,16 @@ class VLMProcessor:
         return self._mock_analysis(document_type)
 
     async def _call_ollama(self, b64_image: str, prompt: str) -> dict | None:
-        import httpx
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(f"{self.ollama_url}/api/generate", json={
-                "model": self.ollama_model,
-                "prompt": prompt,
-                "images": [b64_image],
-                "stream": False,
-                "format": "json",
-            })
-            resp.raise_for_status()
-            raw = resp.json().get("response", "{}")
-            return json.loads(raw)
+        resp = await self._client.post(f"{self.ollama_url}/api/generate", json={
+            "model": self.ollama_model,
+            "prompt": prompt,
+            "images": [b64_image],
+            "stream": False,
+            "format": "json",
+        })
+        resp.raise_for_status()
+        raw = resp.json().get("response", "{}")
+        return json.loads(raw)
 
     async def _call_openai(self, b64_image: str, prompt: str) -> dict:
         from openai import AsyncOpenAI

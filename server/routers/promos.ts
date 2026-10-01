@@ -78,6 +78,27 @@ export const promosRouter = router({
       }
       const promo: Promo = { ...input.promo, usedCount: 0 };
       await writePromos(db, input.tenantId, settings, [...promos, promo]);
+      // === W51 PROMOS === mirror to the tenant-linked Medusa storefront
+      // (fail-open; unreachable Medusa queues a retry + stamps
+      // medusaSyncPending on the promo so the next write re-attempts).
+      try {
+        const { drainMedusaPromoQueue, pushPromoToMedusa, syncHighlightsToMedusa } = await import("../services/medusaPromoSync");
+        await drainMedusaPromoQueue(db, input.tenantId);
+        // Featured/popular metadata refresh rides promo writes (fire-and-forget).
+        void syncHighlightsToMedusa(db, input.tenantId).catch(() => {});
+        const push = await pushPromoToMedusa(db, input.tenantId, promo, "upsert");
+        if (push.medusaPromotionId || push.pending) {
+          const stamped: Promo = {
+            ...promo,
+            ...(push.medusaPromotionId ? { medusaPromotionId: push.medusaPromotionId } : {}),
+            ...(push.pending ? { medusaSyncPending: true } : {}),
+          };
+          const { settings: s2, promos: p2 } = await readPromos(db, input.tenantId);
+          await writePromos(db, input.tenantId, s2, p2.map((p) => p.code === promo.code ? stamped : p));
+          return { ok: true, promo: stamped };
+        }
+      } catch { /* Medusa sync never blocks the promo write */ }
+      // === END W51 PROMOS ===
       return { ok: true, promo };
     }),
 
@@ -101,6 +122,25 @@ export const promosRouter = router({
           : p,
       );
       await writePromos(db, input.tenantId, settings, next);
+      // === W51 PROMOS === Medusa mirror (fail-open; idempotent via the
+      // persisted medusaPromotionId; clears the pending marker on success).
+      try {
+        const { drainMedusaPromoQueue, pushPromoToMedusa } = await import("../services/medusaPromoSync");
+        await drainMedusaPromoQueue(db, input.tenantId);
+        const updated = next.find((p) => p.code.toLowerCase() === existing.code.toLowerCase())!;
+        const push = await pushPromoToMedusa(db, input.tenantId, updated, "upsert");
+        if (push.medusaPromotionId || push.pending || updated.medusaSyncPending) {
+          const stamped: Promo = {
+            ...updated,
+            ...(push.medusaPromotionId ? { medusaPromotionId: push.medusaPromotionId } : {}),
+            medusaSyncPending: push.pending ? true : undefined,
+          };
+          const { settings: s2, promos: p2 } = await readPromos(db, input.tenantId);
+          await writePromos(db, input.tenantId, s2,
+            p2.map((p) => p.code.toLowerCase() === updated.code.toLowerCase() ? stamped : p));
+        }
+      } catch { /* fail-open */ }
+      // === END W51 PROMOS ===
       return { ok: true };
     }),
 
@@ -120,6 +160,12 @@ export const promosRouter = router({
         settings,
         promos.filter((p) => p.code.toLowerCase() !== existing.code.toLowerCase()),
       );
+      // === W51 PROMOS === delete the mirrored Medusa promotion (fail-open).
+      try {
+        const { pushPromoToMedusa } = await import("../services/medusaPromoSync");
+        await pushPromoToMedusa(db, input.tenantId, existing, "delete");
+      } catch { /* fail-open */ }
+      // === END W51 PROMOS ===
       return { ok: true };
     }),
 
@@ -136,4 +182,44 @@ export const promosRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       return validatePromo(db, input.tenantId, input.code, input.cartTotal);
     }),
+
+  // === W52 SHARE === merchant share pack: the promo share bundle + the
+  // printable QR payload (the ctwaLink string — the portal renders the QR)
+  // for shop posters, plus share analytics (taps + attributed redemptions
+  // from the existing referral rail).
+  sharePack: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      code: z.string().trim().min(2).max(32),
+      locale: z.string().trim().max(8).optional(),
+    }))
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const { settings } = await readPromos(db, input.tenantId);
+      const { getActivePromos } = await import("../services/promoSpotlight");
+      const promo = getActivePromos(settings)
+        .find((p) => p.code.toUpperCase() === input.code.toUpperCase());
+      if (!promo) throw new TRPCError({ code: "NOT_FOUND", message: "Promo not found or not currently active" });
+      const { buildDealShareBundle, dealShareStats } = await import("../services/shareDeal");
+      const spotlight = {
+        kind: "promo" as const,
+        title: `Promo ${promo.code}`,
+        discountText: promo.type === "percent" ? `${Math.round(promo.value)}% off` : `${promo.value} off`,
+        code: promo.code,
+      };
+      // Merchant pack carries no referral code — the prefilled grammar is
+      // "DEAL <CODE>"; referrers' own taps mint their REF segment.
+      const bundle = buildDealShareBundle({ settings, promo: spotlight, locale: input.locale });
+      if (!bundle) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Set a public WhatsApp number (settings.whatsapp.displayPhone) before sharing deals.",
+        });
+      }
+      const stats = await dealShareStats(db, input.tenantId, promo.code);
+      return { promo, bundle, qrPayload: bundle.qrPayload, stats };
+    }),
+  // === END W52 SHARE ===
 });

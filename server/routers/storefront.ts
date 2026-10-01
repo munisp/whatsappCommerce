@@ -81,6 +81,70 @@ export const storefrontRouter = router({
       return view;
     }),
 
+  /**
+   * === W51 PROMOS === storefront highlights: featured pins + most-ordered
+   * products (90-day sales) + active promos for web storefront rendering
+   * (tenant-portal / Medusa widget consumption). Public read of the same
+   * data the storefront already exposes; per-IP rate-limited like getBySlug.
+   */
+  highlights: publicProcedure
+    .input(z.object({ tenantId: z.string().min(1) }))
+    .query(async ({ input, ctx }) => {
+      const ip =
+        (ctx.req?.headers?.["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ||
+        ctx.req?.socket?.remoteAddress ||
+        "unknown";
+      const { checkRateLimit } = await import("../_core/rateLimit");
+      const decision = await checkRateLimit(`storefront:highlights:${ip}`, 60, 60, ENV.isProduction);
+      if (!decision.allowed) {
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Rate limit exceeded — retry later" });
+      }
+      const db = await requireDb();
+      const { getPopularProducts, getPromoSpotSettings, getSpotlightPromos, rankForDisplay } =
+        await import("../services/promoSpotlight");
+      const { products } = await import("../../drizzle/schema");
+      const { and } = await import("drizzle-orm");
+      const [tenant] = await db
+        .select({ settings: tenants.settings })
+        .from(tenants)
+        .where(eq(tenants.id, input.tenantId))
+        .limit(1)
+        .catch(() => [] as any[]);
+      const settings = (tenant?.settings ?? null) as Record<string, unknown> | null;
+      const spot = getPromoSpotSettings(settings);
+      const [popular, promos, rows] = await Promise.all([
+        getPopularProducts(db, input.tenantId, 10),
+        spot.showActive ? getSpotlightPromos(db, input.tenantId, settings) : Promise.resolve([]),
+        db.select({
+          id: products.id, name: products.name, price: products.price,
+          currency: products.currency, imageUrl: products.imageUrl,
+        }).from(products)
+          .where(and(eq(products.tenantId, input.tenantId), eq(products.status, "active")))
+          .limit(100)
+          .catch(() => [] as any[]),
+      ]);
+      const popularRank = new Map(popular.map((r, i) => [r.productId, i + 1]));
+      const top3 = new Set(popular.slice(0, 3).map((r) => r.productId));
+      const ranked = rankForDisplay(rows as Array<{ id: string } & any>, Array.from(popularRank.keys()), spot.featuredProductIds)
+        .filter((p: any) => spot.featuredProductIds.includes(p.id) || popularRank.has(p.id))
+        .slice(0, 10)
+        .map((p: any): { id: string; name: string; price: unknown; currency: string; imageUrl: string | null; featured: boolean; popularRank: number | null; badge: "most_ordered" | null } => ({
+          id: p.id,
+          name: p.name,
+          price: p.price,
+          currency: p.currency,
+          imageUrl: p.imageUrl ?? null,
+          featured: spot.featuredProductIds.includes(p.id),
+          popularRank: popularRank.get(p.id) ?? null,
+          badge: top3.has(p.id) ? "most_ordered" as const : null,
+        }));
+      return {
+        featured: ranked.filter((p: any) => p.featured),
+        popular: ranked,
+        promos,
+      };
+    }),
+
   merchant: router({
     /** Read the tenant's storefront row (null until first save) + derived URL. */
     getSettings: protectedProcedure.query(async ({ ctx }) => {

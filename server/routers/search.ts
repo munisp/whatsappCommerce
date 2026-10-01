@@ -31,13 +31,16 @@ export const searchRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
-      await osIndex("wa_messages", input.messageId, {
+      // === W48 integrations (PERF-INT-8): indexing is best-effort and
+      // fire-and-forget — OpenSearch latency must not land on this request
+      // path (fail-soft: osIndex never throws). ===
+      void osIndex("wa_messages", input.messageId, {
         tenantId: input.tenantId,
         from: input.from,
         text: input.text,
         timestamp: input.timestamp,
         direction: input.direction,
-      });
+      }).catch(() => {});
       return { ok: true };
     }),
 

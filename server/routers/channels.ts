@@ -4,162 +4,100 @@ import { router, protectedProcedure, internalProcedure, assertTenantAccess } fro
 // === W34 otel-core === traceparent propagation to ml-stack.
 import { injectTraceHeaders } from "../_core/telemetry";
 import { getDb } from "../db";
-import { channelMessages, ussdSessions as ussdSessionsTable } from "../../drizzle/schema";
+import { channelMessages } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
-
-// ── USSD session store ───────────────────────────────────────────────────────
-// Sessions are persisted to the ussd_sessions table (source of truth, survives
-// restarts). The in-memory Map is only a read-through cache; every mutation is
-// written through to the DB.
-type UssdSessionState = { phone: string; step: number; cart: Record<string, number>; tenantId: string };
-const ussdSessionCache = new Map<string, UssdSessionState>();
-
-function menuForStep(step: number): string {
-  if (step === 0) return "greeting";
-  if (step === 1) return "category";
-  if (step >= 99) return "end";
-  return `step_${step}`;
-}
-
-function stepForMenu(menu: string | null): number {
-  if (!menu || menu === "greeting") return 0;
-  if (menu === "category") return 1;
-  if (menu === "end") return 99;
-  const m = /^step_(\d+)$/.exec(menu);
-  return m ? parseInt(m[1], 10) : 0;
-}
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
-async function loadUssdSession(
-  db: Db,
-  sessionId: string,
-  phoneNumber: string,
-  serviceCode: string | undefined,
+// === W50 SMS === inbound SMS reply-loop helpers (consent + NLP + reply).
+const CONSENT_CHANNEL_SMS = "sms";
+
+/** Locale-aware SMS consent copy (channel-generic packs say "WhatsApp" — swap). */
+async function smsConsentText(
   tenantId: string,
-): Promise<UssdSessionState> {
-  const cached = ussdSessionCache.get(sessionId);
-  if (cached) return cached;
+  sessionKey: string,
+  text: string,
+  key: "prompt" | "granted" | "denied",
+): Promise<string> {
+  try {
+    const { resolveLocale, tr } = await import("../services/i18n");
+    const locale = await resolveLocale({ tenantId, phone: sessionKey, text });
+    const wa = { prompt: "consentPrompt", granted: "consentGranted", denied: "consentDenied" } as const;
+    return tr(locale, wa[key]).replace(/WhatsApp/g, "SMS");
+  } catch {
+    const { consentPromptFor, consentGrantedFor, consentDeniedFor } = await import("../services/consent");
+    return key === "prompt" ? consentPromptFor(null) : key === "granted" ? consentGrantedFor(null) : consentDeniedFor(null);
+  }
+}
 
-  const [row] = await db.select().from(ussdSessionsTable)
-    .where(eq(ussdSessionsTable.sessionId, sessionId))
-    .limit(1);
+/**
+ * SMS consent gate mirroring telegramInbound.consentGate: no consent row →
+ * YES/NO is recorded, anything else gets the opt-in prompt; an existing row
+ * lets the conversation proceed. Returns true when the message was fully
+ * handled by the consent flow. Never throws (fail-open → conversation).
+ */
+async function smsConsentGate(db: Db, tenantId: string, phone: string, text: string): Promise<boolean> {
+  try {
+    const consent = await import("../services/consent");
+    const { sessionKeyFor } = await import("../services/channelIdentity");
+    const { sendSmsSafe } = await import("../services/smsSender");
+    const sessionKey = sessionKeyFor(CONSENT_CHANNEL_SMS, phone);
+    const existing = await consent.getChannelConsent(db, tenantId, sessionKey, CONSENT_CHANNEL_SMS);
+    if (existing) return false; // decided already — conversation proceeds
+    const decision = consent.parseConsentReply(text);
+    if (decision === true) {
+      await consent.recordChannelOptIn(db, { tenantId, sessionKey, channel: CONSENT_CHANNEL_SMS, source: "sms_inbound" });
+      await sendSmsSafe(tenantId, phone, await smsConsentText(tenantId, sessionKey, text, "granted"));
+      return true;
+    }
+    if (decision === false) {
+      await consent.recordChannelDenial(db, { tenantId, sessionKey, channel: CONSENT_CHANNEL_SMS });
+      await sendSmsSafe(tenantId, phone, await smsConsentText(tenantId, sessionKey, text, "denied"));
+      return true;
+    }
+    await sendSmsSafe(tenantId, phone, await smsConsentText(tenantId, sessionKey, text, "prompt"));
+    return true;
+  } catch (e: any) {
+    console.warn("[channels.sms] consent gate error — processing anyway:", e?.message);
+    return false;
+  }
+}
 
-  let state: UssdSessionState;
-  if (row && row.isActive) {
-    const hist = (row.menuHistory as { cart?: Record<string, number> } | null) ?? {};
-    state = {
-      phone: row.phoneNumber,
-      step: stepForMenu(row.currentMenu),
-      cart: hist.cart ?? {},
-      tenantId: row.tenantId ?? tenantId,
-    };
-  } else {
-    state = { phone: phoneNumber, step: 0, cart: {}, tenantId };
-    await db.insert(ussdSessionsTable).values({
-      sessionId,
-      phoneNumber,
-      serviceCode: serviceCode ?? null,
+/**
+ * Feed an inbound SMS through the SAME nlp.processMessage entry the Telegram
+ * inbound path uses and deliver the reply over SMS (segmented to 160 GSM-7 /
+ * 70 UCS-2, max 3 parts; rich-channel chrome stripped). Fail-open: a reply
+ * error never fails the webhook.
+ */
+async function dispatchSmsToNlp(db: Db, tenantId: string, phone: string, message: string): Promise<{ replied: boolean; intent?: string }> {
+  try {
+    const { sessionKeyFor } = await import("../services/channelIdentity");
+    const { appRouter } = await import("../routers");
+    const caller = appRouter.createCaller({ user: null } as any);
+    const result: any = await caller.nlp.processMessage({
       tenantId,
-      currentMenu: "greeting",
-      menuHistory: { cart: {}, history: [] },
-      isActive: true,
-      lastInput: null,
-      lastResponse: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }).onConflictDoNothing();
+      waPhoneNumber: sessionKeyFor(CONSENT_CHANNEL_SMS, phone),
+      message,
+      channel: CONSENT_CHANNEL_SMS,
+    });
+    const reply: string = typeof result?.reply === "string" ? result.reply : "";
+    if (!reply) return { replied: false, intent: result?.intent };
+    const { sendSmsSafe, stripSmsChrome } = await import("../services/smsSender");
+    const plain = stripSmsChrome(reply);
+    if (!plain) return { replied: false, intent: result?.intent };
+    const sent = await sendSmsSafe(tenantId, phone, plain);
+    return { replied: sent.sent || sent.simulated, intent: result?.intent };
+  } catch (e: any) {
+    console.warn("[channels.sms] nlp dispatch failed (fail-open):", e?.message);
+    return { replied: false };
   }
-  ussdSessionCache.set(sessionId, state);
-  return state;
 }
-
-async function persistUssdSession(
-  db: Db,
-  sessionId: string,
-  state: UssdSessionState,
-  lastInput: string,
-  lastResponse: string,
-  isActive: boolean,
-): Promise<void> {
-  const [row] = await db.select({ menuHistory: ussdSessionsTable.menuHistory })
-    .from(ussdSessionsTable)
-    .where(eq(ussdSessionsTable.sessionId, sessionId))
-    .limit(1);
-  const prev = (row?.menuHistory as { cart?: Record<string, number>; history?: string[] } | null) ?? {};
-  await db.update(ussdSessionsTable)
-    .set({
-      phoneNumber: state.phone,
-      tenantId: state.tenantId,
-      currentMenu: menuForStep(state.step),
-      menuHistory: { cart: state.cart, history: [...(prev.history ?? []), menuForStep(state.step)] },
-      lastInput,
-      lastResponse,
-      isActive,
-      updatedAt: new Date(),
-    })
-    .where(eq(ussdSessionsTable.sessionId, sessionId));
-  if (isActive) ussdSessionCache.set(sessionId, state);
-  else ussdSessionCache.delete(sessionId);
-}
-
-function buildUssdMenu(step: number, cart: Record<string, number>): string {
-  if (step === 0) {
-    return "CON Welcome to WhatsApp Commerce\n1. Browse Products\n2. My Orders\n3. Track Shipment\n4. Contact Support";
-  }
-  if (step === 1) {
-    return "CON Select Category:\n1. Electronics\n2. Fashion\n3. Food & Groceries\n4. Services\n0. Back";
-  }
-  const cartCount = Object.values(cart).reduce((a, b) => a + b, 0);
-  return `END Session ended. Cart: ${cartCount} item(s). Visit WhatsApp to complete order.`;
-}
+// === END W50 SMS ===
 
 export const channelsRouter = router({
-  // ── USSD Gateway Webhook ─────────────────────────────────────────────────
-  // Handles Africa's Talking / Infobip USSD format
-  processUssd: internalProcedure
-    .input(z.object({
-      sessionId: z.string(),
-      serviceCode: z.string().optional(),
-      phoneNumber: z.string(),
-      text: z.string().default(""),
-      tenantId: z.string().optional(),
-    }))
-    .mutation(async ({ input }) => {
-      const db = (await getDb())!;
-      const { sessionId, phoneNumber, text, tenantId = "default" } = input;
-
-      // Get or create session (persisted in ussd_sessions, cached in memory)
-      const session = await loadUssdSession(db, sessionId, phoneNumber, input.serviceCode, tenantId);
-
-      // Parse user input
-      const parts = text.split("*").filter(Boolean);
-      const lastInput = parts[parts.length - 1] ?? "";
-
-      // Log to channel_messages
-      await db.insert(channelMessages).values({
-        channel: "ussd",
-        direction: "inbound",
-        fromAddress: phoneNumber,
-        toAddress: input.serviceCode ?? "*384#",
-        body: text,
-        tenantId,
-        processed: false,
-        metadata: { step: session.step, parts },
-        createdAt: new Date(),
-      });
-
-      // Advance step
-      if (lastInput === "1" && session.step === 0) session.step = 1;
-      else if (lastInput === "0") session.step = Math.max(0, session.step - 1);
-      else if (lastInput !== "") session.step = 99; // terminal step
-
-      const response = buildUssdMenu(session.step, session.cart);
-      const isActive = !response.startsWith("END");
-      await persistUssdSession(db, sessionId, session, lastInput, response, isActive);
-
-      return { response };
-    }),
+  // === W50 SMS === the dead USSD toy (hardcoded Electronics/Fashion menu,
+  // never wired to any endpoint) was removed; the REAL USSD gateway is the
+  // /ussd HTTP endpoint in _core/index.ts → useCases.handleUssdRequest.
 
   // ── SMS Inbound Webhook ──────────────────────────────────────────────────
   processSms: internalProcedure
@@ -172,6 +110,7 @@ export const channelsRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = (await getDb())!;
+      const tenantId = input.tenantId ?? "default";
       const id = randomUUID();
       await db.insert(channelMessages).values({
         channel: "sms",
@@ -179,7 +118,7 @@ export const channelsRouter = router({
         fromAddress: input.from,
         toAddress: input.to,
         body: input.body,
-        tenantId: input.tenantId ?? "default",
+        tenantId,
         processed: false,
         metadata: { externalId: input.externalId ?? id },
         createdAt: new Date(),
@@ -207,7 +146,25 @@ export const channelsRouter = router({
           }
         }
       } catch { /* NLP routing is best-effort — never block SMS processing */ }
-      return { id, status: "queued", intent: detectedIntent, confidence: intentConfidence };
+
+      // === W50 SMS === full reply loop: consent gate → nlp.processMessage →
+      // segmented SMS reply (fail-open; the webhook always acks).
+      let replied = false;
+      let replyIntent: string | undefined;
+      try {
+        const handledByConsent = await smsConsentGate(db, tenantId, input.from, input.body);
+        if (handledByConsent) {
+          replied = true;
+          replyIntent = "consent";
+        } else {
+          const r = await dispatchSmsToNlp(db, tenantId, input.from, input.body);
+          replied = r.replied;
+          replyIntent = r.intent;
+        }
+      } catch (e: any) {
+        console.warn("[channels.sms] reply loop error (fail-open):", e?.message);
+      }
+      return { id, status: replied ? "replied" : "queued", intent: detectedIntent ?? replyIntent, confidence: intentConfidence, replied };
     }),
 
   // ── Telegram Inbound Webhook ─────────────────────────────────────────────

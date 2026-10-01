@@ -31,7 +31,12 @@ export const journey: Journey = {
         const phone = world.newPhone("c");
         phones.push(phone);
         await world.db.insert(schema.customers).values({
+          // W48 merger: unique segment tag — in full-suite/batch runs earlier
+          // journeys leave consented customers behind (auto-provisioned "WA
+          // User" contacts etc.), so an untargeted campaign audience is NOT
+          // hermetic and the exact-25-failures chunk assertion flakes.
           id: `cust-${phone}`, tenantId: TENANT_ID, whatsappPhone: phone, name: `Breaker ${i}`,
+          tags: ["j284-breaker"],
         }).onConflictDoNothing();
         await world.grantConsent(phone);
       }
@@ -55,13 +60,20 @@ export const journey: Journey = {
         name: "J284 Breaker Campaign",
         templateId: "wtpl-j284-1",
         templateName: "j284_broadcast",
+        segmentFilter: { tags: ["j284-breaker"] },
       });
       const result = await caller.broadcast.send({ campaignId });
 
       // ── Breaker tripped after the first 25-attempt chunk ──────────────
       assert((result as any).paused === true, `send result must report paused, got ${JSON.stringify(result)}`);
       assertIncludes(String((result as any).pausedReason ?? ""), "circuit_breaker", "pausedReason explains the trip");
-      assert(result.failed === 25, `25 attempts failed before the trip, got ${result.failed}`);
+      if (result.failed !== 25) {
+        const recs = await world.db.select().from(schema.broadcastRecipients)
+          .where(eq(schema.broadcastRecipients.campaignId, campaignId));
+        const reasons = recs.map((r: any) => `${r.status}:${(r.failureReason ?? "").slice(0, 120)}`);
+        try { const fsx = await import("node:fs"); fsx.writeFileSync("/tmp/j284-recs.json", JSON.stringify(recs, null, 1)); } catch {}
+        throw new Error(`25 attempts failed before the trip, got ${result.failed} — recipients: ${JSON.stringify(reasons)}`);
+      }
       assert(result.sent === 0, "no successful sends in a full failure storm");
 
       const [campaign] = await world.db.select().from(schema.broadcastCampaigns)

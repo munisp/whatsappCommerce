@@ -1,0 +1,76 @@
+# === W48 sidecars ===
+# sidecar-builds.yml — compile-verification for Go/Rust/Python sidecars.
+# Durable fix for the compile-verification gap (PERF-SC-1 class: code merged
+# without a build). Runs go build + go vet, cargo check, and python
+# py_compile for every sidecar service.
+name: sidecar-builds
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "services/**"
+      - "rust/**"
+      - "ai-agent/**"
+      - "shared/go/**"
+      - "go.work*"
+      - ".github/workflows/sidecar-builds.yml"
+
+jobs:
+  go-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.4"
+          cache: true
+      - name: go build + vet (all Go sidecars)
+        run: |
+          set -e
+          for d in services/gateway services/commerce-engine \
+                   services/payment-orchestrator services/crm-adapter \
+                   services/webhook-ingestor services/conversation-orchestrator \
+                   services/notification-service services/erp-adapter \
+                   services/hermes-bridge services/event-gateway \
+                   services/visual-inventory/go-orchestrator shared/go/otelx; do
+            echo "=== $d ==="
+            (cd "$d" && go build ./... && go vet ./...)
+          done
+
+  rust-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: install cmake (rdkafka cmake-build)
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential
+      - name: cargo check (all Rust sidecars)
+        run: |
+          set -e
+          for d in services/message-processor services/fluvio-consumer \
+                   services/ledger-bridge services/visual-inventory/rust-bbox \
+                   rust/ledger-bridge rust/recon-worker rust/hermes-router \
+                   rust/event-processor; do
+            echo "=== $d ==="
+            (cd "$d" && cargo check --all-targets)
+          done
+
+  python-compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: py_compile (all Python sidecars)
+        run: |
+          set -e
+          python -m compileall -q \
+            services/ml-stack services/kyc-verifier/app ai-agent
+          echo "python compile OK"

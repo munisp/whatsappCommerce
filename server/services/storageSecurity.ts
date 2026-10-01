@@ -60,6 +60,23 @@ export function keyTenantScope(key: string): string | null {
   }
 }
 
+// === W49 RICHMEDIA (RICH-3): catalog-public namespaces ===
+/**
+ * Namespaces that must be fetchable UNAUTHENTICATED because chat platforms
+ * (Meta Graph API, Telegram) pull media by absolute URL with no session.
+ * Product images were always documented as catalog-public (see the comment
+ * above TENANT_SCOPED_KEY_PREFIXES); tenant-branding logos are public
+ * branding assets (RICH-9 welcome banner). Everything else stays gated.
+ */
+const PUBLIC_KEY_PREFIXES = new Set(["product-images", "tenant-branding"]);
+
+/** True when the storage key is in a catalog/brand-public namespace. */
+export function isPublicStorageKey(key: string): boolean {
+  const first = key.split("/").filter((s) => s.length > 0)[0] ?? "";
+  return PUBLIC_KEY_PREFIXES.has(first);
+}
+// === END W49 RICHMEDIA ===
+
 /** Session-path authorization: may `user` read an object scoped to
  *  `scopeTenantId`? Platform admins bypass; otherwise the session tenant or
  *  a membership must match. */

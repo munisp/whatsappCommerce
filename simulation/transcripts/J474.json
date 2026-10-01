@@ -1,7 +1,7 @@
 {
   "id": "J474",
-  "title": "wallet top-up is ledger-tracked (AF-05)",
-  "feature": "direct-leg settlement stamped for recon-worker",
+  "title": "wholesale listMyListings batched tiers (PERF-API-8)",
+  "feature": "one inArray wholesale_listing_tiers query grouped per listing",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
   "messages": []

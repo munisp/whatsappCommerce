@@ -9,7 +9,7 @@
  * call goes through a narrowly cast handle (see Compliance.tsx for the same
  * seam) — the runtime contract below is FIXED.
  */
-import { useState } from "react";
+import { useState, memo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,7 +31,7 @@ export type CopilotAskResult = {
   };
 };
 
-export function CopilotAskWidget({ tenantId }: { tenantId?: string }) {
+function CopilotAskWidgetImpl({ tenantId }: { tenantId?: string }) {
   const [question, setQuestion] = useState("");
   const ask = copilotApi.ask.useMutation() as {
     mutate: (v: { tenantId: string; question: string }) => void;
@@ -90,4 +90,7 @@ export function CopilotAskWidget({ tenantId }: { tenantId?: string }) {
   );
 }
 
+
+// W48 perf (PERF-FE-10): memoized widget.
+export const CopilotAskWidget = memo(CopilotAskWidgetImpl);
 export default CopilotAskWidget;

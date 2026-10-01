@@ -1,0 +1,39 @@
+{
+  "id": "J488",
+  "title": "telegram inbound mirrors WA rich annotations (order card, product image, browse album)",
+  "feature": "RICH-2",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348017000488",
+      "wamid": "wamid.sim.000004",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790459038012,
+      "kind": "interactive",
+      "body": "📦 Order SO-488 — out_for_delivery",
+      "buttons": [
+        {
+          "id": "https://track.example.com/t/488",
+          "title": "cta_url"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348017000488",
+      "wamid": "wamid.sim.000005",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790459038021,
+      "kind": "image",
+      "mediaKind": "image",
+      "caption": "✅ Delivered — proof photo for order SO-488",
+      "mediaId": "https://cdn.example.com/pod.jpg"
+    }
+  ]
+}

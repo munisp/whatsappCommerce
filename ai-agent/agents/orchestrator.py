@@ -169,8 +169,12 @@ class AIOrchestrator:
         """Classify user intent using LLM or rule-based fallback."""
         client = await self._get_llm_client()
 
-        if client is None or self.config.llm_provider == "openai":
-            # Rule-based fallback
+        # === W48 sidecars (PERF-SC-18) === fixed inverted condition: the old
+        # `client is None or provider == "openai"` made the LLM branch
+        # unreachable for openai (always keyword fallback). LLM path is used
+        # whenever a client exists; rule-based only when there is no client.
+        if client is None:
+            # Rule-based fallback (no LLM configured/reachable)
             return self._rule_based_intent(message)
 
         try:

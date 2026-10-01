@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RefreshCw, CheckCircle2, XCircle, AlertCircle, Clock, Activity } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { usePollInterval } from "@/hooks/usePollInterval";
 
 // ── Service status card ───────────────────────────────────────────────────────
 
@@ -355,9 +356,11 @@ const SERVICE_META: Record<string, { description: string; icon: string }> = {
 };
 
 function InfraHealthInner() {
+  // W48 PERF-FE-5: visibility-gated polling
+  const healthPoll = usePollInterval(30_000);
   const [tab, setTab] = useState("overview");
   const { data, isLoading, refetch, dataUpdatedAt } = trpc.infra.infraHealth.useQuery(undefined, {
-    refetchInterval: 30_000,
+    refetchInterval: healthPoll,
   });
 
   const services = data?.services ?? {};

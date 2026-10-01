@@ -29,6 +29,17 @@ export default defineConfig(({ command }) => ({
   build: {
     outDir: path.resolve(REPO_ROOT, "dist", "platform-admin"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // === W48 perf (PERF-FE-8): split vendor deps into cacheable chunks ===
+        manualChunks(id: string) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("recharts") || id.includes("d3-")) return "vendor-charts";
+          if (/node_modules\/(react|react-dom|scheduler|wouter)\//.test(id)) return "vendor-react";
+          return "vendor";
+        },
+      },
+    },
   },
   server: {
     host: true,

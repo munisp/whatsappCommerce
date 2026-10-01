@@ -108,16 +108,26 @@ async function findDispatchOrder(
     .orderBy(desc(orders.createdAt))
     .limit(explicitOrderId ? 1 : 5)
     .catch(() => [] as any[]);
-  for (const order of candidates) {
-    const [shipment] = await db.select().from(logisticsShipments)
+  // === W48 PERF-API-13 (api-db): batch the per-candidate shipment lookups
+  // into ONE inArray query; pick the latest open shipment per order in JS
+  // (rows arrive ordered newest-first, so first seen per order wins). ===
+  const openByOrderId = new Map<string, any>();
+  if (candidates.length > 0) {
+    const openShipments = await db.select().from(logisticsShipments)
       .where(and(
         eq(logisticsShipments.tenantId, tenantId),
-        eq(logisticsShipments.orderId, order.id),
+        inArray(logisticsShipments.orderId, candidates.map((o: any) => o.id)),
         inArray(logisticsShipments.status, [...ADDRESS_CHANGE_OPEN_SHIPMENT_STATUSES]),
       ))
       .orderBy(desc(logisticsShipments.createdAt))
-      .limit(1)
       .catch(() => [] as any[]);
+    for (const s of openShipments as any[]) {
+      if (!openByOrderId.has(s.orderId)) openByOrderId.set(s.orderId, s);
+    }
+  }
+  // === END W48 ===
+  for (const order of candidates) {
+    const shipment = openByOrderId.get(order.id);
     if (shipment) return { order, shipment };
   }
   return null;

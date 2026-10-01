@@ -208,9 +208,10 @@ describe("order action card", () => {
     if (card.action.type !== "button") return;
     expect(card.bodyText).toContain("ORD-001");
     expect(card.action.buttons.map((b) => [b.id, b.title])).toEqual([
-      ["order_track:order-1", "Track Order"],
-      ["order_pay:order-1", "Pay Now"],
-      ["order_cancel:order-1", "Cancel Order"],
+      // === W49 RICHMEDIA (RICH-10): emoji icons on card buttons ===
+      ["order_track:order-1", "📦 Track Order"],
+      ["order_pay:order-1", "💳 Pay Now"],
+      ["order_cancel:order-1", "❌ Cancel"],
     ]);
     // ids round-trip
     expect(parseOrderActionReplyId(card.action.buttons[2].id)).toEqual({ action: "cancel", orderId: "order-1" });

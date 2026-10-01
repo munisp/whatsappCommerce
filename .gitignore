@@ -133,3 +133,6 @@ data/tax-statements/
 # under Python 3.14 locally); never source, never meant to be committed.
 __pycache__/
 *.pyc
+
+# === W49 RICHMEDIA: J491 receipt-pdf artifacts (regenerated each run) ===
+data/uc-docs/receipts/

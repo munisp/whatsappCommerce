@@ -799,7 +799,7 @@ function TenantOnboardingWizardInner() {
                           src={branding.logoUrl}
                           alt="Logo preview"
                           className="h-12 w-12 rounded-lg object-contain border bg-muted/30"
-                        />
+                         loading="lazy" decoding="async" />
                       ) : (
                         <div className="h-12 w-12 rounded-lg border border-dashed flex items-center justify-center text-muted-foreground">
                           <Upload className="h-4 w-4" />

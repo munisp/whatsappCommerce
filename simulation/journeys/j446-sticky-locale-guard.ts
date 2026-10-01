@@ -32,7 +32,7 @@ export const journey: Journey = {
     const phone = world.newPhone("446");
     await world.grantConsent(phone);
 
-    // 1. Enter free-text ordering mode — creates the nlp_sessions row, defaulting to "english" (same setup J481
+    // 1. Enter free-text ordering mode — creates the nlp_sessions row, defaulting to "english" (same setup J551
     //    uses: "hi" alone never reaches nlp.processMessage, "shop" does).
     await world.text(phone, "shop");
     const [before] = await world.db.select().from(schema.nlpSessions)
@@ -46,9 +46,9 @@ export const journey: Journey = {
     const sticky = await i18n.getStickyLocale(TENANT_ID, phone);
     assert(sticky === "yo", `sticky locale set by the picker (got ${sticky})`);
 
-    // 3. The picker resets the customer to the main numbered menu (same reason J481 re-sends "shop" after seeding
+    // 3. The picker resets the customer to the main numbered menu (same reason J551 re-sends "shop" after seeding
     //    a stuck language) — go back into free-text mode, then send an ORDINARY ENGLISH-LOOKING message that
-    //    reaches the LLM path. "menu_3" is the exact live reproducer from J478/J481: plain-English-looking text
+    //    reaches the LLM path. "menu_3" is the exact live reproducer from J548/J551: plain-English-looking text
     //    that clears the deterministic classifier and reaches classifyDeterministically's LLM fallback.
     await world.text(phone, "shop");
     const beforeCalls = llm.calls.length;
@@ -70,7 +70,7 @@ export const journey: Journey = {
     assertIncludes(systemPrompt, "Respond in Yoruba", "system prompt instructs the LLM to reply in Yoruba");
 
     // 6. Sticky still wins over re-detection in EITHER direction — a confidently-English message afterward must
-    //    NOT flip the session back to English (the guard's original purpose; J481 covers the no-sticky
+    //    NOT flip the session back to English (the guard's original purpose; J551 covers the no-sticky
     //    self-correction direction).
     await world.text(phone, "I want to buy something please, thank you");
     const [stillYoruba] = await world.db.select().from(schema.nlpSessions)

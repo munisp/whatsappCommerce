@@ -92,10 +92,20 @@ describe("kyc.review document gate (W12.1)", () => {
       waivePendingDocuments: true,
     });
     expect(r.ok).toBe(true);
-    // One update per pending doc (waiver note) + one application update.
+    // W48 PERF-API-13: ONE batched docs UPDATE (verificationNotes is a
+    // concat_ws SQL fragment embedding the waiver note as a bind param)
+    // + one application update.
     expect(updates.length).toBe(2);
-    expect(updates[0].set.verificationNotes).toContain("[doc-waiver]");
-    expect(updates[0].set.verificationNotes).toContain("Root Admin");
+    const collectStrings = (x: any, acc: string[]): string[] => {
+      if (typeof x === "string") { acc.push(x); return acc; }
+      if (Array.isArray(x)) { for (const i of x) collectStrings(i, acc); return acc; }
+      if (x && typeof x === "object" && "value" in x && !("table" in x)) collectStrings((x as any).value, acc);
+      if (x && Array.isArray((x as any).queryChunks)) collectStrings((x as any).queryChunks, acc);
+      return acc;
+    };
+    const waiverFrag = collectStrings(updates[0].set.verificationNotes, []).join("\n");
+    expect(waiverFrag).toContain("[doc-waiver]");
+    expect(waiverFrag).toContain("Root Admin");
     expect(updates[1].set.status).toBe("approved");
     expect(updates[1].set.reviewNotes).toContain("[doc-waiver]");
     expect(updates[1].set.reviewNotes).toContain("looks fine");

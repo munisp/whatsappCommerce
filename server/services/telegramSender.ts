@@ -427,7 +427,8 @@ export async function sendTelegramMedia(
     caption?: string;
     filename?: string;
   },
-  opts?: { notifType?: string },
+  // === W49 RICHMEDIA (RICH-1 TG parity): inline keyboard on media ===
+  opts?: { notifType?: string; replyMarkup?: TelegramInlineButton[] },
 ): Promise<SendTelegramResult> {
   const method = input.type === "photo" ? "sendPhoto" : input.type === "document" ? "sendDocument" : "sendVoice";
   const field = input.type; // Bot API field name == type
@@ -449,6 +450,8 @@ export async function sendTelegramMedia(
     return { sent: false, simulated: true, messageIds: [], chunks: 1 };
   }
 
+  // === W49 RICHMEDIA (RICH-1 TG parity): optional inline keyboard on media ===
+  const replyMarkup = opts?.replyMarkup?.length ? buildTelegramInlineKeyboard(opts.replyMarkup) : undefined;
   let bodyInit: BodyInit;
   const headers: Record<string, string> = {};
   if (input.buffer) {
@@ -456,10 +459,11 @@ export async function sendTelegramMedia(
     form.append("chat_id", chatId);
     form.append(field, new Blob([new Uint8Array(input.buffer)]), input.filename ?? `file.${input.type === "voice" ? "ogg" : "bin"}`);
     if (caption) form.append("caption", caption);
+    if (replyMarkup) form.append("reply_markup", JSON.stringify(replyMarkup));
     bodyInit = form;
   } else {
     headers["Content-Type"] = "application/json";
-    bodyInit = JSON.stringify({ chat_id: chatId, [field]: input.url ?? input.fileId, ...(caption ? { caption, parse_mode: "HTML" } : {}) });
+    bodyInit = JSON.stringify({ chat_id: chatId, [field]: input.url ?? input.fileId, ...(caption ? { caption, parse_mode: "HTML" } : {}), ...(replyMarkup ? { reply_markup: replyMarkup } : {}) });
   }
 
   let res: Response;
@@ -489,6 +493,48 @@ export async function sendTelegramMedia(
   await logSend(logBase, { status: "sent", messageId });
   return { sent: true, simulated: false, messageIds: messageId !== null ? [messageId] : [], chunks: 1 };
 }
+
+// === W49 RICHMEDIA (RICH-5): media group (album) ===
+export interface TelegramMediaGroupItem {
+  type: "photo" | "video";
+  /** Public URL or previously uploaded file_id. */
+  media: string;
+  caption?: string;
+}
+
+/**
+ * Send an album (Bot API sendMediaGroup) — 2..10 items; only the FIRST item
+ * may carry a caption per common usage (Bot API allows per-item captions;
+ * we keep per-item captions, truncated). Used for browse-results albums as
+ * the TG approximation of WA product_list (RICH-4 parity).
+ */
+export async function sendTelegramMediaGroup(
+  tenantId: string,
+  chatId: string,
+  items: TelegramMediaGroupItem[],
+  opts?: { notifType?: string },
+): Promise<SendTelegramResult> {
+  if (!Array.isArray(items) || items.length < 2 || items.length > 10) {
+    throw new Error("telegram media group requires 2..10 items");
+  }
+  const media = items.map((it) => {
+    if (!it.media?.trim()) throw new Error("media group item requires media");
+    return {
+      type: it.type,
+      media: it.media.trim(),
+      ...(it.caption?.trim() ? { caption: truncate(it.caption.trim(), 1024), parse_mode: "HTML" } : {}),
+    };
+  });
+  const r = await deliverTelegram(
+    tenantId,
+    chatId,
+    "sendMediaGroup",
+    { chat_id: chatId, media },
+    { notifType: opts?.notifType ?? "media_group", kind: "media:group" },
+  );
+  return { sent: r.sent, simulated: r.simulated, messageIds: r.messageId !== null ? [r.messageId] : [], chunks: 1 };
+}
+// === END W49 RICHMEDIA ===
 
 /** Ask the buyer to share their location (request_location reply keyboard). */
 export async function sendTelegramLocationRequest(

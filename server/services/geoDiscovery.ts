@@ -69,6 +69,70 @@ export function sponsoredMaxPerPage(): number {
   return Math.max(0, Math.floor(envNumber("GEO_SPONSORED_MAX_PER_PAGE", 2)));
 }
 
+// === W50 CHANNELS (B3) ===
+/** Max distance (km) a sponsored placement may advance in distance-sort mode. */
+export function sponsoredDistanceBoostKm(): number {
+  return Math.max(0, envNumber("GEO_SPONSORED_DISTANCE_BOOST_KM", 1));
+}
+
+// === W50 CHANNELS (B2) ===
+/**
+ * Query → category/keyword synonym map for discovery. Keys and values are
+ * lower-case substrings matched against business names, product text and
+ * category names. Covers common Nigerian terms incl. pidgin ("chop", "buka",
+ * "chemist"). Additive: the original query term is always kept.
+ */
+export const DISCOVERY_QUERY_SYNONYMS: Record<string, readonly string[]> = {
+  "fast food": ["fast food", "restaurant", "food", "eatery", "chop"],
+  food: ["food", "restaurant", "eatery", "buka", "chop"],
+  chop: ["chop", "food", "restaurant", "eatery", "buka"],
+  buka: ["buka", "food", "restaurant", "eatery"],
+  restaurant: ["restaurant", "food", "eatery", "buka"],
+  eatery: ["eatery", "restaurant", "food", "buka"],
+  pharmacy: ["pharmacy", "chemist", "drug", "medicine"],
+  chemist: ["chemist", "pharmacy", "drug", "medicine"],
+  medicine: ["medicine", "pharmacy", "chemist", "drug"],
+  fuel: ["fuel", "filling station", "petrol", "gas station"],
+  petrol: ["petrol", "fuel", "filling station"],
+  "filling station": ["filling station", "fuel", "petrol"],
+  gas: ["gas", "fuel", "filling station"],
+  hospital: ["hospital", "clinic", "health", "medical"],
+  clinic: ["clinic", "hospital", "health", "medical"],
+  supermarket: ["supermarket", "grocery", "market", "provisions"],
+  grocery: ["grocery", "supermarket", "market", "provisions"],
+  market: ["market", "grocery", "supermarket"],
+  provisions: ["provisions", "grocery", "supermarket"],
+  bank: ["bank", "atm"],
+  atm: ["atm", "bank"],
+  salon: ["salon", "barber", "hair"],
+  barber: ["barber", "salon", "hair"],
+  hotel: ["hotel", "lodge", "guest house"],
+  lodge: ["lodge", "hotel", "guest house"],
+  bakery: ["bakery", "bread", "pastry"],
+  tailor: ["tailor", "fashion", "clothing"],
+  fashion: ["fashion", "clothing", "tailor", "boutique"],
+  boutique: ["boutique", "fashion", "clothing"],
+  electronics: ["electronics", "phone", "computer", "gadget"],
+  phone: ["phone", "electronics", "gadget"],
+};
+
+/**
+ * Expand a discovery query into match terms: the query itself plus synonyms
+ * for the whole query and for each individual word (deduped, lower-case).
+ */
+export function expandDiscoveryQuery(query: string): string[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const terms = new Set<string>([q]);
+  const direct = DISCOVERY_QUERY_SYNONYMS[q];
+  if (direct) for (const t of direct) terms.add(t);
+  for (const word of q.split(/\s+/).filter((w) => w.length >= 3)) {
+    const syn = DISCOVERY_QUERY_SYNONYMS[word];
+    if (syn) for (const t of syn) terms.add(t);
+  }
+  return Array.from(terms);
+}
+
 // ─── Distance ───────────────────────────────────────────────────────────────
 /** Great-circle distance in km (haversine). */
 export function haversineKm(
@@ -247,6 +311,12 @@ export interface DiscoverOptions {
   openNow?: boolean;
   page?: number;
   pageSize?: number;
+  /** === W50 CHANNELS (B3) === ranking mode: "score" = trust-weighted (the
+   *  pre-W50 default), "distance" = pure proximity with a capped sponsored
+   *  boost (sponsoredBoostKm). */
+  sortBy?: "distance" | "score";
+  /** Max km a sponsored entry may advance in distance mode (default env). */
+  sponsoredBoostKm?: number;
   /** Reference instant for open-now evaluation (tests inject this). */
   now?: Date;
   /** Override the sponsored-per-page cap (defaults to env). */
@@ -263,6 +333,9 @@ export interface DiscoverItem {
   rating: number | null;
   openNow: boolean | null;
   score: number;
+  /** === W50 CHANNELS === merchant pin, surfaced for per-result map links. */
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface DiscoverResult {
@@ -306,9 +379,14 @@ export function discoverNearbyPure(
     if (m.serviceRadiusKm != null && distanceKm > m.serviceRadiusKm) continue;
     if (category && !m.categories.includes(category)) continue;
     if (query) {
-      const inName = m.businessName.toLowerCase().includes(query);
-      const inProducts = m.productText.some((p) => p.includes(query));
-      if (!inName && !inProducts) continue;
+      // === W50 CHANNELS (B2) === synonym-expanded matching: any expanded
+      // term may hit the business name, product text, or a category name.
+      const terms = expandDiscoveryQuery(query);
+      const matches = terms.some((t) =>
+        m.businessName.toLowerCase().includes(t) ||
+        m.productText.some((p) => p.includes(t)) ||
+        m.categories.some((c) => c.includes(t) || t.includes(c)));
+      if (!matches) continue;
     }
     const openNow = computeOpenNow(m.openHours ?? null, now);
     if (opts.openNow && openNow !== true) continue;
@@ -325,6 +403,8 @@ export function discoverNearbyPure(
       rating: trust, // trust score doubles as the surfaced rating when present
       openNow,
       score: baseScore,
+      latitude: m.latitude, // === W50 CHANNELS (B4) === map links
+      longitude: m.longitude,
     });
   }
 
@@ -341,11 +421,25 @@ export function discoverNearbyPure(
     item.score += s.bidCents / 100; // documented boost: bid cents → currency units
   }
 
-  // Deterministic order: score desc, then distanceKm asc, then tenantId asc.
-  scored.sort((a, b) =>
-    b.score - a.score || a.distanceKm - b.distanceKm ||
-    (a.tenantId < b.tenantId ? -1 : a.tenantId > b.tenantId ? 1 : 0),
-  );
+  // === W50 CHANNELS (B3) === distance-first mode: order by proximity; a
+  // sponsored placement may advance by at most `sponsoredBoostKm` (capped,
+  // disclosed by the sponsored flag — it never leapfrogs a clearly closer
+  // organic result beyond the configured boost). "score" keeps the
+  // pre-W50 trust-weighted ranking.
+  if (opts.sortBy === "distance") {
+    const boostKm = Math.max(0, opts.sponsoredBoostKm ?? sponsoredDistanceBoostKm());
+    const rankDistance = (i: DiscoverItem) => Math.max(0, i.distanceKm - (i.sponsored ? boostKm : 0));
+    scored.sort((a, b) =>
+      rankDistance(a) - rankDistance(b) || b.score - a.score ||
+      (a.tenantId < b.tenantId ? -1 : a.tenantId > b.tenantId ? 1 : 0),
+    );
+  } else {
+    // Deterministic order: score desc, then distanceKm asc, then tenantId asc.
+    scored.sort((a, b) =>
+      b.score - a.score || a.distanceKm - b.distanceKm ||
+      (a.tenantId < b.tenantId ? -1 : a.tenantId > b.tenantId ? 1 : 0),
+    );
+  }
 
   // Sponsored cap per page: keep the top-N sponsored entries, demote the
   // rest to organic (flag removed, boost removed is NOT undone for ranking —
@@ -642,3 +736,94 @@ export async function listCategories(db: Db): Promise<CategoryNode[]> {
     })),
   );
 }
+
+// === W50 CHANNELS ===
+/**
+ * B5 — radius auto-widen: run discoverNearby; on an EMPTY page retry with
+ * the radius doubled until results appear or maxRadiusKm is reached.
+ * Returns the final result plus `expandedFromKm` (set only when expansion
+ * happened) so the caller can disclose the widening in the reply.
+ */
+export async function discoverNearbyWithWidening(
+  opts: DiscoverOptions,
+  db: Db,
+): Promise<{ result: DiscoverResult; expandedFromKm?: number }> {
+  const maxR = maxRadiusKm();
+  let radius = Math.min(Math.max(opts.radiusKm ?? defaultRadiusKm(), 0.1), maxR);
+  const firstRadius = radius;
+  let result = await discoverNearby({ ...opts, radiusKm: radius }, db);
+  while (result.items.length === 0 && radius < maxR) {
+    radius = Math.min(radius * 2, maxR);
+    result = await discoverNearby({ ...opts, radiusKm: radius }, db);
+  }
+  return radius > firstRadius ? { result, expandedFromKm: firstRadius } : { result };
+}
+
+/** B6 — one area-text match row (USSD discovery-by-text). */
+export interface AreaMatchItem {
+  tenantId: string;
+  businessName: string;
+  label: string;
+  addressLine: string | null;
+  city: string | null;
+  latitude: number;
+  longitude: number;
+}
+
+/** Pure area-text matcher: any word (≥3 chars) hits address/city/label/name. */
+export function matchesAreaText(
+  text: string,
+  row: { businessName: string; label?: string | null; addressLine?: string | null; city?: string | null },
+): boolean {
+  const hay = [row.businessName, row.label, row.addressLine, row.city]
+    .filter((x): x is string => typeof x === "string" && !!x)
+    .join(" ")
+    .toLowerCase();
+  if (!hay) return false;
+  const words = text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length >= 3);
+  return words.some((w) => hay.includes(w));
+}
+
+/**
+ * B6 — USSD discovery-by-text: resolve an area/landmark string against the
+ * discoverable merchants' address fields (addressLine / city / label /
+ * business name). No external geocoder — pure text match.
+ */
+export async function discoverByAreaText(db: Db, text: string, limit = 5): Promise<AreaMatchItem[]> {
+  const locRows = (await db
+    .select()
+    .from(merchantLocations)
+    .where(eq(merchantLocations.discoverable, true))
+    .catch(() => [])) as Record<string, unknown>[];
+  if (!locRows.length) return [];
+  const tenantIds = Array.from(new Set(locRows.map((r) => r.tenantId as string)));
+  const tenantRows = (await db
+    .select({ id: tenants.id, name: tenants.name, status: tenants.status })
+    .from(tenants)
+    .where(inArray(tenants.id, tenantIds))
+    .catch(() => [])) as Record<string, unknown>[];
+  const nameById = new Map(
+    tenantRows.filter((t) => t.status === "active").map((t) => [t.id as string, (t.name as string) ?? (t.id as string)]),
+  );
+  const out: AreaMatchItem[] = [];
+  for (const r of locRows) {
+    const businessName = nameById.get(r.tenantId as string);
+    if (!businessName) continue;
+    const row = {
+      businessName,
+      label: (r.label as string) ?? "Main branch",
+      addressLine: (r.addressLine as string) ?? null,
+      city: (r.city as string) ?? null,
+    };
+    if (!matchesAreaText(text, row)) continue;
+    out.push({
+      tenantId: r.tenantId as string,
+      ...row,
+      latitude: toNum(r.latitude),
+      longitude: toNum(r.longitude),
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+// === END W50 CHANNELS ===

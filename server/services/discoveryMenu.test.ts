@@ -59,7 +59,9 @@ describe("formatDiscoveryMenu", () => {
     ];
     const menu = formatDiscoveryMenu([...organic, ...sponsored], 5);
     const rows = menu.split("\n").slice(1);
-    expect(rows).toHaveLength(2 + DISCOVERY_MENU_MAX_ORGANIC);
+    // W50: a trailing "share a different location" hint follows the rows.
+    expect(rows).toHaveLength(2 + DISCOVERY_MENU_MAX_ORGANIC + 1);
+    expect(rows[rows.length - 1]).toContain("Share a different location");
     expect(rows[0]).toContain("★ Sponsored: Sponsored 1");
     expect(rows[1]).toContain("★ Sponsored: Sponsored 2");
     expect(rows.some((r) => r.includes("Organic 10"))).toBe(false);
@@ -68,6 +70,17 @@ describe("formatDiscoveryMenu", () => {
   it("has a friendly empty state mentioning the radius", () => {
     const menu = formatDiscoveryMenu([], 5);
     expect(menu).toContain("No businesses found within 5 km");
+  });
+
+  // === W50 CHANNELS (B4) ===
+  it("adds a Google Maps link for rows with a pin and skips it without one", () => {
+    const menu = formatDiscoveryMenu([
+      item({ tenantId: "a", businessName: "Pinned", latitude: 6.5244, longitude: 3.3792 }),
+      item({ tenantId: "b", businessName: "NoPin" }),
+    ], 5);
+    expect(menu).toContain("https://maps.google.com/?q=6.5244,3.3792");
+    expect(menu).not.toContain("NoPin — Food · 1 km\n   🗺️");
+    expect(menu).toContain("Share a different location");
   });
 });
 

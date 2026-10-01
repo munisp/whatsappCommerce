@@ -11,6 +11,9 @@ import { assertUserTenantActive } from "../services/tenantGuard";
 import { traceProcedure } from "./telemetry";
 
 const t = initTRPC.context<TrpcContext>().create({
+  // PERF-API-16 (W48, decision): superjson is KEPT — clients rely on Date
+  // round-trips across many routers; dropping it is a breaking change, not a
+  // perf tweak. Payload size/CPU is addressed by PERF-API-10 (gzip) instead.
   transformer: superjson,
 });
 

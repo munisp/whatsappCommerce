@@ -13,6 +13,7 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  redis_durable_data: # W48 PERF-SC-16: noeviction idempotency/approval instance
   kafka_data:
   zookeeper_data:
   tigerbeetle_data:
@@ -45,11 +46,34 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    # === W48 sidecars (PERF-SC-16) === this instance is for CACHE/ephemeral
+    # keys only: volatile-lru evicts ONLY keys with a TTL, so it can never
+    # silently drop idempotency/approval state. Durable keys (ns:idem:*,
+    # hermes:approval:*, DLQ lists, liveness sessions) MUST use redis-durable
+    # below (REDIS_DURABLE_URL, noeviction).
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy volatile-lru
     volumes:
       - redis_data:/data
     ports:
       - "6379:6379"
+    networks: [platform]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PERF-SC-16: dedicated noeviction instance for idempotency keys, approval
+  # records, DLQ lists and liveness sessions — an eviction there breaks
+  # exactly-once/approval guarantees. Alert on evicted_keys on the cache
+  # instance; this one should never evict.
+  redis-durable:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
+    volumes:
+      - redis_durable_data:/data
+    ports:
+      - "6380:6379"
     networks: [platform]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -76,7 +100,10 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # === W48 sidecars (PERF-SC-30) === auto-creation DISABLED per the
+      # PLT-24 contract (docs/KAFKA_TOPICS.md): topics are pre-provisioned,
+      # so a typo'd topic fails loudly instead of creating a stray RF=1 topic.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_LOG_RETENTION_HOURS: 168
     volumes:
       - kafka_data:/var/lib/kafka/data
@@ -328,6 +355,7 @@ services:
       dockerfile: Dockerfile
     environment:
       PORT: "8001"
+      REDIS_DURABLE_URL: redis://redis-durable:6379 # W48 PERF-SC-16: liveness sessions
       VLM_MOCK_MODE: ${VLM_MOCK_MODE:-false} # DEV-ONLY opt-in: set true locally (see header above)
       KYC_INTERNAL_API_KEY: ${KYC_SERVICE_API_KEY:-dev-only-kyc-key-change-in-prod}
       OLLAMA_URL: ${OLLAMA_URL:-http://localhost:11434}
@@ -669,6 +697,8 @@ services:
       PORT: "8096"
       KAFKA_BROKERS: kafka:9092
       REDIS_URL: redis://redis:6379
+      # W48 PERF-SC-16: approvals/idempotency go to the noeviction instance
+      REDIS_DURABLE_URL: redis://redis-durable:6379
       HERMES_AGENT_URL: ${HERMES_AGENT_URL:-https://api.hermes-agent.com}
       HERMES_API_KEY: ${HERMES_API_KEY:-placeholder}
       PLATFORM_API_URL: http://platform:3000

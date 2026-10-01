@@ -25,7 +25,11 @@ export const journey: Journey = {
   feature: "observability honesty: real queries or explicit empty states",
   async run(_world: World) {
     // ── 1. Dashboard has no hardcoded series ─────────────────────────────
-    const dash = fs.readFileSync(path.join(ROOT, "client/src/pages/Dashboard.tsx"), "utf-8");
+    // W48 frontend (Coder B) extracted the chart cards (incl. the explicit
+    // empty state) into components/DashboardCharts.tsx — the honesty
+    // assertions apply to the COMBINED source of both files.
+    const dash = fs.readFileSync(path.join(ROOT, "client/src/pages/Dashboard.tsx"), "utf-8")
+      + "\n" + fs.readFileSync(path.join(ROOT, "client/src/components/DashboardCharts.tsx"), "utf-8");
     assert(!/revenue:\s*12400/.test(dash), "Dashboard still contains the hardcoded revenue series");
     assert(!/bot:\s*142/.test(dash), "Dashboard still contains the hardcoded conversation series");
     assert(dash.includes("No data yet"), "Dashboard must render an explicit empty state");

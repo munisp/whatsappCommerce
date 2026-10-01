@@ -104,6 +104,32 @@ zap.Int64("latency_ms", latencyMs))
 }
 }
 
+// === W48 sidecars (PERF-SC-8) === bounded publish queue + fixed publisher
+// workers — replaces one unbounded `go func()` per successful proxied request
+// (goroutine/conn pile-up under load, no backpressure). When the queue is
+// full the event is dropped with a warning (telemetry stays fail-open; the
+// proxy response is never delayed).
+type publishJob struct {
+	kind      string
+	eventType string
+	payload   map[string]interface{}
+}
+publishQueue := make(chan publishJob, 4096)
+const publishWorkers = 4
+for i := 0; i < publishWorkers; i++ {
+go func() {
+for job := range publishQueue {
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+if job.kind == "order" {
+eventProducer.PublishOrderEvent(ctx, job.eventType, job.payload)
+} else {
+eventProducer.PublishPaymentEvent(ctx, job.eventType, job.payload)
+}
+cancel()
+}
+}()
+}
+
 // publishAfterSuccess wraps a proxied handler and publishes a Fluvio domain
 // event when the upstream responds with a success status (<400). It is a no-op
 // when Fluvio is not configured.
@@ -124,15 +150,12 @@ payload := map[string]interface{}{
 for _, p := range c.Params {
 payload[p.Key] = p.Value
 }
-go func() {
-ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-defer cancel()
-if kind == "order" {
-eventProducer.PublishOrderEvent(ctx, eventType, payload)
-} else {
-eventProducer.PublishPaymentEvent(ctx, eventType, payload)
+select {
+case publishQueue <- publishJob{kind: kind, eventType: eventType, payload: payload}:
+default:
+logger.Warn("fluvio.publish.queue_full — dropping event (fail-open telemetry)",
+zap.String("event_type", eventType), zap.String("path", c.Request.URL.Path))
 }
-}()
 }
 }
 

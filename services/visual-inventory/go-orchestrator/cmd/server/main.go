@@ -36,9 +36,9 @@ import (
 	// Standard library only — no external deps required for core logic
 	// In production add: github.com/gin-gonic/gin, go.uber.org/zap,
 	//                    github.com/aws/aws-sdk-go-v2/service/s3
+	// === W48 sidecars === PERF-SC-1: remove duplicate jpeg/png blank imports
+	// (named imports above already register the decoders and provide Encode).
 	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 
 	"github.com/whatsapp-commerce/otelx" // === W35 otel ===
 )
@@ -90,6 +90,15 @@ func newRateLimiter(limit int) *RateLimiter {
 func (r *RateLimiter) Allow(tenantID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// PERF-SC-28: sweep stale buckets so the map cannot grow forever with the
+	// lifetime tenant count.
+	if len(r.buckets) > 4096 {
+		for k, b := range r.buckets {
+			if time.Since(b.lastReset) > 5*time.Minute {
+				delete(r.buckets, k)
+			}
+		}
+	}
 	b, ok := r.buckets[tenantID]
 	if !ok || time.Since(b.lastReset) > time.Minute {
 		r.buckets[tenantID] = &tokenBucket{tokens: r.limit - 1, lastReset: time.Now()}
@@ -154,16 +163,52 @@ func preprocessImage(data []byte, maxDim int) ([]byte, ImageInfo, error) {
 	}, nil
 }
 
+// === W48 sidecars (PERF-SC-28) === shared VLM client — was a new
+// http.Client (fresh connection pool, no keep-alive reuse) per call.
+var vlmHTTPClient = &http.Client{Timeout: 180 * time.Second}
+
 // resizeImage using nearest-neighbour (fast; Python VLM does quality resize)
+//
+// === W48 sidecars (PERF-SC-28) === the old per-pixel `dst.Set(x, y,
+// src.At(...))` paid interface dispatch + color conversion per pixel. Now
+// fast paths write directly into the RGBA Pix slice for the common source
+// types; the generic loop remains only for exotic image implementations.
 func resizeImage(src image.Image, newW, newH int) image.Image {
 	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
 	bounds := src.Bounds()
-	srcW, srcH := bounds.Max.X, bounds.Max.Y
-	for y := 0; y < newH; y++ {
-		for x := 0; x < newW; x++ {
-			srcX := x * srcW / newW
-			srcY := y * srcH / newH
-			dst.Set(x, y, src.At(srcX, srcY))
+	srcW, srcH := bounds.Dx(), bounds.Dy()
+	switch s := src.(type) {
+	case *image.RGBA:
+		for y := 0; y < newH; y++ {
+			srcY := bounds.Min.Y + y*srcH/newH
+			rowOff := y * dst.Stride
+			srcRow := srcY * s.Stride
+			for x := 0; x < newW; x++ {
+				srcX := bounds.Min.X + x*srcW/newW
+				si := srcRow + srcX*4
+				di := rowOff + x*4
+				copy(dst.Pix[di:di+4], s.Pix[si:si+4])
+			}
+		}
+	case *image.NRGBA:
+		for y := 0; y < newH; y++ {
+			srcY := bounds.Min.Y + y*srcH/newH
+			rowOff := y * dst.Stride
+			srcRow := srcY * s.Stride
+			for x := 0; x < newW; x++ {
+				srcX := bounds.Min.X + x*srcW/newW
+				si := srcRow + srcX*4
+				di := rowOff + x*4
+				copy(dst.Pix[di:di+4], s.Pix[si:si+4])
+			}
+		}
+	default:
+		for y := 0; y < newH; y++ {
+			for x := 0; x < newW; x++ {
+				srcX := bounds.Min.X + x*srcW/newW
+				srcY := bounds.Min.Y + y*srcH/newH
+				dst.Set(x, y, src.At(srcX, srcY))
+			}
 		}
 	}
 	return dst
@@ -212,15 +257,14 @@ func forwardToPythonVLM(
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	client := &http.Client{Timeout: 180 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := vlmHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("python VLM unreachable: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 		return nil, fmt.Errorf("python VLM error %d: %s", resp.StatusCode, string(body))
 	}
 

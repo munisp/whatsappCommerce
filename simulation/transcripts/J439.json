@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348016314535",
-      "profileName": "Sim User 4535",
-      "inboundId": "wamid.sim.in.btn.00560",
-      "at": 1790427867169,
+      "phone": "2348013633786",
+      "profileName": "Sim User 3786",
+      "inboundId": "wamid.sim.in.btn.00001",
+      "at": 1790458771586,
       "kind": "button_reply",
       "text": "Shop",
       "payloadId": "menu_1"
@@ -18,26 +18,26 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.btn.00560",
-      "at": 1790427867174
+      "wamid": "wamid.sim.in.btn.00001",
+      "at": 1790458771597
     },
     {
       "dir": "out",
-      "phone": "2348016314535",
-      "wamid": "wamid.sim.001030",
+      "phone": "2348013633786",
+      "wamid": "wamid.sim.000027",
       "statuses": [
         "sent"
       ],
-      "at": 1790427867178,
+      "at": 1790458771603,
       "kind": "text",
       "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
     },
     {
       "dir": "in",
-      "phone": "2348011363234",
-      "profileName": "Sim User 3234",
-      "inboundId": "wamid.sim.in.img.00561",
-      "at": 1790427867727,
+      "phone": "2348017349181",
+      "profileName": "Sim User 9181",
+      "inboundId": "wamid.sim.in.img.00002",
+      "at": 1790458772133,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "media-j439-1",
@@ -46,26 +46,26 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.img.00561",
-      "at": 1790427867732
+      "wamid": "wamid.sim.in.img.00002",
+      "at": 1790458772140
     },
     {
       "dir": "out",
-      "phone": "2348011363234",
-      "wamid": "wamid.sim.001031",
+      "phone": "2348017349181",
+      "wamid": "wamid.sim.000028",
       "statuses": [
         "sent"
       ],
-      "at": 1790427867736,
+      "at": 1790458772145,
       "kind": "text",
       "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
     },
     {
       "dir": "in",
-      "phone": "2348011036498",
-      "profileName": "Sim User 6498",
-      "inboundId": "wamid.sim.in.loc.00562",
-      "at": 1790427868283,
+      "phone": "2348012494362",
+      "profileName": "Sim User 4362",
+      "inboundId": "wamid.sim.in.loc.00003",
+      "at": 1790458772679,
       "kind": "location",
       "lat": 6.5244,
       "lng": 3.3792,
@@ -75,78 +75,78 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.loc.00562",
-      "at": 1790427868289
+      "wamid": "wamid.sim.in.loc.00003",
+      "at": 1790458772685
     },
     {
       "dir": "out",
-      "phone": "2348011036498",
-      "wamid": "wamid.sim.001032",
+      "phone": "2348012494362",
+      "wamid": "wamid.sim.000029",
       "statuses": [
         "sent"
       ],
-      "at": 1790427868295,
+      "at": 1790458772690,
       "kind": "text",
       "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
     },
     {
       "dir": "in",
-      "phone": "2348015214264",
-      "profileName": "Sim User 4264",
-      "inboundId": "wamid.sim.in.text.00563",
-      "at": 1790427868841,
+      "phone": "2348013557106",
+      "profileName": "Sim User 7106",
+      "inboundId": "wamid.sim.in.text.00004",
+      "at": 1790458773223,
       "kind": "text",
       "text": "simdeal"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00563",
-      "at": 1790427868846
+      "wamid": "wamid.sim.in.text.00004",
+      "at": 1790458773236
     },
     {
       "dir": "out",
-      "phone": "2348015214264",
-      "wamid": "wamid.sim.001033",
+      "phone": "2348013557106",
+      "wamid": "wamid.sim.000030",
       "statuses": [
         "sent"
       ],
-      "at": 1790427868852,
+      "at": 1790458773243,
       "kind": "text",
       "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
     },
     {
       "dir": "in",
-      "phone": "2348016314535",
-      "profileName": "Sim User 4535",
-      "inboundId": "wamid.sim.in.text.00564",
-      "at": 1790427869394,
+      "phone": "2348013633786",
+      "profileName": "Sim User 3786",
+      "inboundId": "wamid.sim.in.text.00005",
+      "at": 1790458773769,
       "kind": "text",
       "text": "YES"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00564",
-      "at": 1790427869399
+      "wamid": "wamid.sim.in.text.00005",
+      "at": 1790458773776
     },
     {
       "dir": "out",
-      "phone": "2348016314535",
-      "wamid": "wamid.sim.001034",
+      "phone": "2348013633786",
+      "wamid": "wamid.sim.000031",
       "statuses": [
         "sent"
       ],
-      "at": 1790427869410,
+      "at": 1790458773786,
       "kind": "text",
       "body": "Thank you! You've opted in to order updates on WhatsApp.\n\nWelcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n\nReply with a number to choose an option."
     },
     {
       "dir": "in",
-      "phone": "2348016314535",
-      "profileName": "Sim User 4535",
-      "inboundId": "wamid.sim.in.btn.00565",
-      "at": 1790427869955,
+      "phone": "2348013633786",
+      "profileName": "Sim User 3786",
+      "inboundId": "wamid.sim.in.btn.00006",
+      "at": 1790458774314,
       "kind": "button_reply",
       "text": "Shop",
       "payloadId": "menu_1"
@@ -154,19 +154,19 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.btn.00565",
-      "at": 1790427869960
+      "wamid": "wamid.sim.in.btn.00006",
+      "at": 1790458774321
     },
     {
       "dir": "out",
-      "phone": "2348016314535",
-      "wamid": "wamid.sim.001035",
+      "phone": "2348013633786",
+      "wamid": "wamid.sim.000032",
       "statuses": [
         "sent"
       ],
-      "at": 1790427869976,
+      "at": 1790458774384,
       "kind": "text",
-      "body": "Sure! Here's what we have:\n\n1. Jollof Rice — NGN 2500.00\n2. Grilled Chicken — NGN 3000.00\n3. Last Unit Special — NGN 1000.00\n4. Sold Out Sneakers — NGN 15000.00 (out of stock)\n5. Ankara Fabric — NGN 5000.00\n6. Restock Widget — NGN 750.00 (out of stock)\n7. Peak Milk 400g — NGN 1850.00 (out of stock)\n8. Snack p-j128-a — NGN 200.00\n9. Snack p-j128-b — NGN 250.00\n10. Snack p-j128-c — NGN 300.00\n11. Plantain Chips 100g — NGN 250.00 (out of stock)\n12. Royal Stallion Rice 50kg — NGN 95000.00 (out of stock)\n13. J130 p-j130-b2 — NGN 200.00\n14. J130 p-j130-b1 — NGN 100.00\n15. J130 p-j130-b3 — NGN 300.00\n16. J130 p-j130-b4 — NGN 400.00\n17. J130 p-j130-s1 — NGN 9.99\n18. J130 p-j130-x1 — NGN 500.00\n19. J130 p-j130-x2 — NGN 700.00\n20. Indigo Dye Kit — NGN 999.00\n\nReply with a number or an item's name to add it."
+      "body": "Sorry, I didn't quite get that — type 'menu' to see options."
     }
   ]
 }

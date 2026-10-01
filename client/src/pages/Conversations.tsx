@@ -8,11 +8,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { trpc } from "@/lib/trpc";
 import { formatDistanceToNow } from "date-fns";
 import { Bot, MessageSquare, Users, AlertTriangle, Search } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useConversationsWS } from "@/hooks/useConversationsWS";
 import ConversationTimeline from "@/components/ConversationTimeline";
 import { Button } from "@/components/ui/button";
 import { Wifi, WifiOff, Radio, X } from "lucide-react";
+import { useIsMobile } from "@/hooks/useMobile";
+import { useTableVirtualizer, VirtualTableBody } from "@/components/VirtualTable";
 
 
 const statusColors: Record<string, string> = {
@@ -31,10 +33,12 @@ export default function Conversations() {
   const [selectedConv, setSelectedConv] = useState<any>(null);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const { data: stats } = trpc.conversation.stats.useQuery({ tenantId: DEMO_TENANT });
+  // W48 PERF-FE-13: smaller first page on mobile viewports (payload trim).
+  const isMobile = useIsMobile();
   const { data: convList, isLoading, refetch } = trpc.conversation.list.useQuery({
     tenantId: DEMO_TENANT,
     status: statusFilter === "all" ? undefined : statusFilter,
-    limit: 50,
+    limit: isMobile ? 25 : 50,
   });
 
   const { wsState, events, clearEvents } = useConversationsWS(DEMO_TENANT);
@@ -60,6 +64,19 @@ export default function Conversations() {
   );
   const wsConnected = wsState === "connected";
   const wsConnecting = wsState === "connecting";
+
+  // === W48 perf (PERF-FE-4): filtered list memoized + rows virtualized ===
+  const filteredConvs = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return (convList ?? []).filter((c) => {
+      if (!q) return true;
+      return (
+        (c.customerName ?? "").toLowerCase().includes(q) ||
+        (c.customerPhone ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [convList, searchQuery]);
+  const { scrollRef, virtualizer } = useTableVirtualizer(filteredConvs.length, 53);
 
   return (
     <DashboardLayout>
@@ -159,8 +176,9 @@ export default function Conversations() {
         <Card className="bg-card border-border">
           <CardHeader><CardTitle className="text-sm font-medium text-muted-foreground">Live Conversations</CardTitle></CardHeader>
           <CardContent className="p-0">
+            <div ref={scrollRef} className="max-h-[560px] overflow-y-auto">
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow className="border-border hover:bg-transparent">
                   <TableHead>ID</TableHead>
                   <TableHead>Status</TableHead>
@@ -173,19 +191,19 @@ export default function Conversations() {
                   <TableHead>Delivery</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
-                {isLoading ? (
+              {isLoading ? (
+                <TableBody>
                   <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">Loading conversations...</TableCell></TableRow>
-                ) : convList?.length === 0 ? (
-                  <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No conversations found</TableCell></TableRow>
-                ) : convList?.filter(c => {
-              if (!searchQuery) return true;
-              const q = searchQuery.toLowerCase();
-              return (
-                (c.customerName ?? "").toLowerCase().includes(q) ||
-                (c.customerPhone ?? "").toLowerCase().includes(q)
-              );
-            }).map((c) => (
+                </TableBody>
+              ) : (
+                <VirtualTableBody
+                  rows={filteredConvs}
+                  virtualizer={virtualizer}
+                  colSpan={9}
+                  emptyState={
+                    <div className="text-center text-muted-foreground py-8">No conversations found</div>
+                  }
+                  renderRow={(c) => (
                   <TableRow key={c.id} className="border-border hover:bg-accent/30 cursor-pointer" onClick={() => { setSelectedConv(c as any); setTimelineOpen(true); }}>
                     <TableCell className="font-mono text-xs">{c.id.slice(0, 8)}...</TableCell>
                     <TableCell><Badge variant="outline" className={statusColors[c.status] ?? ""}>{c.status}</Badge></TableCell>
@@ -208,9 +226,11 @@ export default function Conversations() {
                       })()}
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
+                  )}
+                />
+              )}
             </Table>
+            </div>
           </CardContent>
         </Card>
         {/* Delivery Metrics */}

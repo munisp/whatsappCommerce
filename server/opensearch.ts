@@ -33,7 +33,12 @@ async function getClient(): Promise<OSClient | null> {
       // W42 (PLT-14): verify certs by default; OPENSEARCH_TLS_CA provides a
       // private-CA bundle (docs/TLS.md).
       ssl: buildTlsOptions("OpenSearch", "OPENSEARCH"),
-      requestTimeout: 10000,
+      // === W48 integrations (PERF-INT-8): interactive-search timeout ===
+      // 10s turned OpenSearch slowness into API latency on request paths
+      // (search mutations await osIndex/osSearch). 3s keeps interactive
+      // search inside the p95 budget; bulk indexing paths use osBulk with
+      // their own bounded timeout.
+      requestTimeout: Number(process.env.OPENSEARCH_REQUEST_TIMEOUT_MS ?? 3000),
     });
     return _client;
   } catch (err: any) {
@@ -53,6 +58,41 @@ export async function osIndex(index: string, id: string, body: Record<string, un
   }
 }
 
+// === W48 integrations (PERF-INT-8) ===
+/**
+ * Bulk-index documents (one `_bulk` call per chunk of 500) — ~10-50x the
+ * throughput of per-doc osIndex for the async pipeline. Best-effort; never
+ * throws. Individual document failures are logged, not raised.
+ */
+export async function osIndexBulk(
+  index: string,
+  docs: { id: string; body: Record<string, unknown> }[],
+): Promise<{ indexed: number; failed: number }> {
+  const client = await getClient();
+  if (!client || docs.length === 0) return { indexed: 0, failed: docs.length };
+  let indexed = 0;
+  let failed = 0;
+  const CHUNK = 500;
+  for (let i = 0; i < docs.length; i += CHUNK) {
+    const chunk = docs.slice(i, i + CHUNK);
+    try {
+      const resp = await client.bulk({
+        refresh: "false",
+        body: chunk.flatMap((d) => [{ index: { _index: index, _id: d.id } }, d.body]),
+      });
+      const items = (resp.body as any)?.items ?? [];
+      for (const item of items) {
+        const st = item?.index?.status ?? 500;
+        if (st >= 200 && st < 300) indexed++; else failed++;
+      }
+    } catch (err: any) {
+      failed += chunk.length;
+      console.warn(`[OpenSearch] bulk index ${index} chunk@${i} failed:`, err.message);
+    }
+  }
+  return { indexed, failed };
+}
+
 /**
  * Search documents with a query string, scoped to a single tenant.
  * tenantId is required — every indexed document here carries a tenantId
@@ -67,7 +107,21 @@ export async function osSearch(index: string, query: string, tenantId: string, s
       body: {
         query: {
           bool: {
-            must: { multi_match: { query, fields: ["*"], fuzziness: "AUTO" } },
+            // === W48 integrations (PERF-INT-8): cheap query shape ===
+            // Was: multi_match over fields:["*"] with fuzziness:"AUTO" —
+            // all-fields fuzzy is one of the most expensive query shapes and
+            // degrades superlinearly with index size. Now: explicit
+            // high-value fields with a boost on the text body, fuzziness
+            // capped at 1 (AUTO explodes on short strings); tenant filter
+            // unchanged (never cross tenant boundaries).
+            must: {
+              multi_match: {
+                query,
+                fields: ["text^2", "body^2", "fromAddress", "from", "customerName", "orderNumber", "title", "name"],
+                fuzziness: 1,
+                prefix_length: 2,
+              },
+            },
             filter: { term: { tenantId } },
           },
         },

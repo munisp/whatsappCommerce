@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017075337",
-      "profileName": "Sim User 5337",
+      "phone": "2348013138529",
+      "profileName": "Sim User 8529",
       "inboundId": "wamid.sim.in.text.00088",
-      "at": 1790427293378,
+      "at": 1790457244428,
       "kind": "text",
       "text": "hi"
     },
@@ -18,16 +18,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00088",
-      "at": 1790427293382
+      "at": 1790457244438
     },
     {
       "dir": "out",
-      "phone": "2348017075337",
-      "wamid": "wamid.sim.000112",
+      "phone": "2348013138529",
+      "wamid": "wamid.sim.000125",
       "statuses": [
         "sent"
       ],
-      "at": 1790427293393,
+      "at": 1790457244463,
       "kind": "interactive",
       "body": "Welcome to Sim Store! How can we help you today?",
       "footer": "Tap an option, or reply with its number.",
@@ -48,210 +48,78 @@
     },
     {
       "dir": "out",
-      "phone": "2348011228476",
-      "wamid": "wamid.sim.000113",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790427294014,
-      "kind": "text",
-      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
-    },
-    {
-      "dir": "out",
-      "phone": "2348011743461",
-      "wamid": "wamid.sim.000114",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790427294014,
-      "kind": "text",
-      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
-    },
-    {
-      "dir": "out",
-      "phone": "2348011955220",
-      "wamid": "wamid.sim.000115",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790427294015,
-      "kind": "text",
-      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
-    },
-    {
-      "dir": "out",
-      "phone": "2348012286652",
-      "wamid": "wamid.sim.000116",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790427294016,
-      "kind": "text",
-      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
-    },
-    {
-      "dir": "out",
-      "phone": "2348012506643",
-      "wamid": "wamid.sim.000117",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790427294016,
-      "kind": "text",
-      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
-    },
-    {
-      "dir": "out",
-      "phone": "2348012849741",
-      "wamid": "wamid.sim.000118",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790427294017,
-      "kind": "text",
-      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
-    },
-    {
-      "dir": "out",
-      "phone": "2348013027630",
-      "wamid": "wamid.sim.000119",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790427294018,
-      "kind": "text",
-      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
-    },
-    {
-      "dir": "out",
-      "phone": "2348013799694",
-      "wamid": "wamid.sim.000120",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790427294018,
-      "kind": "text",
-      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
-    },
-    {
-      "dir": "out",
-      "phone": "2348014215808",
-      "wamid": "wamid.sim.000121",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790427294019,
-      "kind": "text",
-      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
-    },
-    {
-      "dir": "out",
-      "phone": "2348014435832",
-      "wamid": "wamid.sim.000122",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790427294020,
-      "kind": "text",
-      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
-    },
-    {
-      "dir": "out",
-      "phone": "2348014540346",
-      "wamid": "wamid.sim.000123",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790427294021,
-      "kind": "text",
-      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
-    },
-    {
-      "dir": "out",
-      "phone": "2348014649948",
-      "wamid": "wamid.sim.000124",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790427294022,
-      "kind": "text",
-      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
-    },
-    {
-      "dir": "out",
-      "phone": "2348014812596",
-      "wamid": "wamid.sim.000125",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790427294022,
-      "kind": "text",
-      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
-    },
-    {
-      "dir": "out",
-      "phone": "2348015533824",
+      "phone": "2348011256335",
       "wamid": "wamid.sim.000126",
       "statuses": [
         "sent"
       ],
-      "at": 1790427294023,
+      "at": 1790457245096,
       "kind": "text",
       "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
     },
     {
       "dir": "out",
-      "phone": "2348015549235",
+      "phone": "2348011467421",
       "wamid": "wamid.sim.000127",
       "statuses": [
         "sent"
       ],
-      "at": 1790427294024,
+      "at": 1790457245098,
       "kind": "text",
       "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
     },
     {
       "dir": "out",
-      "phone": "2348015643222",
+      "phone": "2348011701511",
       "wamid": "wamid.sim.000128",
       "statuses": [
         "sent"
       ],
-      "at": 1790427294024,
+      "at": 1790457245100,
       "kind": "text",
       "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
     },
     {
       "dir": "out",
-      "phone": "2348015924540",
+      "phone": "2348012012084",
       "wamid": "wamid.sim.000129",
       "statuses": [
         "sent"
       ],
-      "at": 1790427294025,
+      "at": 1790457245101,
       "kind": "text",
       "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
     },
     {
       "dir": "out",
-      "phone": "2348017075337",
+      "phone": "2348012128829",
       "wamid": "wamid.sim.000130",
       "statuses": [
         "sent"
       ],
-      "at": 1790427294026,
+      "at": 1790457245103,
       "kind": "text",
       "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
     },
     {
       "dir": "out",
-      "phone": "2348017337061",
+      "phone": "2348012301634",
       "wamid": "wamid.sim.000131",
       "statuses": [
         "sent"
       ],
-      "at": 1790427294026,
+      "at": 1790457245105,
+      "kind": "text",
+      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013025570",
+      "wamid": "wamid.sim.000132",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457245106,
       "kind": "template",
       "templateName": "sim_broadcast",
       "templateLanguage": "en_US",
@@ -259,82 +127,214 @@
     },
     {
       "dir": "out",
-      "phone": "2348017427863",
-      "wamid": "wamid.sim.000132",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790427294027,
-      "kind": "text",
-      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
-    },
-    {
-      "dir": "out",
-      "phone": "2348018175099",
+      "phone": "2348013138529",
       "wamid": "wamid.sim.000133",
       "statuses": [
         "sent"
       ],
-      "at": 1790427294028,
+      "at": 1790457245108,
       "kind": "text",
       "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
     },
     {
       "dir": "out",
-      "phone": "2348019405295",
+      "phone": "2348013457658",
       "wamid": "wamid.sim.000134",
       "statuses": [
         "sent"
       ],
-      "at": 1790427294029,
+      "at": 1790457245110,
       "kind": "text",
       "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
     },
     {
       "dir": "out",
-      "phone": "2348019503778",
+      "phone": "2348013520468",
       "wamid": "wamid.sim.000135",
       "statuses": [
         "sent"
       ],
-      "at": 1790427294029,
+      "at": 1790457245111,
       "kind": "text",
       "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
     },
     {
       "dir": "out",
-      "phone": "2348019560799",
+      "phone": "2348013674540",
       "wamid": "wamid.sim.000136",
       "statuses": [
         "sent"
       ],
-      "at": 1790427294030,
+      "at": 1790457245113,
       "kind": "text",
       "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
     },
     {
       "dir": "out",
-      "phone": "2348019714024",
+      "phone": "2348013936810",
       "wamid": "wamid.sim.000137",
       "statuses": [
         "sent"
       ],
-      "at": 1790427294031,
+      "at": 1790457245115,
       "kind": "text",
       "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
     },
     {
       "dir": "out",
-      "phone": "2348019891695",
+      "phone": "2348014983933",
       "wamid": "wamid.sim.000138",
       "statuses": [
         "sent"
       ],
-      "at": 1790427294060,
+      "at": 1790457245117,
+      "kind": "text",
+      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015175632",
+      "wamid": "wamid.sim.000139",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457245118,
+      "kind": "text",
+      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015765319",
+      "wamid": "wamid.sim.000140",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457245120,
+      "kind": "text",
+      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016103770",
+      "wamid": "wamid.sim.000141",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457245122,
       "kind": "template",
       "templateName": "sim_broadcast",
       "templateLanguage": "en_US",
-      "body": "Sim User 1695"
+      "body": "Sim User 3770"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016444163",
+      "wamid": "wamid.sim.000142",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457245123,
+      "kind": "text",
+      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016515561",
+      "wamid": "wamid.sim.000143",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457245124,
+      "kind": "text",
+      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017143527",
+      "wamid": "wamid.sim.000144",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457245126,
+      "kind": "text",
+      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017772321",
+      "wamid": "wamid.sim.000145",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457245127,
+      "kind": "text",
+      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018215189",
+      "wamid": "wamid.sim.000146",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457245128,
+      "kind": "text",
+      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018352273",
+      "wamid": "wamid.sim.000147",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457245129,
+      "kind": "text",
+      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018434265",
+      "wamid": "wamid.sim.000148",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457245131,
+      "kind": "text",
+      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018650561",
+      "wamid": "wamid.sim.000149",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457245132,
+      "kind": "text",
+      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019739579",
+      "wamid": "wamid.sim.000150",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457245133,
+      "kind": "text",
+      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019903945",
+      "wamid": "wamid.sim.000151",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457245174,
+      "kind": "text",
+      "body": "Hello {{1}}, the Sim Weekend Sale is live! 🎉"
     }
   ]
 }

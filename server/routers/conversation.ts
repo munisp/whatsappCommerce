@@ -3,7 +3,7 @@ import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import * as db from "../db";
 import { getDb } from "../db";
 import { channelMessages, conversations } from "../../drizzle/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, or } from "drizzle-orm";
 
 export const conversationRouter = router({
   list: protectedProcedure
@@ -46,7 +46,17 @@ export const conversationRouter = router({
       const rows = await dbConn
         .select()
         .from(channelMessages)
-        .where(eq(channelMessages.tenantId, input.tenantId))
+        // === W48 PERF-API-11 (api-db): phone predicate pushed INTO SQL —
+        // previously fetched the tenant's latest 60 rows and filtered by
+        // phone in JS (wrong page contents + wasted transfer). ===
+        .where(input.customerPhone
+          ? and(
+              eq(channelMessages.tenantId, input.tenantId),
+              or(
+                eq(channelMessages.fromAddress, input.customerPhone),
+                eq(channelMessages.toAddress, input.customerPhone),
+              ))
+          : eq(channelMessages.tenantId, input.tenantId))
         .orderBy(desc(channelMessages.createdAt))
         .limit(input.limit);
       const realRows = input.customerPhone
@@ -54,7 +64,6 @@ export const conversationRouter = router({
         : rows;
 
       const { nlpSessions } = await import("../../drizzle/schema");
-      const { or } = await import("drizzle-orm");
       const sessionConds = [eq(nlpSessions.tenantId, input.tenantId)];
       if (input.customerPhone) {
         // A session key is either the raw phone (whatsapp) or "telegram:<chat_id>" — match either form.
@@ -115,6 +124,15 @@ export const conversationRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
+      // === W48 integrations (PERF-INT-4) ===
+      // Was: raw fetch to graph.facebook.com/v19.0 with no timeout, no retry,
+      // no ban-circuit check, no suppression-list check, no usage metering —
+      // and version drift vs the rest of the platform (v21.0). PERF-INT-4's own fix routed this directly through
+      // waSender.sendWhatsAppText for that hardening (12s AbortController timeout, retriable classification, ban
+      // circuit breaker, per-tenant credential resolution, metering + send log) — but sendChannelMessage's own
+      // "whatsapp" branch already calls that exact same waSender.sendWhatsAppText underneath, so routing through
+      // it (as the QA-057 fix above already does) inherits all of that hardening for free, AND supports Telegram
+      // (PERF-INT-4's direct waSender call could not) — keeping this channel-agnostic, not WhatsApp-only.
       try {
         const { sendChannelMessage } = await import("../services/channelSender");
         const result = await sendChannelMessage(input.tenantId, input.channel, input.toPhone, { kind: "text", text: input.body });
@@ -134,7 +152,7 @@ export const conversationRouter = router({
             processed: true,
           });
         }
-        return { sent: true };
+        return { sent: true, simulated: result.simulated, messageIds: result.messageIds };
       } catch (e: any) {
         return { sent: false, error: e.message };
       }

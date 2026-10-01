@@ -493,6 +493,9 @@ export const onboardingRouter = router({
             .update(tenants)
             .set({ whatsappPhoneNumberId: creds.phoneNumberId, updatedAt: new Date() })
             .where(eq(tenants.id, input.tenantId));
+          // W48 (PERF-INT-6): invalidate the cached phone_number_id → tenant lookup.
+          const { invalidateWaTenantLookup } = await import("../services/waTenantLookup");
+          await invalidateWaTenantLookup(creds.phoneNumberId).catch(() => { /* best-effort */ });
         } catch (error: unknown) {
           const code = (error as { code?: string; cause?: { code?: string } })?.code
             ?? (error as { cause?: { code?: string } })?.cause?.code;

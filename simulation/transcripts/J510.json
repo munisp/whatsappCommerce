@@ -1,0 +1,36 @@
+{
+  "id": "J510",
+  "title": "WA permanent failure → SMS failover (flag-gated, idempotent)",
+  "feature": "W50 SMS: smsFailoverEnabled consumer in the waSender failure seam",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348015398226",
+      "at": 1790459049771,
+      "failed": true,
+      "failStatus": 400,
+      "kind": "text",
+      "body": "failover flag off body"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015398226",
+      "at": 1790459049777,
+      "failed": true,
+      "failStatus": 400,
+      "kind": "text",
+      "body": "Your order 777 failed to deliver on WhatsApp — pay cash on pickup."
+    },
+    {
+      "dir": "out",
+      "phone": "2348015398226",
+      "at": 1790459049792,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "transient failure should not fail over"
+    }
+  ]
+}

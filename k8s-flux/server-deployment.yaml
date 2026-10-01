@@ -202,6 +202,12 @@ spec:
             port: 3000
           initialDelaySeconds: 5
           periodSeconds: 5
+          # checkReadiness() (server/services/healthReady.ts) runs its checks in
+          # parallel, but the keycloak and tigerbeetle checks each carry their own
+          # PROBE_TIMEOUT_MS = 2000 budget - the default (unset) 1s probe timeout
+          # was shorter than that documented worst case, causing sporadic 503s on
+          # a healthy pod (ReadinessFlapping alert) with no actual outage.
+          timeoutSeconds: 3
           failureThreshold: 3
         livenessProbe:
           httpGet:

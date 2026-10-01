@@ -46,13 +46,34 @@ export function assertTenantActive(tenant: Pick<Tenant, "id" | "status">): void 
  * failure doctrine).
  */
 export async function getTenantStatus(db: any, tenantId: string): Promise<string | null> {
-  const [row] = await db
-    .select({ status: tenants.status })
-    .from(tenants)
-    .where(eq(tenants.id, tenantId))
-    .limit(1)
-    .catch(() => []);
-  return row?.status ?? null;
+  // === W48 PERF-API-9 (api-db): Redis read-through cache (fail-open) — the
+  // webhook/chat path re-reads tenant status per message. Invalidated by
+  // db.updateTenant; short TTL (300s) self-heals missed invalidations. ===
+  try {
+    const { cacheGetJson, cacheSetJson, cacheKeys, TENANT_CFG_TTL_S } = await import("./readThroughCache");
+    const key = cacheKeys.tenantStatus(tenantId);
+    const cached = await cacheGetJson<string | null>(key);
+    if (cached !== null) return cached;
+    const [row] = await db
+      .select({ status: tenants.status })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1)
+      .catch(() => []);
+    const status = row?.status ?? null;
+    if (status !== null) await cacheSetJson(key, status, TENANT_CFG_TTL_S);
+    return status;
+  } catch {
+    // Cache layer itself failed — fall back to the uncached read.
+    const [row] = await db
+      .select({ status: tenants.status })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1)
+      .catch(() => []);
+    return row?.status ?? null;
+  }
+  // === END W48 ===
 }
 
 /**

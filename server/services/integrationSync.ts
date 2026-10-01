@@ -189,7 +189,8 @@ export async function getMedusaIntegrationConfig(tenantId: string): Promise<Medu
   if (envUrl) {
     return {
       baseUrl: envUrl.replace(/\/+$/, ""),
-      adminApiKey: process.env.MEDUSA_ADMIN_API_KEY ?? null,
+      // === W51 PROMOS === MEDUSA_ADMIN_TOKEN accepted as an alias.
+      adminApiKey: process.env.MEDUSA_ADMIN_API_KEY ?? process.env.MEDUSA_ADMIN_TOKEN ?? null,
       publishableKey: process.env.MEDUSA_PUBLISHABLE_KEY ?? null,
       source: "env",
     };
@@ -626,9 +627,22 @@ export async function fetchOdooStockLevels(
 
 // ── Medusa catalog sync ───────────────────────────────────────────────────────
 
+// === W50 IMAGES === catalog mapping now carries the product image (Q2b):
+// Medusa URLs are public absolute — usable directly as products.imageUrl.
+export interface MedusaCatalogItem {
+  id: string;
+  title: string;
+  price: number;
+  currency: string;
+  stock: number;
+  /** p.thumbnail ?? p.images?.[0]?.url ?? null */
+  image: string | null;
+}
+// === END W50 IMAGES ===
+
 export async function fetchMedusaCatalog(
   tenantId: string,
-): Promise<Array<{ id: string; title: string; price: number; currency: string; stock: number }>> {
+): Promise<MedusaCatalogItem[]> {
   const cfg = await getMedusaIntegrationConfig(tenantId);
   const storeKey = cfg?.publishableKey ?? cfg?.adminApiKey;
   if (!cfg || !storeKey) return []; // not configured for this tenant
@@ -642,7 +656,8 @@ export async function fetchMedusaCatalog(
   }
 
   const result = await fetchJsonWithRetry(
-    `${cfg.baseUrl}/store/products?limit=100&expand=variants,variants.prices`,
+    // === W50 IMAGES === images expanded so thumbnail/images[0] survive (Q2b).
+    `${cfg.baseUrl}/store/products?limit=100&expand=variants,variants.prices,images`,
     {
       headers: {
         "x-publishable-api-key": storeKey,
@@ -659,6 +674,10 @@ export async function fetchMedusaCatalog(
       price: (v.prices?.[0]?.amount ?? 0) / 100,
       currency: (v.prices?.[0]?.currency_code ?? "NGN").toUpperCase(),
       stock: v.inventory_quantity ?? 0,
+      // === W50 IMAGES ===
+      image: (typeof p.thumbnail === "string" ? p.thumbnail : null)
+        ?? (typeof p.images?.[0]?.url === "string" ? p.images[0].url : null),
+      // === END W50 IMAGES ===
     })),
   );
 }

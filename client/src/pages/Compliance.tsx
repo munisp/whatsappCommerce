@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { trpc } from "@/lib/trpc";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import { CheckCircle2, ShieldCheck, XCircle, AlertTriangle } from "lucide-react";
+import { usePollInterval } from "@/hooks/usePollInterval";
 
 /**
  * SOC2 compliance dashboard.
@@ -108,9 +109,11 @@ function fmtDate(s: string | null | undefined) {
 }
 
 function ComplianceInner() {
+  // W48 PERF-FE-5: visibility-gated polling
+  const compliancePoll = usePollInterval(60_000);
   const auditChain = complianceApi.verifyAuditChain.useQuery(undefined, {
     retry: false,
-    refetchInterval: 60_000,
+    refetchInterval: compliancePoll,
   }) as { data?: AuditChainResult; isLoading: boolean; isError: boolean };
   const accessReview = complianceApi.accessReview.useQuery(undefined, { retry: false }) as {
     data?: AccessReviewRow[];
@@ -124,11 +127,11 @@ function ComplianceInner() {
   };
   const incidents = complianceApi.incidentStatus.useQuery(undefined, {
     retry: false,
-    refetchInterval: 60_000,
+    refetchInterval: compliancePoll,
   }) as { data?: IncidentStatusResult; isLoading: boolean; isError: boolean };
   const anomalyAlertsQuery = complianceApi.anomalyAlerts.useQuery(undefined, {
     retry: false,
-    refetchInterval: 60_000,
+    refetchInterval: compliancePoll,
   }) as { data?: AnomalyAlertRow[]; isLoading: boolean; isError: boolean; refetch: () => void };
   const anomalyScan = complianceApi.anomalyScan.useMutation({
     onSuccess: () => anomalyAlertsQuery.refetch(),
@@ -139,7 +142,7 @@ function ComplianceInner() {
   // W22: graph-collusion detection over the tenant trade graph.
   const graphAlertsQuery = complianceApi.graphAlerts.useQuery(undefined, {
     retry: false,
-    refetchInterval: 60_000,
+    refetchInterval: compliancePoll,
   }) as { data?: GraphAlertRow[]; isLoading: boolean; isError: boolean; refetch: () => void };
   const graphScan = complianceApi.scanGraphCollusion.useMutation({
     onSuccess: () => graphAlertsQuery.refetch(),

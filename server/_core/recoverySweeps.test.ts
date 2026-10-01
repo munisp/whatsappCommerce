@@ -34,8 +34,10 @@ vi.mock("../services/tradeCredit/dunning", () => ({
   runDunningCheckTx: (...args: any[]) => dunningMock(...args),
 }));
 const dedupeSweepMock = vi.fn();
+const artifactSweepMock = vi.fn(); // W48 PERF-INT-12
 vi.mock("../services/webhookDedupe", () => ({
   sweepProcessedWebhookEvents: (...args: any[]) => dedupeSweepMock(...args),
+  sweepWaWebhookArtifacts: (...args: any[]) => artifactSweepMock(...args),
   WEBHOOK_DEDUPE_RETENTION_DAYS: 7,
 }));
 
@@ -137,6 +139,7 @@ describe("buildDefaultSweepPlan", () => {
     bureauRetryMock.mockResolvedValue({ attempted: 4, sent: 3, failed: 1 });
     dunningMock.mockResolvedValue({ reminded: 1, feesApplied: 1, frozen: 0 });
     dedupeSweepMock.mockResolvedValue(9);
+    artifactSweepMock.mockResolvedValue({ eventsDeleted: 4, receiptsDeleted: 2 });
 
     const db = markerScanDb([
       { accountId: "acc1", ref: "ref-1" },
@@ -151,6 +154,7 @@ describe("buildDefaultSweepPlan", () => {
       "bureau-retry",
       "dunning",
       "webhook-dedupe-retention",
+      "wa-webhook-artifact-retention", // W48 PERF-INT-12: seventh sweep added by integrations branch
     ]);
 
     const report = await runSweepPlan(plan);
@@ -161,6 +165,7 @@ describe("buildDefaultSweepPlan", () => {
     expect(bureauRetryMock).toHaveBeenCalledOnce();
     expect(dunningMock).toHaveBeenCalledOnce();
     expect(dedupeSweepMock).toHaveBeenCalledOnce();
+    expect(artifactSweepMock).toHaveBeenCalledOnce();
 
     const byName = Object.fromEntries(report.results.map((r) => [r.name, r.summary]));
     expect(byName["settlement-retry"]).toMatchObject({ scanned: 2, settled: 2 });

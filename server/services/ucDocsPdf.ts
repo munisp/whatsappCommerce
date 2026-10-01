@@ -120,10 +120,16 @@ export async function sendChatDocument(
     console.warn(`[uc-docs] telegram document route failed (${opts.notifType}):`, e?.message);
   }
   // WhatsApp fallback — same call shape as supplierTaxStatements.sendStatement.
+  // === W49 RICHMEDIA (RICH-3): Meta needs an ABSOLUTE link — absolutize the
+  // app-relative /api/uc-docs path against PUBLIC_APP_URL; if no public base
+  // is configured we fall back to a buffer-less honest error below.
+  const { publicMediaUrl } = await import("./richMedia");
+  const absolute = publicMediaUrl(link);
+  if (!absolute) throw new Error("no PUBLIC_APP_URL configured for chat document link");
   const { sendWhatsAppMedia } = await import("./waSender");
   const res = await sendWhatsAppMedia(tenantId, phone, {
     type: "document",
-    link,
+    link: absolute,
     caption: opts.caption,
     filename: opts.filename,
   }, { notifType: opts.notifType });

@@ -23,8 +23,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -36,6 +38,20 @@ type KafkaConsumer struct {
 	dlqWriter *kafka.Writer
 	processor *EventProcessor
 	logger    *slog.Logger
+
+	// === W48 sidecars (PERF-SC-3) === bounded worker pool + coalesced commits
+	// (was: fetch-one → process → sync-commit per message; a slow forward
+	// stalled the whole partition).
+	workers  chan struct{}
+	commitMu sync.Mutex
+	pending  map[int]int64 // partition → highest completed offset
+}
+
+func envOrInt(key string, fallback int) int {
+	if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv(key))); err == nil && v > 0 {
+		return v
+	}
+	return fallback
 }
 
 func NewKafkaConsumer(cfg Config, processor *EventProcessor, logger *slog.Logger) *KafkaConsumer {
@@ -43,13 +59,15 @@ func NewKafkaConsumer(cfg Config, processor *EventProcessor, logger *slog.Logger
 	for i := range brokers {
 		brokers[i] = strings.TrimSpace(brokers[i])
 	}
+	workers := envOrInt("HERMES_CONSUMER_WORKERS", 16)
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        brokers,
 		GroupID:        cfg.KafkaGroupID,
 		Topic:          cfg.KafkaInboundTopic,
-		MinBytes:       1,
-		MaxBytes:       10 << 20, // 10 MiB
-		CommitInterval: 0,        // manual commits only (at-least-once)
+		MinBytes:       envOrInt("HERMES_FETCH_MIN_BYTES", 1024), // PERF-SC-3: batch fetches (was 1)
+		MaxBytes:       10 << 20,                                 // 10 MiB
+		MaxWait:        500 * time.Millisecond,                   // linger for batches
+		CommitInterval: 0,                                        // manual commits only (at-least-once)
 		StartOffset:    kafka.FirstOffset,
 	})
 	return &KafkaConsumer{
@@ -60,9 +78,13 @@ func NewKafkaConsumer(cfg Config, processor *EventProcessor, logger *slog.Logger
 			Balancer:     &kafka.Hash{},
 			RequiredAcks: kafka.RequireOne,
 			Async:        false,
+			BatchSize:    100, // PERF-SC-3: coalesce DLQ writes
+			BatchTimeout: 200 * time.Millisecond,
 		},
 		processor: processor,
 		logger:    logger,
+		workers:   make(chan struct{}, workers),
+		pending:   make(map[int]int64),
 	}
 }
 
@@ -79,11 +101,24 @@ func (kc *KafkaConsumer) Start(ctx context.Context) {
 		_ = kc.dlqWriter.Close()
 	}()
 
+	commitTick := time.NewTicker(2 * time.Second)
+	defer commitTick.Stop()
+
 	for {
+		select {
+		case <-ctx.Done():
+			kc.flushCommits(context.Background())
+			return
+		case <-commitTick.C:
+			kc.flushCommits(ctx)
+		default:
+		}
+
 		msg, err := kc.reader.FetchMessage(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
 				kc.logger.Info("kafka consumer stopped")
+				kc.flushCommits(context.Background())
 				return
 			}
 			kc.logger.Error("kafka fetch failed — retrying after backoff", "error", err)
@@ -95,35 +130,73 @@ func (kc *KafkaConsumer) Start(ctx context.Context) {
 			continue
 		}
 
-		var event PlatformEvent
-		if err := json.Unmarshal(msg.Value, &event); err != nil {
-			kc.logger.Error("unmarshal kafka event failed — dead-lettering",
-				"error", err, "offset", msg.Offset)
-			kc.deadLetter(ctx, msg, "unmarshal: "+err.Error())
-			kc.commit(ctx, msg)
-			continue
+		// Bounded worker pool: the slot acquire is the backpressure point —
+		// when all workers are busy the fetch loop pauses and Kafka retains.
+		select {
+		case kc.workers <- struct{}{}:
+		case <-ctx.Done():
+			return
 		}
-		if event.ID == "" && len(msg.Key) > 0 {
-			event.ID = string(msg.Key)
-		}
-		if event.OccurredAt == "" {
-			event.OccurredAt = msg.Time.UTC().Format(time.RFC3339)
-		}
-
-		// Synchronous processing: offset is committed only after the forward
-		// attempt resolves (at-least-once; Hermes dedupes on idempotency_key).
-		if err := kc.processor.processEvent(ctx, event); err != nil {
-			kc.logger.Error("event processing failed — dead-lettering",
-				"event_id", event.ID, "error", err)
-			kc.deadLetter(ctx, msg, err.Error())
-		}
-		kc.commit(ctx, msg)
+		go func(m kafka.Message) {
+			defer func() { <-kc.workers }()
+			kc.handle(ctx, m)
+			kc.recordOffset(m)
+		}(msg)
 	}
 }
 
-func (kc *KafkaConsumer) commit(ctx context.Context, msg kafka.Message) {
-	if err := kc.reader.CommitMessages(ctx, msg); err != nil && !errors.Is(err, context.Canceled) {
-		kc.logger.Error("kafka offset commit failed", "error", err, "offset", msg.Offset)
+func (kc *KafkaConsumer) handle(ctx context.Context, msg kafka.Message) {
+	var event PlatformEvent
+	if err := json.Unmarshal(msg.Value, &event); err != nil {
+		kc.logger.Error("unmarshal kafka event failed — dead-lettering",
+			"error", err, "offset", msg.Offset)
+		kc.deadLetter(ctx, msg, "unmarshal: "+err.Error())
+		return
+	}
+	if event.ID == "" && len(msg.Key) > 0 {
+		event.ID = string(msg.Key)
+	}
+	if event.OccurredAt == "" {
+		event.OccurredAt = msg.Time.UTC().Format(time.RFC3339)
+	}
+
+	// Offset is recorded (and batch-committed) only after the forward attempt
+	// resolves (at-least-once; Hermes dedupes on idempotency_key).
+	if err := kc.processor.processEvent(ctx, event); err != nil {
+		kc.logger.Error("event processing failed — dead-lettering",
+			"event_id", event.ID, "error", err)
+		kc.deadLetter(ctx, msg, err.Error())
+	}
+}
+
+// recordOffset tracks the highest fully-handled offset per partition.
+func (kc *KafkaConsumer) recordOffset(msg kafka.Message) {
+	kc.commitMu.Lock()
+	if msg.Offset > kc.pending[msg.Partition] {
+		kc.pending[msg.Partition] = msg.Offset
+	}
+	kc.commitMu.Unlock()
+}
+
+// flushCommits commits the highest completed offset per partition in one
+// call (PERF-SC-3: replaces the per-message synchronous commit).
+func (kc *KafkaConsumer) flushCommits(ctx context.Context) {
+	kc.commitMu.Lock()
+	if len(kc.pending) == 0 {
+		kc.commitMu.Unlock()
+		return
+	}
+	msgs := make([]kafka.Message, 0, len(kc.pending))
+	for part, off := range kc.pending {
+		msgs = append(msgs, kafka.Message{Topic: kc.reader.Config().Topic, Partition: part, Offset: off})
+	}
+	kc.pending = make(map[int]int64)
+	kc.commitMu.Unlock()
+
+	commitCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := kc.reader.CommitMessages(commitCtx, msgs...); err != nil && !errors.Is(err, context.Canceled) {
+		kc.logger.Error("batched kafka offset commit failed", "error", err)
 	}
 }
 

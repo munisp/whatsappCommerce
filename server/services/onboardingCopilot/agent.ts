@@ -598,6 +598,9 @@ async function handleConfiguring(session: OnboardingSession, text: string): Prom
         .update(tenants)
         .set({ whatsappPhoneNumberId: phoneId, updatedAt: new Date() })
         .where(eq(tenants.id, session.tenantId));
+      // W48 (PERF-INT-6): invalidate the cached phone_number_id → tenant lookup.
+      const { invalidateWaTenantLookup } = await import("../waTenantLookup");
+      await invalidateWaTenantLookup(phoneId).catch(() => { /* best-effort */ });
     }
     if (token) {
       await updateTenantSettings(session.tenantId, (s) => {

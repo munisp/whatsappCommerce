@@ -7,7 +7,7 @@
  */
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
@@ -18,7 +18,7 @@ import {
   validateJourneySteps,
   type JourneyStep,
 } from "../services/journeyBuilder";
-import { nextAllowedSendAtForTenant } from "../services/frequencyCap";
+import { nextAllowedSendAtForTenantBulk } from "../services/frequencyCap";
 import { normalizeWaPhone } from "../services/waSender";
 import { customers } from "../../drizzle/schema";
 
@@ -211,32 +211,41 @@ export const journeysRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "journey must be active to enroll customers" });
       }
       const now = new Date();
+      // === W48 PERF-API-3 (api-db): N+1 fix — was up to 500 iterations ×
+      // ≥3 serial queries (customer select, frequency-cap lookups, insert).
+      // Now: ONE inArray customer select + ONE bulk frequency-cap pass +
+      // chunked multi-row INSERTs (≤4 queries total). ===
+      const custRows = await db.select().from(customers)
+        .where(and(inArray(customers.id, input.customerIds), eq(customers.tenantId, journey.tenantId)));
+      const enrollable = custRows.filter((c) => !!c.whatsappPhone);
       let enrolled = 0;
-      for (const customerId of input.customerIds) {
-        const [cust] = await db.select().from(customers)
-          .where(and(eq(customers.id, customerId), eq(customers.tenantId, journey.tenantId)))
-          .limit(1);
-        if (!cust?.whatsappPhone) continue;
-        const phone = normalizeWaPhone(cust.whatsappPhone);
-        // Enrollment defers only for the frequency CAP. Quiet hours are a
-        // send-time concern enforced by the journey tick on send_template
-        // (journeyBuilder.processJourneyRun) — applying them here too
-        // double-defers runs and can park a run past a later quiet-hours
-        // tick (J111 root cause).
-        const nextRunAt = await nextAllowedSendAtForTenant(db, journey.tenantId, phone, now, { skipQuietHours: true });
-        await db.insert(broadcastJourneyRuns).values({
-          id: randomUUID(),
-          journeyId: journey.id,
-          tenantId: journey.tenantId,
-          customerId,
-          currentStep: 0,
-          state: "waiting",
-          context: {},
-          nextRunAt,
-          createdAt: now,
-          updatedAt: now,
+      if (enrollable.length > 0) {
+        const phones = enrollable.map((c) => normalizeWaPhone(c.whatsappPhone!));
+        // Bulk frequency-cap scheduling: one tenant-settings read + one
+        // grouped sends query for ALL phones (skipQuietHours matches the
+        // previous per-customer call — quiet hours stay a send-time concern
+        // enforced by the journey tick; see J111 note below).
+        const nextAtByPhone = await nextAllowedSendAtForTenantBulk(db, journey.tenantId, phones, now, { skipQuietHours: true });
+        const rows = enrollable.map((cust) => {
+          const phone = normalizeWaPhone(cust.whatsappPhone!);
+          return {
+            id: randomUUID(),
+            journeyId: journey.id,
+            tenantId: journey.tenantId,
+            customerId: cust.id,
+            currentStep: 0,
+            state: "waiting" as const,
+            context: {},
+            nextRunAt: nextAtByPhone.get(phone) ?? now,
+            createdAt: now,
+            updatedAt: now,
+          };
         });
-        enrolled++;
+        const INSERT_CHUNK = 500;
+        for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
+          await db.insert(broadcastJourneyRuns).values(rows.slice(i, i + INSERT_CHUNK));
+        }
+        enrolled = rows.length;
       }
       return { enrolled };
     }),

@@ -5,6 +5,7 @@
  */
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { usePollInterval } from "@/hooks/usePollInterval";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,14 +47,16 @@ function GroupDealsInner() {
   const [joinPhone, setJoinPhone] = useState("");
   const [joinQty, setJoinQty] = useState("1");
 
-  // Live progress: poll every 5s while the page is open.
+  // W48 PERF-FE-5: poll every 15s, paused while the tab is hidden.
+  const dealsPoll = usePollInterval(15_000);
+  const detailPoll = usePollInterval(15_000);
   const { data: deals, refetch } = trpc.groupBuy.listDeals.useQuery(
     { tenantId: TENANT_ID },
-    { refetchInterval: 5000 },
+    { refetchInterval: dealsPoll },
   );
   const { data: detail } = trpc.groupBuy.dealDetail.useQuery(
     { tenantId: TENANT_ID, dealId: selectedDeal! },
-    { enabled: !!selectedDeal, refetchInterval: 5000 },
+    { enabled: !!selectedDeal, refetchInterval: detailPoll },
   );
 
   const createDeal = trpc.groupBuy.createDeal.useMutation({

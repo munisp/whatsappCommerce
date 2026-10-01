@@ -13,40 +13,58 @@ import {
   upsertTenantProviderConfig,
 } from "../services/payments/providers/registry";
 import { initiateWithFallback } from "../services/payments/initiateWithFallback";
+// === W48 integrations (PERF-INT-2/10/13): bounded fetch + breaker ===
+import { fetchJson, INTEGRATION_TIMEOUTS } from "../services/net/resilientFetch";
 // Side-effect: registers the "custom" provider adapter (settings catalog).
 import "../services/payments/providers/custom";
 import { randomUUID as newRef } from "crypto";
 import { asc } from "drizzle-orm";
 
 // ─── Provider adapters ────────────────────────────────────────────────────────
-
+// === W48 integrations (PERF-INT-2) ===
+// These legacy adapters previously used bare `fetch` with NO timeout, no
+// retry and no circuit breaker — a hung PSP TCP connection blocked the
+// user-facing initiate/verify tRPC requests indefinitely. They now go through
+// the shared resilientFetch helper (INTEGRATION_TIMEOUTS.psp = 10s
+// AbortController timeout per attempt, bounded retry-with-backoff on network
+// errors/5xx/429, and a per-provider circuit breaker that fails fast during a
+// PSP outage). Verify calls are idempotent GETs → 1 retry; initiate POSTs get
+// no blind retry here (double-charge protection lives in the registry
+// adapters' verify-before-fallback doctrine) but DO get the timeout+breaker.
 async function paystackInitiate(opts: {
   secretKey: string; amount: number; currency: string;
   email: string; orderId: string; callbackUrl: string; ref: string;
 }) {
-  const res = await fetch("https://api.paystack.co/transaction/initialize", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${opts.secretKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      amount: Math.round(opts.amount * 100), // kobo
-      currency: opts.currency,
-      email: opts.email,
-      reference: opts.ref,
-      callback_url: opts.callbackUrl,
-      metadata: { order_id: opts.orderId },
-    }),
+  const res = await fetchJson("https://api.paystack.co/transaction/initialize", {
+    integration: "paystack",
+    timeoutMs: INTEGRATION_TIMEOUTS.psp,
+    init: {
+      method: "POST",
+      headers: { Authorization: `Bearer ${opts.secretKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        amount: Math.round(opts.amount * 100), // kobo
+        currency: opts.currency,
+        email: opts.email,
+        reference: opts.ref,
+        callback_url: opts.callbackUrl,
+        metadata: { order_id: opts.orderId },
+      }),
+    },
   });
   if (!res.ok) throw new Error(`Paystack error: ${res.status}`);
-  const data = await res.json() as { data: { authorization_url: string; reference: string } };
+  const data = res.data as { data: { authorization_url: string; reference: string } };
   return { paymentUrl: data.data.authorization_url, providerRef: data.data.reference };
 }
 
 async function paystackVerify(secretKey: string, reference: string) {
-  const res = await fetch(`https://api.paystack.co/transaction/verify/${reference}`, {
-    headers: { Authorization: `Bearer ${secretKey}` },
+  const res = await fetchJson(`https://api.paystack.co/transaction/verify/${reference}`, {
+    integration: "paystack",
+    timeoutMs: INTEGRATION_TIMEOUTS.psp,
+    retries: 1, // idempotent GET — one bounded retry on network error
+    init: { headers: { Authorization: `Bearer ${secretKey}` } },
   });
   if (!res.ok) throw new Error(`Paystack verify error: ${res.status}`);
-  const data = await res.json() as { data: { status: string; amount: number; currency: string; paid_at: string } };
+  const data = res.data as { data: { status: string; amount: number; currency: string; paid_at: string } };
   // Paystack amounts are in kobo — convert to major units.
   return { status: data.data.status, amount: data.data.amount / 100, currency: data.data.currency, paidAt: data.data.paid_at };
 }
@@ -56,29 +74,36 @@ async function flutterwaveInitiate(opts: {
   email: string; name: string; phone: string;
   orderId: string; callbackUrl: string; ref: string;
 }) {
-  const res = await fetch("https://api.flutterwave.com/v3/payments", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${opts.secretKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      tx_ref: opts.ref,
-      amount: opts.amount,
-      currency: opts.currency,
-      redirect_url: opts.callbackUrl,
-      customer: { email: opts.email, name: opts.name, phonenumber: opts.phone },
-      meta: { order_id: opts.orderId },
-    }),
+  const res = await fetchJson("https://api.flutterwave.com/v3/payments", {
+    integration: "flutterwave",
+    timeoutMs: INTEGRATION_TIMEOUTS.psp,
+    init: {
+      method: "POST",
+      headers: { Authorization: `Bearer ${opts.secretKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tx_ref: opts.ref,
+        amount: opts.amount,
+        currency: opts.currency,
+        redirect_url: opts.callbackUrl,
+        customer: { email: opts.email, name: opts.name, phonenumber: opts.phone },
+        meta: { order_id: opts.orderId },
+      }),
+    },
   });
   if (!res.ok) throw new Error(`Flutterwave error: ${res.status}`);
-  const data = await res.json() as { data: { link: string } };
+  const data = res.data as { data: { link: string } };
   return { paymentUrl: data.data.link, providerRef: opts.ref };
 }
 
 async function flutterwaveVerify(secretKey: string, transactionId: string) {
-  const res = await fetch(`https://api.flutterwave.com/v3/transactions/${transactionId}/verify`, {
-    headers: { Authorization: `Bearer ${secretKey}` },
+  const res = await fetchJson(`https://api.flutterwave.com/v3/transactions/${transactionId}/verify`, {
+    integration: "flutterwave",
+    timeoutMs: INTEGRATION_TIMEOUTS.psp,
+    retries: 1, // idempotent GET — one bounded retry on network error
+    init: { headers: { Authorization: `Bearer ${secretKey}` } },
   });
   if (!res.ok) throw new Error(`Flutterwave verify error: ${res.status}`);
-  const data = await res.json() as { data: { status: string; amount: number; currency: string; created_at: string } };
+  const data = res.data as { data: { status: string; amount: number; currency: string; created_at: string } };
   return { status: data.data.status, amount: data.data.amount, currency: data.data.currency, paidAt: data.data.created_at };
 }
 
@@ -88,18 +113,22 @@ async function mojaloopInitiate(opts: {
   payerFsp: string; payeeFsp: string; payeeId: string; ref: string;
 }) {
   const transferId = randomUUID();
-  const res = await fetch(`${opts.baseUrl}/transfers`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "FSPIOP-Source": opts.payerFsp },
-    body: JSON.stringify({
-      transferId,
-      payerFsp: opts.payerFsp,
-      payeeFsp: opts.payeeFsp,
-      amount: { amount: String(opts.amount), currency: opts.currency },
-      ilpPacket: "AQAAAAAAAADIEHByaXZhdGUucGF5ZWVmc3A",
-      condition: "HOr22-H3AfTDHrSkPjJtVPRG2PI2AC-ztCd6nUIjkiY",
-      expiration: new Date(Date.now() + 30_000).toISOString(),
-    }),
+  const res = await fetchJson(`${opts.baseUrl}/transfers`, {
+    integration: "mojaloop",
+    timeoutMs: INTEGRATION_TIMEOUTS.psp,
+    init: {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "FSPIOP-Source": opts.payerFsp },
+      body: JSON.stringify({
+        transferId,
+        payerFsp: opts.payerFsp,
+        payeeFsp: opts.payeeFsp,
+        amount: { amount: String(opts.amount), currency: opts.currency },
+        ilpPacket: "AQAAAAAAAADIEHByaXZhdGUucGF5ZWVmc3A",
+        condition: "HOr22-H3AfTDHrSkPjJtVPRG2PI2AC-ztCd6nUIjkiY",
+        expiration: new Date(Date.now() + 30_000).toISOString(),
+      }),
+    },
   });
   // Mojaloop returns 202 Accepted (async)
   if (res.status !== 202 && !res.ok) throw new Error(`Mojaloop error: ${res.status}`);

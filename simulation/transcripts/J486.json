@@ -1,7 +1,7 @@
 {
   "id": "J486",
-  "title": "platform driver pool: signup, location, nearest-driver assignment, cross-tenant guards",
-  "feature": "server/routers/drivers.ts",
+  "title": "integration smoke budgets (fraud gate, tenant cache, breaker, permify cache)",
+  "feature": "PERF-INT-2/3/5/6 budgets",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
   "messages": []

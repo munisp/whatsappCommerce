@@ -94,7 +94,7 @@ func configFromEnv() Config {
 		WAAccessToken:           getEnv("WA_ACCESS_TOKEN", ""),
 		// === W45 go-rust-services ===
 		PublicCallbackBaseURL:   os.Getenv("HERMES_CALLBACK_BASE_URL"), // no default — validated in validateConfig
-		RedisURL:                os.Getenv("REDIS_URL"),
+		RedisURL:                durableRedisURL(),
 		ApprovalTemplateName:    getEnv("WA_PO_APPROVAL_TEMPLATE", "po_approval_request"),
 		ApprovalTemplateLang:    getEnv("WA_PO_APPROVAL_TEMPLATE_LANG", "en"),
 		ApprovalTTLMinutes:      getEnvInt("APPROVAL_TTL_MINUTES", 24*60),
@@ -297,7 +297,9 @@ func (hc *HermesClient) ForwardEvent(ctx context.Context, req HermesRequest) err
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		// === W48 sidecars (PERF-SC-29) === bounded error-body read — a
+		// pathological upstream must not OOM the bridge.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 		hc.circuitBreaker.RecordFailure()
 		hc.errors.Add(1)
 		return fmt.Errorf("hermes returned %d: %s", resp.StatusCode, string(body))
@@ -520,16 +522,35 @@ func (ep *EventProcessor) callbackURL() string {
 	return strings.TrimRight(base, "/") + "/hermes/callback"
 }
 
+// === W48 sidecars (PERF-SC-16) === approvals/idempotency state must live on
+// the noeviction Redis instance (REDIS_DURABLE_URL) so cache eviction can
+// never silently drop approval tokens. Falls back to REDIS_URL when the
+// split deployment is not in use.
+func durableRedisURL() string {
+	if v := strings.TrimSpace(os.Getenv("REDIS_DURABLE_URL")); v != "" {
+		return v
+	}
+	return os.Getenv("REDIS_URL")
+}
+
 // ProcessEvent handles a single platform event from Kafka.
 func (ep *EventProcessor) ProcessEvent(ctx context.Context, event PlatformEvent) {
 	if !hermesEventTypes[event.EventType] {
 		return // not a Hermes-relevant event
 	}
 
+	// === W48 sidecars (PERF-SC-8) === the goroutine outlives the caller (the
+	// HTTP handler returns immediately), so it must not run under the request
+	// context — that context is canceled as soon as the handler writes its
+	// response, silently killing in-flight forwards (event loss on the
+	// fallback path). Detach with WithoutCancel + an explicit timeout.
+	detached, cancel := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
+
 	ep.semaphore <- struct{}{}
 	go func() {
+		defer cancel()
 		defer func() { <-ep.semaphore }()
-		if err := ep.processEvent(ctx, event); err != nil {
+		if err := ep.processEvent(detached, event); err != nil {
 			ep.logger.Error("failed to forward event to hermes",
 				"event_id", event.ID,
 				"event_type", event.EventType,

@@ -1,0 +1,22 @@
+{
+  "id": "J489",
+  "title": "publicMediaUrl absolutizes /api/storage links; product-images namespace public",
+  "feature": "RICH-3",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348017000489",
+      "wamid": "wamid.sim.000006",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790459038482,
+      "kind": "image",
+      "mediaKind": "image",
+      "caption": "hi",
+      "mediaId": "https://shop.example.com/api/storage/product-images/b.jpg"
+    }
+  ]
+}

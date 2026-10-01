@@ -47,7 +47,8 @@ export const journey: Journey = {
     // ── 2. Unknown locale → English wholesale ────────────────────────────
     assert(i18n.t27("zz", "cartEmpty") === i18n.MESSAGE_CATALOG.en.cartEmpty, "unknown locale → en");
     assert(i18n.t27(undefined, "cartEmpty") === i18n.MESSAGE_CATALOG.en.cartEmpty, "undefined locale → en");
-    // pcm (Nigerian Pidgin) added 2026-09-26 as a genuinely first-class 8th locale (was previously unsupported).
+    // pcm (Nigerian Pidgin) added as a genuinely first-class 8th locale (was previously unsupported) — see
+    // === W49 I18N-PCM === and this session's QA-064.
     assert(i18n.isLocale("pcm") === true && i18n.isLocale("sw") === true, "isLocale covers all 8 locales, including pcm");
     assert(i18n.isLocale("zz") === false, "isLocale still rejects a genuinely unsupported code");
     assert(i18n.localeFromSessionLanguage("swahili") === "sw", "session language name → sw");

@@ -1,0 +1,35 @@
+{
+  "id": "J534",
+  "title": "self-share via DEAL/REF grammar rejected",
+  "feature": "W52 share: self-referral guard",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348014581048",
+      "profileName": "Sim User 1048",
+      "inboundId": "wamid.sim.in.text.00005",
+      "at": 1790459064020,
+      "kind": "text",
+      "text": "DEAL DEAL34 REF REF-GGKNET"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00005",
+      "at": 1790459064027
+    },
+    {
+      "dir": "out",
+      "phone": "2348014581048",
+      "wamid": "wamid.sim.000039",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790459064056,
+      "kind": "text",
+      "body": "Sorry — you can't use your own referral code. Share it with a friend instead!"
+    }
+  ]
+}

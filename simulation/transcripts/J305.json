@@ -7,53 +7,53 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348011155965",
-      "profileName": "Sim User 5965",
-      "inboundId": "wamid.sim.in.text.00475",
-      "at": 1790427737354,
+      "phone": "2348019990020",
+      "profileName": "Sim User 0020",
+      "inboundId": "wamid.sim.in.text.00005",
+      "at": 1790458451394,
       "kind": "text",
       "text": "2 jollof rice and 1 chicken j305"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00475",
-      "at": 1790427737358
+      "wamid": "wamid.sim.in.text.00005",
+      "at": 1790458451401
     },
     {
       "dir": "out",
-      "phone": "2348011155965",
-      "wamid": "wamid.sim.000785",
+      "phone": "2348019990020",
+      "wamid": "wamid.sim.000029",
       "statuses": [
         "sent"
       ],
-      "at": 1790427737380,
+      "at": 1790458451464,
       "kind": "text",
       "body": "✅ 2 × Jollof Rice\n✅ 1 × Grilled Chicken\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348011155965",
-      "profileName": "Sim User 5965",
-      "inboundId": "wamid.sim.in.text.00476",
-      "at": 1790427737909,
+      "phone": "2348019990020",
+      "profileName": "Sim User 0020",
+      "inboundId": "wamid.sim.in.text.00006",
+      "at": 1790458451940,
       "kind": "text",
       "text": "confirm my order j305"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00476",
-      "at": 1790427737915
+      "wamid": "wamid.sim.in.text.00006",
+      "at": 1790458451948
     },
     {
       "dir": "out",
-      "phone": "2348011155965",
-      "wamid": "wamid.sim.000786",
+      "phone": "2348019990020",
+      "wamid": "wamid.sim.000030",
       "statuses": [
         "sent"
       ],
-      "at": 1790427737946,
+      "at": 1790458451983,
       "kind": "text",
       "body": "🛒 *Your order*\n2 × Jollof Rice — ₦2,500.00 (~$1.65) each\n1 × Grilled Chicken — ₦3,000.00 (~$1.98) each\nSubtotal: ₦8,000.00 (~$5.28)\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery\n\nApproximate conversion at this store's manual rate — you are charged in NGN."
     }

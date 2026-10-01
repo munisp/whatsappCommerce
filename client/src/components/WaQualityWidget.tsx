@@ -1,3 +1,4 @@
+import { memo } from "react";
 /**
  * WaQualityWidget — WhatsApp messaging-quality card for the platform
  * dashboard, backed by metering.getWaQuality ({refresh?} → cached
@@ -13,7 +14,7 @@ import { useActiveTenant } from "@/contexts/TenantContext";
 import { waQualityBadge } from "@/lib/waOps";
 import { AlertTriangle, HeartPulse, Loader2, RefreshCw } from "lucide-react";
 
-export default function WaQualityWidget() {
+function WaQualityWidget() {
   const { activeTenantId } = useActiveTenant();
   const tenantId = activeTenantId;
   const utils = trpc.useUtils();
@@ -89,3 +90,7 @@ export default function WaQualityWidget() {
     </Card>
   );
 }
+
+// W48 perf (PERF-FE-10): memoized — parent dashboard re-renders on any of its query updates.
+const MemoizedWaQualityWidget = memo(WaQualityWidget);
+export default MemoizedWaQualityWidget;

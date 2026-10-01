@@ -1,0 +1,88 @@
+{
+  "id": "J531",
+  "title": "WA promo card share tap → bundle with wa.me share URL",
+  "feature": "W52 share: share button + bundle",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348011615692",
+      "profileName": "Sim User 5692",
+      "inboundId": "wamid.sim.in.text.00002",
+      "at": 1790459061235,
+      "kind": "text",
+      "text": "do you have shoes?"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00002",
+      "at": 1790459061242
+    },
+    {
+      "dir": "out",
+      "phone": "2348011615692",
+      "wamid": "wamid.sim.000035",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790459061272,
+      "kind": "text",
+      "body": "Yes — we have shoes in stock."
+    },
+    {
+      "dir": "out",
+      "phone": "2348011615692",
+      "wamid": "wamid.sim.000036",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790459061281,
+      "kind": "interactive",
+      "body": "🔥 Promo SHARE31 — 25% off with code SHARE31",
+      "header": "Promo SHARE31",
+      "buttons": [
+        {
+          "id": "promo_shop",
+          "title": "🛍️ Shop now"
+        },
+        {
+          "id": "promo_deal:SHARE31",
+          "title": "View deal"
+        },
+        {
+          "id": "promo_share:SHARE31",
+          "title": "📤 Share"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348011615692",
+      "profileName": "Sim User 5692",
+      "inboundId": "wamid.sim.in.btn.00003",
+      "at": 1790459061779,
+      "kind": "button_reply",
+      "text": "📤 Share",
+      "payloadId": "promo_share:SHARE31"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.btn.00003",
+      "at": 1790459061792
+    },
+    {
+      "dir": "out",
+      "phone": "2348011615692",
+      "wamid": "wamid.sim.000037",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790459061808,
+      "kind": "text",
+      "body": "📤 Share this deal with friends!\n🔥 Promo SHARE31 — 25% off at our store! Use code SHARE31. Referral: REF-KTXSPD\n\nWhatsApp: https://wa.me/?text=%F0%9F%94%A5%20Promo%20SHARE31%20%E2%80%94%2025%25%20off%20at%20our%20store!%20Use%20code%20SHARE31.%20Referral%3A%20REF-KTXSPD%20https%3A%2F%2Fwa.me%2F2349000000531%3Ftext%3DDEAL%2520SHARE31%2520REF%2520REF-KTXSPD\nTelegram: https://t.me/share/url?url=https%3A%2F%2Fwa.me%2F2349000000531%3Ftext%3DDEAL%2520SHARE31%2520REF%2520REF-KTXSPD&text=%F0%9F%94%A5%20Promo%20SHARE31%20%E2%80%94%2025%25%20off%20at%20our%20store!%20Use%20code%20SHARE31.%20Referral%3A%20REF-KTXSPD\n\nForward: 🔥 Promo SHARE31 — 25% off at our store! Use code SHARE31. Referral: REF-KTXSPD https://wa.me/2349000000531?text=DEAL%20SHARE31%20REF%20REF-KTXSPD"
+    }
+  ]
+}

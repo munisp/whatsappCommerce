@@ -9,7 +9,7 @@
  */
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { router, protectedProcedure, publicProcedure, moneyProcedure, assertTenantAccess, assertMoneyAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { wholesaleListings, wholesaleListingTiers, wholesaleOrders } from "../../drizzle/schema";
@@ -123,12 +123,20 @@ export const wholesaleRouter = router({
         .where(eq(wholesaleListings.tenantId, input.tenantId))
         .orderBy(desc(wholesaleListings.createdAt))
         .limit(Math.min(input.limit, 200));
-      const out = [];
-      for (const l of rows) {
-        const tiers = await db.select().from(wholesaleListingTiers).where(eq(wholesaleListingTiers.listingId, l.id));
-        out.push({ listing: l, tiers });
+      // === W48 PERF-API-8 (api-db): N+1 fix — ONE inArray tier query grouped
+      // in JS instead of a per-listing SELECT (was 51 queries per page). ===
+      if (rows.length === 0) return [];
+      const allTiers = await db
+        .select()
+        .from(wholesaleListingTiers)
+        .where(inArray(wholesaleListingTiers.listingId, rows.map((r) => r.id)));
+      const tiersByListing = new Map<string, typeof allTiers>();
+      for (const t of allTiers) {
+        const arr = tiersByListing.get(t.listingId) ?? [];
+        arr.push(t);
+        tiersByListing.set(t.listingId, arr);
       }
-      return out;
+      return rows.map((l) => ({ listing: l, tiers: tiersByListing.get(l.id) ?? [] }));
     }),
 
   // ── Marketplace browse/search (hardened public) ─────────────────────────

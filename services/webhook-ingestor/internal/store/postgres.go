@@ -50,3 +50,31 @@ func (d *DB) MarkProcessed(ctx context.Context, key string, ttl time.Duration) {
 	)
 }
 
+// === W48 sidecars (PERF-SC-20) ===
+// TryMarkProcessed is the atomic dedup primitive: one RTT instead of the old
+// COUNT-then-INSERT check-then-act pair (2 RTTs + race window). Returns
+// (inserted=true) for the first delivery; false means a concurrent/duplicate
+// delivery already holds the key.
+func (d *DB) TryMarkProcessed(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	res, err := d.db.ExecContext(ctx,
+		`INSERT INTO processed_events (idempotency_key, expires_at) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+		key, time.Now().Add(ttl),
+	)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// UnmarkProcessed removes a key claimed by TryMarkProcessed — used when the
+// downstream publish failed so the producer's retry is not swallowed as a
+// duplicate.
+func (d *DB) UnmarkProcessed(ctx context.Context, key string) error {
+	_, err := d.db.ExecContext(ctx, `DELETE FROM processed_events WHERE idempotency_key=$1`, key)
+	return err
+}
+

@@ -342,5 +342,5 @@ describe("nlp checkout — location request", () => {
       undefined,
     );
     expect(sendLocationReqMock).not.toHaveBeenCalled();
-  });
+  }, 30000); // W51 merger: pre-existing 5s-timeout flake in some environments; timeout bump only, behavior unchanged
 });

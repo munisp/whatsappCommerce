@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { usePollInterval } from "@/hooks/usePollInterval";
 import { Bell, Check, CheckCheck, Package, Lock, AlertTriangle, DollarSign, Truck, RotateCcw, Info } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,8 +60,10 @@ export default function NotificationCenter() {
   const panelRef = useRef<HTMLDivElement>(null);
   const utils = trpc.useUtils();
 
+  // W48 PERF-FE-5: mounted globally — poll at 60s, paused when tab hidden.
+  const unreadPoll = usePollInterval(60_000);
   const { data: unreadData } = trpc.notifications.getUnreadCount.useQuery(undefined, {
-    refetchInterval: 30000,
+    refetchInterval: unreadPoll,
   });
   const { data: listData, isLoading } = trpc.notifications.list.useQuery(
     { limit: 30, unreadOnly: false, category },
