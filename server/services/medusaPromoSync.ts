@@ -19,7 +19,7 @@
  *     "most_ordered" }) so storefront themes can badge/sort. Covers
  *     Medusa-imported products (products.metadata.medusaId is the link).
  */
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, lte, sql } from "drizzle-orm";
 import type { getDb } from "../db";
 import { products, tenants } from "../../drizzle/schema";
 import type { Promo } from "./promos";
@@ -33,23 +33,64 @@ export interface PromoMedusaFields {
   medusaSyncPending?: boolean;
 }
 
-interface PendingPush {
-  tenantId: string;
-  promo: Promo & PromoMedusaFields;
-  action: "upsert" | "delete";
-  queuedAt: number;
+// === W60 persistence ===
+// W60-A CRITICAL #2: the in-proc pendingQueue array is gone — failed pushes
+// land in the medusa_promo_outbox table (migration 0180), deduped per
+// (tenantId, promoCode, op) with latest-write-wins, and drained both on the
+// next promo write (drainMedusaPromoQueue) and by the
+// /api/scheduled/medusa-promo-outbox cron sweeper with bounded retry +
+// exponential backoff. Fail-open per row: a failing op never blocks others.
+import { medusaPromoOutbox } from "../../drizzle/schema";
+import { captureException } from "./observability";
+
+export const MAX_MEDUSA_OUTBOX_ATTEMPTS = 8;
+/** Exponential backoff: 30s * 2^attempts, capped at 30 min. */
+export function medusaOutboxBackoffMs(attempts: number): number {
+  return Math.min(30_000 * 2 ** Math.max(0, attempts), 30 * 60_000);
 }
 
-/** In-proc retry queue — drained on the next promo write for the tenant. */
-const pendingQueue: PendingPush[] = [];
-
-/** Test hook: inspect/wipe the pending retry queue. */
-export function __pendingMedusaPushes(): PendingPush[] {
-  return pendingQueue;
+/** Persist a failed push (idempotent upsert on the dedupe key). */
+async function enqueueMedusaPromoOutbox(
+  db: Db | null,
+  tenantId: string,
+  promo: Promo & PromoMedusaFields,
+  action: "upsert" | "delete",
+  lastError?: string,
+): Promise<void> {
+  if (!db) {
+    console.warn(`[medusaPromoSync] no db — cannot persist outbox row code=${promo.code} (op lost)`);
+    return;
+  }
+  const now = new Date();
+  try {
+    await db
+      .insert(medusaPromoOutbox)
+      .values({
+        tenantId,
+        promoCode: promo.code.slice(0, 64),
+        op: action,
+        payload: promo as unknown as Record<string, unknown>,
+        status: "pending",
+        attempts: 0,
+        lastError: lastError?.slice(0, 500) ?? null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [medusaPromoOutbox.tenantId, medusaPromoOutbox.promoCode, medusaPromoOutbox.op],
+        set: {
+          payload: promo as unknown as Record<string, unknown>,
+          status: "pending",
+          attempts: 0,
+          lastError: lastError?.slice(0, 500) ?? null,
+          updatedAt: now,
+        },
+      });
+  } catch (e: any) {
+    console.warn(`[medusaPromoSync] outbox enqueue failed (fail-open):`, e?.message);
+  }
 }
-export function __clearPendingMedusaPushes(): void {
-  pendingQueue.length = 0;
-}
+// === END W60 persistence ===
 
 function headers(adminApiKey: string | null): Record<string, string> {
   return {
@@ -86,9 +127,12 @@ export interface MedusaPushResult {
 }
 
 /**
- * Mirror a promo write to the tenant's linked Medusa. Never throws.
+ * Raw push attempt against the tenant's linked Medusa. Never throws; a
+ * failure returns { pending: true, mode: "queued" } WITHOUT persisting —
+ * persistence is the caller's job (pushPromoToMedusa enqueues; the sweeper
+ * records attempts on its own row).
  */
-export async function pushPromoToMedusa(
+async function attemptMedusaPush(
   db: Db | null,
   tenantId: string,
   promo: Promo & PromoMedusaFields,
@@ -107,7 +151,7 @@ export async function pushPromoToMedusa(
           { label },
         );
         if (r.ok) return { pending: false, mode: "promotions", medusaPromotionId: null };
-        if (r.status !== 404) return queue(tenantId, promo, action);
+        if (r.status !== 404) return { pending: true, mode: "queued" };
       }
       // No remote id (or already gone) → nothing to delete remotely.
       return { pending: false, mode: "promotions", medusaPromotionId: null };
@@ -121,7 +165,7 @@ export async function pushPromoToMedusa(
         { label },
       );
       if (r.ok) return { pending: false, mode: "promotions", medusaPromotionId: promo.medusaPromotionId };
-      if (r.status !== 404) return queue(tenantId, promo, action);
+      if (r.status !== 404) return { pending: true, mode: "queued" };
       // 404 on update → fall through to create (remote row vanished).
     }
     const r = await fetchJsonWithRetry(
@@ -139,36 +183,127 @@ export async function pushPromoToMedusa(
       const degraded = await degradeToProductMetadata(db, tenantId, promo, cfg);
       return degraded
         ? { pending: false, mode: "product_metadata" }
-        : queue(tenantId, promo, action);
+        : { pending: true, mode: "queued" };
     }
-    return queue(tenantId, promo, action);
+    return { pending: true, mode: "queued" };
   } catch (e: any) {
     console.warn(`[medusaPromoSync] ${label} threw (fail-open):`, e?.message);
-    return queue(tenantId, promo, action);
+    return { pending: true, mode: "queued" };
   }
 }
 
-function queue(tenantId: string, promo: Promo & PromoMedusaFields, action: "upsert" | "delete"): MedusaPushResult {
-  // Dedupe: one pending op per (tenant, code) — latest write wins.
-  const ix = pendingQueue.findIndex((p) => p.tenantId === tenantId && p.promo.code === promo.code);
-  if (ix >= 0) pendingQueue.splice(ix, 1);
-  pendingQueue.push({ tenantId, promo, action, queuedAt: Date.now() });
-  return { pending: true, mode: "queued" };
+/**
+ * Mirror a promo write to the tenant's linked Medusa. Never throws. On
+ * failure the op is persisted to medusa_promo_outbox (idempotent upsert on
+ * the (tenantId, promoCode, op) dedupe key — latest write wins) so a
+ * restart never silently loses a storefront promo change.
+ */
+export async function pushPromoToMedusa(
+  db: Db | null,
+  tenantId: string,
+  promo: Promo & PromoMedusaFields,
+  action: "upsert" | "delete",
+): Promise<MedusaPushResult> {
+  const r = await attemptMedusaPush(db, tenantId, promo, action);
+  if (r.pending) await enqueueMedusaPromoOutbox(db, tenantId, promo, action);
+  return r;
+}
+
+export interface MedusaOutboxSweepResult {
+  claimed: number;
+  sent: number;
+  retried: number;
+  failed: number;
+}
+
+/**
+ * Sweep pending outbox rows (one tenant, or ALL tenants when tenantId is
+ * null — the cron sweeper path). Claim-first per row (guarded UPDATE
+ * pending→pending bumping attempts so concurrent sweepers never double-send
+ * the same row), exponential backoff via medusaOutboxBackoffMs, bounded
+ * retries → 'failed' + CRITICAL capture at exhaustion. Fail-open per row.
+ */
+export async function sweepMedusaPromoOutbox(
+  db: Db | null,
+  tenantId: string | null,
+  opts: { batch?: number; now?: Date } = {},
+): Promise<MedusaOutboxSweepResult> {
+  const result: MedusaOutboxSweepResult = { claimed: 0, sent: 0, retried: 0, failed: 0 };
+  if (!db) return result;
+  const now = opts.now ?? new Date();
+  const batch = Math.max(1, opts.batch ?? 50);
+  const due = await db
+    .select()
+    .from(medusaPromoOutbox)
+    .where(tenantId
+      ? and(eq(medusaPromoOutbox.status, "pending"), eq(medusaPromoOutbox.tenantId, tenantId))
+      : eq(medusaPromoOutbox.status, "pending"))
+    .orderBy(asc(medusaPromoOutbox.createdAt))
+    .limit(batch)
+    .catch(() => [] as any[]);
+  for (const row of due ?? []) {
+    // Claim-first per row (guarded UPDATE pending→pending bumping attempts)
+    // with the backoff gate INSIDE the guard so concurrent sweepers never
+    // double-send and not-yet-due rows are skipped.
+    const cutoff = new Date(now.getTime() - medusaOutboxBackoffMs(Number(row.attempts ?? 0)));
+    const claimed = await db
+      .update(medusaPromoOutbox)
+      .set({ attempts: sql`${medusaPromoOutbox.attempts} + 1`, updatedAt: now })
+      .where(and(
+        eq(medusaPromoOutbox.id, row.id),
+        eq(medusaPromoOutbox.status, "pending"),
+        lte(medusaPromoOutbox.updatedAt, cutoff),
+      ))
+      .returning({ id: medusaPromoOutbox.id })
+      .catch(() => [] as any[]);
+    if (!claimed?.length) continue; // backed-off or claimed concurrently
+    result.claimed++;
+    const promo = (row.payload ?? {}) as Promo & PromoMedusaFields;
+    const action = (row.op === "delete" ? "delete" : "upsert") as "upsert" | "delete";
+    try {
+      const r = await attemptMedusaPush(db, row.tenantId, promo, action);
+      if (!r.pending) {
+        await db.update(medusaPromoOutbox)
+          .set({ status: "sent", lastError: null, updatedAt: new Date() })
+          .where(eq(medusaPromoOutbox.id, row.id));
+        result.sent++;
+        continue;
+      }
+      throw new Error("medusa push still unreachable");
+    } catch (e: any) {
+      const attempts = Number(row.attempts ?? 0) + 1;
+      if (attempts >= MAX_MEDUSA_OUTBOX_ATTEMPTS) {
+        await db.update(medusaPromoOutbox)
+          .set({ status: "failed", lastError: String(e?.message ?? e).slice(0, 500), updatedAt: new Date() })
+          .where(eq(medusaPromoOutbox.id, row.id));
+        captureException(e, {
+          service: "medusaPromoOutbox",
+          operation: `sweep.${row.op}`,
+          tenantId: row.tenantId,
+          severity: "error",
+          extra: { rowId: row.id, code: row.promoCode, attempts },
+        });
+        result.failed++;
+      } else {
+        await db.update(medusaPromoOutbox)
+          .set({ lastError: String(e?.message ?? e).slice(0, 500), updatedAt: new Date() })
+          .where(eq(medusaPromoOutbox.id, row.id));
+        console.warn(`[medusaPromoSync] outbox retry pending code=${row.promoCode} attempts=${attempts}`);
+        result.retried++;
+      }
+    }
+  }
+  return result;
 }
 
 /**
  * Drain queued promo pushes for a tenant (called before each new promo
- * write). Best-effort; ops that fail again stay queued.
+ * write). Backwards-compatible wrapper over the durable outbox sweep; the
+ * tenant's own writes bypass backoff by re-attempting immediately on the
+ * next write, so force due rows only (backoff still applies).
  */
 export async function drainMedusaPromoQueue(db: Db | null, tenantId: string): Promise<void> {
-  const mine = pendingQueue.filter((p) => p.tenantId === tenantId);
-  if (!mine.length) return;
-  for (const p of mine) {
-    const ix = pendingQueue.indexOf(p);
-    if (ix >= 0) pendingQueue.splice(ix, 1);
-    const r = await pushPromoToMedusa(db, tenantId, p.promo, p.action);
-    if (r.pending) console.warn(`[medusaPromoSync] retry still pending code=${p.promo.code}`);
-  }
+  await sweepMedusaPromoOutbox(db, tenantId);
 }
 
 /** Degraded sync: tag curated spotlight products with the promo code. */

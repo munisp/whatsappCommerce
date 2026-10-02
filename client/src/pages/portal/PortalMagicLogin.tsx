@@ -29,7 +29,17 @@ export default function PortalMagicLogin() {
   const validateMutation = trpc.tenantInvite.validate.useMutation({
     onSuccess(data) {
       if (data.valid && data.sessionToken) {
-        localStorage.setItem("portal_session_token", data.sessionToken);
+        // === W60 persistence (auth-token hygiene) ===
+        // The server now sets the portal session as an httpOnly
+        // SameSite=Lax cookie ("portal_session") on this very response, so
+        // the token is NO LONGER written to localStorage (XSS exfiltration
+        // surface). Dual-read transition: any legacy reader should consult
+        // the cookie first and only fall back to a pre-existing
+        // localStorage "portal_session_token" value.
+        // TODO(W61): remove the localStorage fallback reader and this note
+        // after one release.
+        try { localStorage.removeItem("portal_session_token"); } catch { /* ignore */ }
+        // === END W60 persistence ===
         localStorage.setItem("portal_tenant_id", data.tenantId ?? "");
         localStorage.setItem("portal_tenant_name", data.tenantName ?? "");
         setTenantName(data.tenantName ?? "");

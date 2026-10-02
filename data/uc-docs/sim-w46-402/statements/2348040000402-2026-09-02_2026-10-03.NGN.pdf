@@ -1,0 +1,55 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 845 >>
+stream
+BT /F1 11 Tf 50 780 Td 16 TL
+(Statement of Account) Tj T*
+(====================) Tj T*
+() Tj T*
+(Merchant:      sim-w46-402) Tj T*
+(Customer:       \(2348040000402\)) Tj T*
+(Period:        2026-09-02 .. 2026-10-03) Tj T*
+(Currency:      NGN) Tj T*
+() Tj T*
+(ORDERS) Tj T*
+(  2026-10-02  W46-402A-85af      delivered    NGN 8000.00) Tj T*
+(  2026-10-02  W46-402B-0682      delivered    NGN 8000.00) Tj T*
+(  2026-10-02  W46-402D-a316      delivered    NGN 1500.00) Tj T*
+() Tj T*
+(PAYMENTS) Tj T*
+(  2026-10-02  W46PAY-402A-037400       NGN 8000.00) Tj T*
+(  2026-10-02  W46PAY-402B-4eda07       NGN 8000.00) Tj T*
+() Tj T*
+(Total invoiced:  NGN 17500.00 across 3 order\(s\)) Tj T*
+(Total paid:      NGN 16000.00 across 2 payment\(s\)) Tj T*
+(Outstanding:     NGN 1500.00) Tj T*
+() Tj T*
+(Generated from real order and payment records.) Tj T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001136 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1204
+%%EOF

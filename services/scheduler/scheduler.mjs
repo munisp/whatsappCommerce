@@ -110,6 +110,10 @@ export const SCHEDULE = [
   // PoT legs) + FX fulfil/error poller (PAY-16/18; server/services/paymentOutbox.ts).
   { path: "/api/scheduled/payment-outbox", intervalMin: 5 },
   // === END W45 money-ledger ===
+  // === W60 persistence === durable Medusa promo outbox sweeper (W60-A #2;
+  // server/services/medusaPromoSync.ts sweepMedusaPromoOutbox).
+  { path: "/api/scheduled/medusa-promo-outbox", intervalMin: 5 },
+  // === END W60 persistence ===
   // === W32 recurring === daily recurring bills / auto-pay sweep.
   { path: "/api/scheduled/recurring-run", intervalMin: 1440 },
   // === END W32 recurring ===

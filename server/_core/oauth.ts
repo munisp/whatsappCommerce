@@ -24,7 +24,13 @@ import {
 
 const SESSION_COOKIE = "wa_session";
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
-const pendingNonces = new Map<string, string>();
+// === W60 persistence ===
+// pendingNonces (Keycloak OIDC state→nonce, 10-min expiry) now persist via
+// Redis SET NX PX 600000 (services/persistedState.ts) so a restart or a
+// multi-instance deploy no longer fails in-flight logins; in-memory fallback
+// is dev/test-only — production fails closed when Redis is unreachable.
+const OIDC_NONCE_TTL_MS = 10 * 60 * 1000;
+// === END W60 persistence ===
 
 function getQueryParam(req: Request, key: string): string | undefined {
   const v = req.query[key];
@@ -33,11 +39,17 @@ function getQueryParam(req: Request, key: string): string | undefined {
 
 export function registerOAuthRoutes(app: Express) {
   // 1. Initiate Keycloak login
-  app.get("/api/auth/login", (req: Request, res: Response) => {
+  app.get("/api/auth/login", async (req: Request, res: Response) => {
     const state = crypto.randomBytes(16).toString("hex");
     const nonce = crypto.randomBytes(16).toString("hex");
-    pendingNonces.set(state, nonce);
-    setTimeout(() => pendingNonces.delete(state), 10 * 60 * 1000);
+    try {
+      const { setNxOnce } = await import("../services/persistedState");
+      await setNxOnce(`auth:oidc:${state}`, OIDC_NONCE_TTL_MS, { label: "oidc-nonce" });
+    } catch (e: any) {
+      console.error("[Auth] nonce store unavailable:", e?.message);
+      res.status(503).json({ error: "auth-state-unavailable" });
+      return;
+    }
     const redirectTo = getQueryParam(req, "redirect") ?? "/";
     const stateWithRedirect = `${state}:${encodeURIComponent(redirectTo)}`;
     const authUrl = buildKeycloakAuthUrl(stateWithRedirect, nonce);

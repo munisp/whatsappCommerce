@@ -89,6 +89,15 @@ struct RecordsResponse {
 // duplicate storm into /api/internal/events. Now offsets persist to
 // FLUVIO_OFFSET_FILE (default ./fluvio-offsets.json), written atomically
 // (tmp + rename) after every successfully forwarded batch.
+//
+// === W60 persistence ===
+// RESIDUAL RISK (accepted, documented): the offset file lives on pod-local
+// disk, so a container reschedule without a PVC still replays from 0. That
+// replay is ABSORBED downstream — /api/internal/events dedupes via the
+// Postgres `processed_webhook_events` ledger (server/services/paymentConfirm.ts
+// L127, atomic claim before applying), so duplicates are harmless. No code
+// change required; see k8s/README.md "fluvio-consumer offsets". Mount a PVC
+// at FLUVIO_OFFSET_FILE's directory to eliminate the replay window entirely.
 fn offset_file_path() -> String {
     env::var("FLUVIO_OFFSET_FILE").unwrap_or_else(|_| "fluvio-offsets.json".to_string())
 }

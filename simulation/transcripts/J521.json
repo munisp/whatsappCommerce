@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348019284023",
-      "profileName": "Sim User 4023",
+      "phone": "2348017582399",
+      "profileName": "Sim User 2399",
       "inboundId": "wamid.sim.in.text.00577",
-      "at": 1790897854068,
+      "at": 1790921567157,
       "kind": "text",
       "text": "do you have ankara?"
     },
@@ -18,27 +18,27 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00577",
-      "at": 1790897854074
+      "at": 1790921567171
     },
     {
       "dir": "out",
-      "phone": "2348019284023",
+      "phone": "2348017582399",
       "wamid": "wamid.sim.001181",
       "statuses": [
         "sent"
       ],
-      "at": 1790897854109,
+      "at": 1790921567208,
       "kind": "text",
       "body": "Yes — J521 Ankara is in stock at ₦45.00."
     },
     {
       "dir": "out",
-      "phone": "2348019284023",
+      "phone": "2348017582399",
       "wamid": "wamid.sim.001182",
       "statuses": [
         "sent"
       ],
-      "at": 1790897854116,
+      "at": 1790921567215,
       "kind": "interactive",
       "body": "J521 Ankara — ₦45.00",
       "buttons": [
@@ -54,12 +54,12 @@
     },
     {
       "dir": "out",
-      "phone": "2348019284023",
+      "phone": "2348017582399",
       "wamid": "wamid.sim.001183",
       "statuses": [
         "sent"
       ],
-      "at": 1790897854126,
+      "at": 1790921567222,
       "kind": "interactive",
       "body": "🔥 Promo FLASH20 — 20% off with code FLASH20",
       "header": "Promo FLASH20",

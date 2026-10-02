@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-01T23:39:26.446Z",
+  "generatedAt": "2026-10-02T06:14:39.454Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -4489,6 +4489,46 @@
       "pass": true,
       "file": "J601.json",
       "messageCount": 0
+    },
+    {
+      "id": "J602",
+      "title": "CICO confirm intent survives restart; atomic exactly-once claim",
+      "feature": "W60 persistence: pending_cico_intents",
+      "pass": true,
+      "file": "J602.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J603",
+      "title": "expired CICO intent unclaimable; lazy sweep on park",
+      "feature": "W60 persistence: pending_cico_intents expiry",
+      "pass": true,
+      "file": "J603.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J604",
+      "title": "Medusa promo outbox: durable enqueue, backoff sweep, restart-safe",
+      "feature": "W60 persistence: medusa_promo_outbox",
+      "pass": true,
+      "file": "J604.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J605",
+      "title": "suppression list: PG truth honored; production fail-closed",
+      "feature": "W60 persistence: waSuppressionList prod fail-closed",
+      "pass": true,
+      "file": "J605.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J606",
+      "title": "onboarding edit proposal survives restart (Redis-primary store)",
+      "feature": "W60 persistence: waOnboarding pending edit proposals",
+      "pass": true,
+      "file": "J606.json",
+      "messageCount": 3
     },
     {
       "id": "J61",

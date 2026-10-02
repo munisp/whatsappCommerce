@@ -175,7 +175,7 @@ export const tenantInviteRouter = router({
       // phoneAuth.verifyOtp — required when the invite is phone-bound. ===
       identityProof: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
         const payload = jwt.verify(input.token, ENV.jwtSecret) as any;
 
@@ -260,6 +260,23 @@ export const tenantInviteRouter = router({
           ENV.jwtSecret,
           { expiresIn: "8h" }
         );
+
+        // === W60 persistence (audit-b auth-token hygiene) ===
+        // Also mirror the portal session into an httpOnly SameSite=Lax
+        // cookie so the token no longer NEEDS to live in localStorage (XSS
+        // exfiltration surface). The client keeps a one-release localStorage
+        // fallback reader (TODO: remove after transition); new logins rely
+        // on this cookie first.
+        try {
+          const { getSessionCookieOptions } = await import("../_core/cookies");
+          ctx.res.cookie("portal_session", sessionToken, {
+            ...getSessionCookieOptions(ctx.req),
+            maxAge: 8 * 60 * 60 * 1000,
+          });
+        } catch (cookieErr: any) {
+          console.warn("[tenantInvite] portal_session cookie set failed:", cookieErr?.message);
+        }
+        // === END W60 persistence ===
 
         return {
           valid: true,

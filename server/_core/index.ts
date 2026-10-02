@@ -96,7 +96,8 @@ const waOpsAlertSchema = z.object({
  */
 // === W47 merchant === ONB-M-5/M-8: per-(tenant, buyer) cooldown for the
 // "store not open" auto-reply so a chatty buyer isn't spammed.
-const intakeBlockedReplyCooldown = new Map<string, number>();
+// === W60 persistence === cooldown lives in Redis (wa:intake-cooldown:*,
+// SET NX PX via services/persistedState) — restart/multi-instance safe.
 // === END W47 merchant ===
 async function sendWhatsAppTextMetered(  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
   tenantId: string,
@@ -264,10 +265,11 @@ async function processWaWebhookValue(
             const intake = await checkOrderIntakeAllowed(db, tenant as any);
             if (!intake.allowed) {
               console.warn(`[whatsapp-webhook] intake blocked (tenant=${(tenant as any).id}, reason=${intake.reason}) for ${waPhoneNumber}`);
-              const cooldownKey = `${(tenant as any).id}:${waPhoneNumber}`;
-              const last = intakeBlockedReplyCooldown.get(cooldownKey) ?? 0;
-              if (Date.now() - last > 24 * 3600 * 1000 && intake.buyerMessage) {
-                intakeBlockedReplyCooldown.set(cooldownKey, Date.now());
+              const cooldownKey = `wa:intake-cooldown:${(tenant as any).id}:${waPhoneNumber}`;
+              // === W60 persistence === Redis SET NX PX 24h (dev-only memory
+              // fallback); Redis loss in prod skips the reply, never the gate.
+              const { setNxOnce } = await import("../services/persistedState");
+              if (intake.buyerMessage && (await setNxOnce(cooldownKey, 24 * 3600 * 1000, { label: "intake-reply-cooldown" }))) {
                 await sendWhatsAppText((tenant as any).id, waPhoneNumber, intake.buyerMessage, { notifType: "store_not_open" })
                   .catch((e: any) => console.warn("[whatsapp-webhook] store-not-open reply failed:", e?.message));
               }
@@ -4380,6 +4382,30 @@ async function startServer() {
     }
   });
   // === END W45 money-ledger ===
+
+  // === W60 persistence ===
+  // ── POST /api/scheduled/medusa-promo-outbox (every few minutes) ─────────
+  // Medusa promo outbox sweeper (W60-A CRITICAL #2): drains durable
+  // medusa_promo_outbox rows across ALL tenants with claim-first per-row
+  // semantics, exponential backoff, and bounded retries (fail-open per row;
+  // exhausted rows go 'failed' + captureException). Auth: W42 cronAuth
+  // scope+jti via sdk.authenticateRequest (isCron fast-path).
+  // Registered in services/scheduler/scheduler.mjs allowlist (J178 parity).
+  app.post("/api/scheduled/medusa-promo-outbox", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { sweepMedusaPromoOutbox } = await import("../services/medusaPromoSync");
+      const outbox = await sweepMedusaPromoOutbox(db, null);
+      return res.json({ ok: true, outbox });
+    } catch (err: any) {
+      console.error("[medusa-promo-outbox]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W60 persistence ===
 
   // === W44 deposits-subs-digital (Coder C) ===
   // ── POST /api/scheduled/subscription-billing (hourly) ─────────────────

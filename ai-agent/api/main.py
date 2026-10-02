@@ -7,7 +7,9 @@ Exposes:
   GET  /health      — Health check
 """
 import asyncio
+import os
 import structlog
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -79,7 +81,16 @@ class HandoffSummaryRequest(BaseModel):
 
 # ─── App Lifecycle ────────────────────────────────────────────────────────────
 
-_orchestrators: dict[str, AIOrchestrator] = {}
+# === W60 persistence ===
+# `_orchestrators` was an UNBOUNDED per-tenant dict — a slow memory leak as the
+# tenant count grew. It is now an LRU-bounded map (cap AI_AGENT_MAX_ORCHESTRATORS,
+# default 200). Safe to evict: the orchestrator is a stateless wrapper; durable
+# conversation history lives in Redis-backed ConversationMemory
+# (memory/conversation_memory.py), so an evicted tenant's orchestrator is lazily
+# recreated on the next request with no state loss. Chosen over eager Redis
+# lazy-load because the orchestrator holds no durable state to reload.
+_ORCHESTRATOR_CAP = int(os.environ.get("AI_AGENT_MAX_ORCHESTRATORS", "200"))
+_orchestrators: "OrderedDict[str, AIOrchestrator]" = OrderedDict()
 _memory: Optional[ConversationMemory] = None
 _guardrails: Optional[Guardrails] = None
 
@@ -96,12 +107,23 @@ async def lifespan(app: FastAPI):
 
 
 def get_orchestrator(tenant_id: str) -> AIOrchestrator:
-    """Get or create a tenant-scoped orchestrator."""
-    if tenant_id not in _orchestrators:
-        cfg = get_config()
-        commerce = CommerceTools(cfg.commerce_engine_url, tenant_id)
-        _orchestrators[tenant_id] = AIOrchestrator(cfg, commerce, _memory, _guardrails)
-    return _orchestrators[tenant_id]
+    """Get or create a tenant-scoped orchestrator (LRU-bounded — W60)."""
+    orch = _orchestrators.get(tenant_id)
+    if orch is not None:
+        _orchestrators.move_to_end(tenant_id)  # LRU touch
+        return orch
+    cfg = get_config()
+    commerce = CommerceTools(cfg.commerce_engine_url, tenant_id)
+    # Evict least-recently-used tenants above the cap; eviction loses nothing
+    # durable (conversation history is Redis-backed) — the orchestrator is
+    # recreated on the tenant's next request.
+    while len(_orchestrators) >= _ORCHESTRATOR_CAP:
+        evicted, _ = _orchestrators.popitem(last=False)
+        log.info("orchestrator_evicted", tenant_id=evicted, cap=_ORCHESTRATOR_CAP,
+                 reason="lru_bound")
+    orch = AIOrchestrator(cfg, commerce, _memory, _guardrails)
+    _orchestrators[tenant_id] = orch
+    return orch
 
 
 # ─── FastAPI App ──────────────────────────────────────────────────────────────

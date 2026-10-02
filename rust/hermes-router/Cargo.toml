@@ -17,6 +17,9 @@ uuid = { version = "1.10", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 tokio-retry = "0.3"
 dashmap = "6.1"
+# === W60 persistence === durable DLQ: Redis list hermes:dlq (same redis 0.27 /
+# tokio-comp already pinned in the workspace lock via event-processor).
+redis = { version = "0.27", features = ["tokio-comp"] }
 async-trait = "0.1"
 thiserror = "1.0"
 

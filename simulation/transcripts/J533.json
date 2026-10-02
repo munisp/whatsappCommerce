@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348015818004",
-      "profileName": "Sim User 8004",
+      "phone": "2348011787657",
+      "profileName": "Sim User 7657",
       "inboundId": "wamid.sim.in.text.00580",
-      "at": 1790897861813,
+      "at": 1790921574536,
       "kind": "text",
-      "text": "DEAL DEAL33 REF REF-D5GXGQ"
+      "text": "DEAL DEAL33 REF REF-3LE67M"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00580",
-      "at": 1790897861822
+      "at": 1790921574542
     },
     {
       "dir": "out",
-      "phone": "2348015818004",
+      "phone": "2348011787657",
       "wamid": "wamid.sim.001187",
       "statuses": [
         "sent"
       ],
-      "at": 1790897861888,
+      "at": 1790921574581,
       "kind": "text",
       "body": "✅ Deal DEAL33 locked in — it applies automatically at checkout. Happy shopping!"
     }

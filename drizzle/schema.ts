@@ -7526,3 +7526,47 @@ export const posPaymentSessions = pgTable("pos_payment_sessions", {
 export type PosPaymentSessionRow = typeof posPaymentSessions.$inferSelect;
 export type NewPosPaymentSessionRow = typeof posPaymentSessions.$inferInsert;
 // === END W59 banking-pos ===
+
+// === W60 persistence ===
+// Pending two-step CICO intents (W60-A CRITICAL #1): durable replacement for
+// the bankingChat pendingCico Map. Exactly-once atomic claim via
+// DELETE ... WHERE key AND "expiresAt" > now() RETURNING * (restart- and
+// multi-instance-safe); insert is idempotent (ON CONFLICT DO NOTHING).
+export const pendingCicoIntents = pgTable("pending_cico_intents", {
+  key: text("key").primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  agentIdentity: varchar("agentIdentity", { length: 64 }),
+  kind: varchar("kind", { length: 16 }).notNull(), // 'cash_in' | 'cash_out'
+  phone: varchar("phone", { length: 32 }).notNull(),
+  amountCents: integer("amountCents").notNull(),
+  payload: jsonb("payload"),
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+}, (t) => [
+  index("pending_cico_intents_expiry_idx").on(t.expiresAt),
+]);
+export type PendingCicoIntentRow = typeof pendingCicoIntents.$inferSelect;
+export type NewPendingCicoIntentRow = typeof pendingCicoIntents.$inferInsert;
+
+// Medusa promo outbox (W60-A CRITICAL #2): durable retry queue for Medusa
+// promo upsert/delete pushes (was the medusaPromoSync pendingQueue array).
+// Swept by /api/scheduled/medusa-promo-outbox with bounded retry/backoff;
+// dedupe key (tenantId, promoCode, op) — latest write wins via upsert.
+export const medusaPromoOutbox = pgTable("medusa_promo_outbox", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  promoCode: varchar("promoCode", { length: 64 }).notNull(),
+  op: varchar("op", { length: 16 }).notNull(), // 'upsert' | 'delete'
+  payload: jsonb("payload").notNull(), // Promo & PromoMedusaFields snapshot
+  status: varchar("status", { length: 16 }).default("pending").notNull(), // 'pending' | 'sent' | 'failed'
+  attempts: integer("attempts").default(0).notNull(),
+  lastError: text("lastError"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("medusa_promo_outbox_dedupe_uniq").on(t.tenantId, t.promoCode, t.op),
+  index("medusa_promo_outbox_status_idx").on(t.status, t.updatedAt),
+]);
+export type MedusaPromoOutboxRow = typeof medusaPromoOutbox.$inferSelect;
+export type NewMedusaPromoOutboxRow = typeof medusaPromoOutbox.$inferInsert;
+// === END W60 persistence ===

@@ -28,7 +28,14 @@ export default function SsoCallback() {
 
   const exchangeMutation = trpc.keycloak.exchangeCode.useMutation({
     onSuccess(data) {
-      localStorage.setItem("portal_session_token", data.sessionToken);
+      // === W60 persistence (auth-token hygiene) ===
+      // Server sets the httpOnly SameSite=Lax "portal_session" cookie on the
+      // exchangeCode response — the token is no longer persisted to
+      // localStorage. Dual-read transition: cookie first, legacy localStorage
+      // "portal_session_token" fallback only until the next release.
+      // TODO(W61): remove the localStorage fallback reader and this note.
+      try { localStorage.removeItem("portal_session_token"); } catch { /* ignore */ }
+      // === END W60 persistence ===
       localStorage.setItem("portal_tenant_id", data.tenantId);
       localStorage.setItem("portal_tenant_name", data.tenantName);
       setTenantName(data.tenantName);

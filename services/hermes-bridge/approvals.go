@@ -18,6 +18,12 @@
 // Redis is REQUIRED in production (fail-closed at startup). In development a
 // plain map+mutex fallback is allowed but is loudly logged and reported via
 // Backend() so it is never silent.
+//
+// === W60 persistence ===
+// Re-verified: memoryApprovalStore is dev-only — NewApprovalStore returns an
+// error when REDIS_URL is unset in production, and newRedisApprovalStore
+// PINGs at startup so an unreachable Redis is also fail-closed. No code
+// change required; production always uses the Redis expiry/reminder ZSETs.
 
 package main
 

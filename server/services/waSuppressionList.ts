@@ -16,10 +16,17 @@
  * The Redis set is a cache — it is re-warmed from PG on a miss, so a Redis
  * flush never un-suppresses a number.
  *
- * All functions are fail-soft: a store error logs and degrades to
- * "not suppressed" for reads (never block legitimate sends on an
+ * All functions are fail-soft in dev/test: a store error logs and degrades
+ * to "not suppressed" for reads (never block legitimate sends on an
  * infrastructure hiccup) and to a dropped write (the next failed receipt
  * re-suppresses).
+ *
+ * === W60 persistence === PRODUCTION IS FAIL-CLOSED (W60-A MEDIUM #15):
+ * when the PG read itself fails, isSuppressed returns TRUE (treat the
+ * number as suppressed — never silently re-send to an opted-out/failed
+ * number) and getSuppressedPhones throws so a broadcast aborts rather than
+ * mailing the whole list unfiltered. Redis-cache failures in production are
+ * pageable telemetry (captureException), never silent.
  */
 
 import { and, eq, sql } from "drizzle-orm";
@@ -28,6 +35,7 @@ import { waSuppressionList } from "../../drizzle/schema";
 import { getRedis } from "../redis";
 import { isProd } from "../_core/env";
 import { normalizeWaPhone } from "./waSender";
+import { captureException } from "./observability";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -70,7 +78,9 @@ async function cacheAdd(tenantId: string, phone: string): Promise<void> {
       await redis.sadd(cacheKey(tenantId), phone);
       return;
     }
-  } catch { /* fall through */ }
+  } catch (e: any) {
+    if (isProd) captureException(e, { service: "waSuppressionList", operation: "cacheAdd", tenantId, severity: "error" });
+  }
   if (isProd) return;
   const set = memorySets.get(tenantId) ?? new Set<string>();
   set.add(phone);
@@ -178,6 +188,12 @@ export async function isSuppressed(db: Db, tenantId: string, phone: string): Pro
       return true;
     }
   } catch (e: any) {
+    if (isProd) {
+      // === W60 persistence === fail CLOSED: treat as suppressed so a
+      // store outage can never re-send to a potentially-opted-out number.
+      captureException(e, { service: "waSuppressionList", operation: "isSuppressed", tenantId, severity: "critical" });
+      return true;
+    }
     console.warn("[waSuppression] lookup failed (fail-open):", e?.message);
   }
   return false;
@@ -201,6 +217,12 @@ export async function getSuppressedPhones(db: Db, tenantId: string): Promise<Set
     }
     await cacheWarm(tenantId, Array.from(out));
   } catch (e: any) {
+    if (isProd) {
+      // === W60 persistence === fail CLOSED: abort the broadcast rather
+      // than mail suppressed numbers unfiltered.
+      captureException(e, { service: "waSuppressionList", operation: "getSuppressedPhones", tenantId, severity: "critical" });
+      throw e;
+    }
     console.warn("[waSuppression] set lookup failed (fail-open):", e?.message);
   }
   return out;

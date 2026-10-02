@@ -1,0 +1,8 @@
+{
+  "id": "J602",
+  "title": "CICO confirm intent survives restart; atomic exactly-once claim",
+  "feature": "W60 persistence: pending_cico_intents",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}
