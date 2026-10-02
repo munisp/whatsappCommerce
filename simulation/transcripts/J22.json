@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348019039496",
-      "profileName": "Sim User 9496",
+      "phone": "2348013119860",
+      "profileName": "Sim User 9860",
       "inboundId": "wamid.sim.in.text.00089",
-      "at": 1790920791394,
+      "at": 1790979755406,
       "kind": "text",
       "text": "simdeal"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00089",
-      "at": 1790920791400
+      "at": 1790979755412
     },
     {
       "dir": "out",
-      "phone": "2348019039496",
+      "phone": "2348013119860",
       "wamid": "wamid.sim.000152",
       "statuses": [
         "sent"
       ],
-      "at": 1790920791411,
+      "at": 1790979755424,
       "kind": "text",
       "body": "🎉 You came via our Sim Deal campaign! Use code SIM10 for 10% off."
     },
     {
       "dir": "in",
-      "phone": "2348019039496",
-      "profileName": "Sim User 9496",
+      "phone": "2348013119860",
+      "profileName": "Sim User 9860",
       "inboundId": "wamid.sim.in.text.00090",
-      "at": 1790920791958,
+      "at": 1790979755953,
       "kind": "text",
       "text": "just a regular hello"
     },
@@ -44,16 +44,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00090",
-      "at": 1790920791967
+      "at": 1790979755963
     },
     {
       "dir": "out",
-      "phone": "2348019039496",
+      "phone": "2348013119860",
       "wamid": "wamid.sim.000153",
       "statuses": [
         "sent"
       ],
-      "at": 1790920791999,
+      "at": 1790979755997,
       "kind": "text",
       "body": "Hello! How can I help?"
     }

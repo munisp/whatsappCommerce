@@ -1,0 +1,8 @@
+{
+  "id": "J607",
+  "title": "telegram send-retry: scheduled invoker exists and drives runTelegramSendRetries",
+  "feature": "W61 dataloss: telegram_outbox retry invoker",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

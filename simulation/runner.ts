@@ -782,6 +782,13 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j605-suppression-fail-closed"),
     import("./journeys/j606-onboarding-edit-persistence"),
     // === END W60 persistence ===
+    // === W61 dataloss ===
+    import("./journeys/j607-telegram-retry-invoker"),
+    import("./journeys/j608-sms-retry-deadletter"),
+    import("./journeys/j609-dlq-drain-alert"),
+    import("./journeys/j610-paystack-raw-persist"),
+    import("./journeys/j611-fluvio-event-sweep"),
+    // === END W61 dataloss ===
     // === END W55 parity ===
     // === END W54 CAPABILITIES ===
     // === END W51 PROMOS ===

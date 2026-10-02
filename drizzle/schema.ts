@@ -3384,6 +3384,33 @@ export const processedWebhookEvents = pgTable("processed_webhook_events", {
 export type ProcessedWebhookEvent = typeof processedWebhookEvents.$inferSelect;
 export type NewProcessedWebhookEvent = typeof processedWebhookEvents.$inferInsert;
 
+// === W61 dataloss ===
+// Raw PSP webhook landing pad (migration 0181). The Paystack-family webhook
+// routes ack 200 immediately (W48 ack-first); this table persists the raw,
+// HMAC-verified payload BEFORE the ack so a crash between ack and the async
+// confirm chain is recoverable — the row carries everything needed to re-run
+// confirmProviderPayment. Rows are marked processed (guarded UPDATE) once the
+// confirm chain settles; unprocessed rows are swept/alerted on by
+// /api/scheduled/fluvio-event-sweep's sibling backlog check. Additive-only.
+export const rawWebhookEvents = pgTable("raw_webhook_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  eventType: varchar("event_type", { length: 64 }),
+  reference: varchar("reference", { length: 128 }),
+  payload: jsonb("payload").notNull(),
+  processed: boolean("processed").notNull().default(false),
+  processedAt: timestamp("processed_at"),
+  receivedAt: timestamp("received_at").notNull().defaultNow(),
+}, (t) => [
+  index("raw_webhook_events_provider_idx").on(t.provider),
+  index("raw_webhook_events_reference_idx").on(t.reference),
+  index("raw_webhook_events_processed_idx").on(t.processed),
+  index("raw_webhook_events_received_idx").on(t.receivedAt),
+]);
+export type RawWebhookEvent = typeof rawWebhookEvents.$inferSelect;
+export type NewRawWebhookEvent = typeof rawWebhookEvents.$inferInsert;
+// === END W61 dataloss ===
+
 // ── Platform ops: usage metering counters ────────────────────────────────────
 // Monthly per-tenant usage counters (period = "yyyymm"). Upsert-incremented by
 // services/metering.ts; plan limits live in tenants.settings.plan.

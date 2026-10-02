@@ -1,0 +1,20 @@
+{
+  "id": "J609",
+  "title": "dlq-drain: Redis DLQs re-persisted to fluvio_event_log + admin alert",
+  "feature": "W61 dataloss: DLQ drain + replay",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001318",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790980638537,
+      "kind": "text",
+      "body": "⚠️ DLQ drain found dead-lettered events for your workspace.\nmp:dlq:events: drained=2 remaining=0; hermes:dlq: drained=1 remaining=0\nThey were re-persisted to the event log and will be reprocessed by the fluvio-event-sweep."
+    }
+  ]
+}

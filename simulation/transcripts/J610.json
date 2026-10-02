@@ -1,0 +1,8 @@
+{
+  "id": "J610",
+  "title": "paystack webhook: raw-persist-then-ack (crash-after-ack recoverable)",
+  "feature": "W61 dataloss: raw_webhook_events landing pad",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

@@ -1923,3 +1923,179 @@ spec:
                   cpu: "100m"
                   memory: "128Mi"
 # === END W45 money-ledger ===
+
+---
+# === W61 dataloss ===
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-cron-telegram-send-retry
+  namespace: whatsapp-commerce
+  labels:
+    app: cron-scheduler
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: scheduler
+              image: whatsapp-commerce/scheduler:latest
+              args: ["node", "scheduler.mjs", "--once", "/api/scheduled/telegram-send-retry"]
+              env:
+                - name: PLATFORM_URL
+                  value: "http://platform.whatsapp-commerce.svc.cluster.local:3000"
+                - name: CRON_JWT
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: CRON_JWT
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "128Mi"
+# === END W61 dataloss ===
+
+---
+# === W61 dataloss ===
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-cron-sms-retry
+  namespace: whatsapp-commerce
+  labels:
+    app: cron-scheduler
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: scheduler
+              image: whatsapp-commerce/scheduler:latest
+              args: ["node", "scheduler.mjs", "--once", "/api/scheduled/sms-retry"]
+              env:
+                - name: PLATFORM_URL
+                  value: "http://platform.whatsapp-commerce.svc.cluster.local:3000"
+                - name: CRON_JWT
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: CRON_JWT
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "128Mi"
+# === END W61 dataloss ===
+
+---
+# === W61 dataloss ===
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-cron-dlq-drain
+  namespace: whatsapp-commerce
+  labels:
+    app: cron-scheduler
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: scheduler
+              image: whatsapp-commerce/scheduler:latest
+              args: ["node", "scheduler.mjs", "--once", "/api/scheduled/dlq-drain"]
+              env:
+                - name: PLATFORM_URL
+                  value: "http://platform.whatsapp-commerce.svc.cluster.local:3000"
+                - name: CRON_JWT
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: CRON_JWT
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "128Mi"
+# === END W61 dataloss ===
+
+---
+# === W61 dataloss ===
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-cron-fluvio-event-sweep
+  namespace: whatsapp-commerce
+  labels:
+    app: cron-scheduler
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: scheduler
+              image: whatsapp-commerce/scheduler:latest
+              args: ["node", "scheduler.mjs", "--once", "/api/scheduled/fluvio-event-sweep"]
+              env:
+                - name: PLATFORM_URL
+                  value: "http://platform.whatsapp-commerce.svc.cluster.local:3000"
+                - name: CRON_JWT
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: CRON_JWT
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "128Mi"
+# === END W61 dataloss ===

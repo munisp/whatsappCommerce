@@ -32,7 +32,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { paymentTransactions, paymentIntents, walletTransactions, alertRules, alertRuleEvents, forecastSnapshots, tenants, escrowConfig, escrowTransactions, escrowSlaExtensions, logisticsShipments, merchantWallets, floatIncomeEntries, orders } from "../../drizzle/schema";
 import { broadcastCampaigns, broadcastRecipients, twentyContacts } from "../../drizzle/schema";
-import { hermesPODrafts, hermesHealthLog, fluvioEventLog } from "../../drizzle/schema";
+import { hermesPODrafts, hermesHealthLog, fluvioEventLog, rawWebhookEvents } from "../../drizzle/schema";
 import { eq, and, desc, gte, lte, lt } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { handleGetEvidencePortal, handleSubmitEvidence } from "../routers/evidencePortal";
@@ -2114,6 +2114,93 @@ async function startServer() {
     }
   });
 
+  // === W61 dataloss ===
+  // ── Scheduled: Telegram failed-send retry + dead-letter (every ~5 min) ──
+  // W61 audit CRITICAL #2: runTelegramSendRetries existed with NO production
+  // invoker — failed telegram_outbox rows sat in 'failed' forever and the
+  // dead-letter admin alert never fired. Mirrors wa-send-retry exactly.
+  // After deploy: manus-heartbeat create --name telegram-send-retry --cron "0 */5 * * * *" --path /api/scheduled/telegram-send-retry
+  app.post("/api/scheduled/telegram-send-retry", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const { runTelegramSendRetries } = await import("../services/telegramSender");
+      const limit = Number(req.body?.limit) > 0 ? Number(req.body.limit) : undefined;
+      const run = await runTelegramSendRetries({ limit });
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[telegram-send-retry] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "telegram-send-retry failed" });
+    }
+  });
+
+  // ── Scheduled: SMS failed-send retry + dead-letter (every ~10 min) ──────
+  // W61 audit CRITICAL #3: SMS failures were logged to channel_messages with
+  // no sweep — WA→SMS failover messages could be silently lost. Claim-first
+  // sweep with bounded retries/backoff and dead-letter admin alert.
+  // After deploy: manus-heartbeat create --name sms-retry --cron "0 */10 * * * *" --path /api/scheduled/sms-retry
+  app.post("/api/scheduled/sms-retry", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runSmsSendRetries } = await import("../services/smsRetry");
+      const limit = Number(req.body?.limit) > 0 ? Number(req.body.limit) : undefined;
+      const run = await runSmsSendRetries(db as any, { limit });
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[sms-retry] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "sms-retry failed" });
+    }
+  });
+
+  // ── Scheduled: DLQ drain + replay (every ~10 min) ───────────────────────
+  // W61 audit CRITICAL #4 + HIGH #7: drains the durable Redis DLQ lists
+  // (mp:dlq:events, hermes:dlq, notifications.dlq spill) into fluvio_event_log
+  // with a per-run cap, replays the wa:webhook:dlq-fallback backends
+  // (replayWaWebhookFallback had ZERO callers), and alerts the tenant admin
+  // on non-empty DLQs. Fail-open telemetry, never silent-drop.
+  // After deploy: manus-heartbeat create --name dlq-drain --cron "0 */10 * * * *" --path /api/scheduled/dlq-drain
+  app.post("/api/scheduled/dlq-drain", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runDlqDrain } = await import("../services/dlqDrain");
+      const cap = Number(req.body?.cap) > 0 ? Number(req.body.cap) : undefined;
+      const run = await runDlqDrain(db as any, { cap });
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[dlq-drain] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "dlq-drain failed" });
+    }
+  });
+
+  // ── Scheduled: fluvio_event_log processor sweep (every ~15 min) ─────────
+  // W61 audit HIGH #6: fluvio_event_log was a write-only landing pad — every
+  // wacommerce.* event landed processed=false and nothing ever consumed it.
+  // This sweep claims unprocessed rows (claim-first guarded UPDATE), marks
+  // them processed, and alerts on backlog. Fail-open telemetry.
+  // After deploy: manus-heartbeat create --name fluvio-event-sweep --cron "0 */15 * * * *" --path /api/scheduled/fluvio-event-sweep
+  app.post("/api/scheduled/fluvio-event-sweep", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runFluvioEventSweep } = await import("../services/fluvioEventSweep");
+      const limit = Number(req.body?.limit) > 0 ? Number(req.body.limit) : undefined;
+      const run = await runFluvioEventSweep(db as any, { limit });
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[fluvio-event-sweep] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "fluvio-event-sweep failed" });
+    }
+  });
+  // === END W61 dataloss ===
+
   // === W40 TEN-5 (Coder B) ===
   // ── Scheduled: KYC erasure sweep — retry tombstoned S3 scan deletions ───
   // Documents tombstoned at GDPR erasure time (erasureScheduledAt set,
@@ -2511,6 +2598,28 @@ async function startServer() {
         const amountKobo = Number(payload.data?.amount);
         const currency = (payload.data?.currency as string | undefined) ?? null;
         if (ref) {
+          // === W61 dataloss (audit HIGH #5): persist the raw, HMAC-verified
+          // event BEFORE acking 200. A crash between ack and the async confirm
+          // chain below is now recoverable — raw_webhook_events carries the
+          // full payload and the row stays processed=false until the confirm
+          // settles (swept/alerted via the fluvio-event-sweep backlog check).
+          // FAIL-CLOSED (money): if the raw insert fails we do NOT ack — a
+          // 500 makes Paystack retry the delivery. ===
+          let rawEventId: string | null = null;
+          try {
+            const [rawRow] = await db.insert(rawWebhookEvents).values({
+              provider: "paystack",
+              eventType: "charge.success",
+              reference: ref,
+              payload: payload.data ?? payload,
+              processed: false,
+              receivedAt: new Date(),
+            }).returning({ id: rawWebhookEvents.id });
+            rawEventId = rawRow?.id ?? null;
+          } catch (rawErr: any) {
+            console.error(`[paystack-webhook] raw-event persist FAILED for ref=${ref} — not acking (Paystack will retry):`, rawErr?.message);
+            return res.status(500).json({ error: "raw-persist-failed" });
+          }
           // === W48 PERF-API-1/INT-1 (api-db): ack 200 FIRST — mirrors the
           // WA webhook pattern. HMAC is already verified above; the confirm
           // chain + post-confirm hooks now run POST-ACK so Paystack never
@@ -2606,8 +2715,19 @@ async function startServer() {
           } catch (postAckErr: any) {
             // Post-ack failure: the 200 is already sent. Log loud for ops;
             // the PSP event is safely replayable because the confirm path is
-            // claim-first/idempotent.
+            // claim-first/idempotent AND (W61) the raw event stays
+            // processed=false in raw_webhook_events for recovery.
             console.error(`[paystack-webhook] post-ack processing failed for ref=${ref}:`, postAckErr?.message);
+          } finally {
+            // === W61 dataloss === mark the raw event processed once the
+            // confirm chain settled (guarded UPDATE on the pre-ack insert).
+            if (rawEventId) {
+              await db.update(rawWebhookEvents)
+                .set({ processed: true, processedAt: new Date() })
+                .where(and(eq(rawWebhookEvents.id, rawEventId), eq(rawWebhookEvents.processed, false)))
+                .catch((e: any) => console.warn(`[paystack-webhook] raw-event processed flip failed for ref=${ref}:`, e?.message));
+            }
+            // === END W61 dataloss ===
           }
           return;
         }
