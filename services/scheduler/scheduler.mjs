@@ -156,6 +156,9 @@ export const SCHEDULE = [
   // === W58 statements === Monthly merchant wallet statements (cron "0 0 8 1 * *" ≈ monthly).
   { path: "/api/scheduled/monthly-statements", intervalMin: 43200 },
   // === END W58 statements ===
+  // === W59 banking-pos === POS session expiry sweep (cron "0 */5 * * * *").
+  { path: "/api/scheduled/pos-expiry", intervalMin: 5 },
+  // === END W59 banking-pos ===
 ];
 
 function b64url(buf) {

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-01T19:30:13.602Z",
+  "generatedAt": "2026-10-01T23:39:26.446Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -4403,11 +4403,91 @@
       "messageCount": 0
     },
     {
+      "id": "J592",
+      "title": "payout accounts: fail-closed add, backfill idempotent, primary race, disable",
+      "feature": "W59 banking-pos: merchant_payout_accounts",
+      "pass": true,
+      "file": "J592.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J593",
+      "title": "withdrawal: chosen account replay-safe, default-primary, rail metadata",
+      "feature": "W59 banking-pos: requestWithdrawal payoutAccountId",
+      "pass": true,
+      "file": "J593.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J594",
+      "title": "onboarding bank step idempotent + fail-closed",
+      "feature": "W59 banking-pos: payoutAccounts.bankLinkStep",
+      "pass": true,
+      "file": "J594.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J595",
+      "title": "cash-in atomicity + insufficient-float no-partial + capability gate",
+      "feature": "W59 banking-pos: agentBanking cash_in",
+      "pass": true,
+      "file": "J595.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J596",
+      "title": "cash-out exact split + float summary + low-float alert",
+      "feature": "W59 banking-pos: agentBanking cash_out / floatSummary",
+      "pass": true,
+      "file": "J596.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J597",
+      "title": "banking chat parity: WA+TG keywords, two-step CICO, admin gate",
+      "feature": "W59 banking-pos: bankingChat",
+      "pass": true,
+      "file": "J597.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J598",
+      "title": "POS create → webhook verify → settle once → receipt",
+      "feature": "W59 banking-pos: posPayments",
+      "pass": true,
+      "file": "J598.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J599",
+      "title": "POS expiry sweep releases claims; late webhook cannot settle",
+      "feature": "W59 banking-pos: pos-expiry sweep",
+      "pass": true,
+      "file": "J599.json",
+      "messageCount": 0
+    },
+    {
       "id": "J60",
       "title": "sessions + memberships + tenant types",
       "feature": "W12 tenancy hardening cross-cut",
       "pass": true,
       "file": "J60.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J600",
+      "title": "USSD POS short-code: merchant create + payer settle",
+      "feature": "W59 banking-pos: handleUssdRequest pay by pos",
+      "pass": true,
+      "file": "J600.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J601",
+      "title": "softpos doc contract + POS route/scheduler registration",
+      "feature": "W59 banking-pos: docs/softpos-integration.md",
+      "pass": true,
+      "file": "J601.json",
       "messageCount": 0
     },
     {

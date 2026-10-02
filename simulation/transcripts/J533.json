@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348019124005",
-      "profileName": "Sim User 4005",
+      "phone": "2348015818004",
+      "profileName": "Sim User 8004",
       "inboundId": "wamid.sim.in.text.00580",
-      "at": 1790882916297,
+      "at": 1790897861813,
       "kind": "text",
-      "text": "DEAL DEAL33 REF REF-FCAMUK"
+      "text": "DEAL DEAL33 REF REF-D5GXGQ"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00580",
-      "at": 1790882916303
+      "at": 1790897861822
     },
     {
       "dir": "out",
-      "phone": "2348019124005",
+      "phone": "2348015818004",
       "wamid": "wamid.sim.001187",
       "statuses": [
         "sent"
       ],
-      "at": 1790882916341,
+      "at": 1790897861888,
       "kind": "text",
       "body": "✅ Deal DEAL33 locked in — it applies automatically at checkout. Happy shopping!"
     }

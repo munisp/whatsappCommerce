@@ -1456,6 +1456,56 @@ export async function handleUssdRequest(opts: {
   }
   // === END W51 PROMOS ===
 
+  // === W59 banking-pos === USSD "pay by pos …" short-code flow:
+  //   "pay by pos <code6>"   → payer settles the merchant's awaiting POS
+  //                            session (6-digit short code): claim-first debit
+  //                            of the payer's customer wallet (idempotent ref
+  //                            `posussd:<ref>`) then claim-first session
+  //                            confirm settling the merchant wallet.
+  //   "pay by pos <amount>"  → merchant-side session creation (admin phone):
+  //                            replies with the 6-digit code to show the payer.
+  {
+    const posMatch = lastInput.match(/^pay\s+by\s+pos\s+(\d+(?:\.\d{1,2})?)$/i);
+    if (posMatch) {
+      const { t27 } = await import("./i18n");
+      const raw = posMatch[1]!;
+      if (/^\d{6}$/.test(raw)) {
+        // Payer leg: settle the session behind this short code.
+        const { findSessionByUssdCode, confirmSession } = await import("./posPayments");
+        const posSession = await findSessionByUssdCode(db, tenantId, raw).catch(() => null);
+        if (!posSession) return ussdWrap(t27(ussdLocale, "posUssdNotFound"), true);
+        const { debitWallet } = await import("./customerWallet");
+        const debit = await debitWallet(tenantId, phone, posSession.amountCents, "checkout_spend", `posussd:${posSession.reference}`);
+        if (!debit.ok) return ussdWrap(t27(ussdLocale, "posUssdInsufficient"), true);
+        const conf = await confirmSession(db, posSession.reference, true).catch((e: any) => {
+          console.warn("[ussd-pos] confirm failed (retryable):", e?.message);
+          return null;
+        });
+        if (!conf) return ussdWrap(t27(ussdLocale, "posUssdRetry"), true);
+        return ussdWrap(t27(ussdLocale, "posUssdPaid", {
+          amount: `NGN ${(posSession.amountCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`,
+          ref: posSession.reference,
+        }), true);
+      }
+      // Merchant leg: create a session for the typed amount (naira).
+      const { resolveAdminPhone } = await import("./creditWhatsApp");
+      const adminPhone = resolveAdminPhone(ussdTenantSettings);
+      if (!adminPhone || adminPhone.replace(/[^\d]/g, "") !== phone.replace(/[^\d]/g, "")) {
+        return ussdWrap(t27(ussdLocale, "posUssdMerchantOnly"), true);
+      }
+      const amountCents = Math.round(parseFloat(raw) * 100);
+      if (!Number.isInteger(amountCents) || amountCents <= 0) return ussdWrap(t27(ussdLocale, "posUsage"), true);
+      const { createSession } = await import("./posPayments");
+      const created = await createSession(db, { tenantId, amountCents, channel: "ussd_ref" });
+      return ussdWrap(t27(ussdLocale, "posSessionReady", {
+        code: created.ussdCode,
+        amount: `NGN ${(amountCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`,
+        ref: created.reference,
+      }), true);
+    }
+  }
+  // === END W59 banking-pos ===
+
   // === W50 CHANNELS (B6) === USSD discovery-by-text: USSD has no GPS pin,
   // so "…near me" intents (or an open awaitingDiscoveryArea prompt) resolve
   // a typed area/landmark against the discoverable merchants' address fields

@@ -1,0 +1,8 @@
+{
+  "id": "J592",
+  "title": "payout accounts: fail-closed add, backfill idempotent, primary race, disable",
+  "feature": "W59 banking-pos: merchant_payout_accounts",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

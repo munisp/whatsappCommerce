@@ -79,6 +79,8 @@ export const TX_NARRATION: Record<string, { en: string; enWithRef: string }> = {
   loan_repayment:   { en: "Loan repayment",                  enWithRef: "Loan repayment — Ref {ref}" },
   wholesale_trade:  { en: "Wholesale trade settlement",      enWithRef: "Wholesale trade settlement — Order {ref}" },
   fx_refund:        { en: "FX payout reversal",              enWithRef: "FX payout reversal — Ref {ref}" },
+  // W59 banking-pos: agent banking cash-in/cash-out leg on the agent wallet.
+  agent_cico:       { en: "Agent banking cash-in/out",       enWithRef: "Agent banking cash-in/out — Ref {ref}" },
 };
 
 export function narrateTx(type: string, ref?: string | null): string {

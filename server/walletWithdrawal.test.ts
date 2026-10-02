@@ -50,7 +50,7 @@ vi.mock("./services/payments/paystackTransfer", () => ({
 
 import { getDb } from "./db";
 import { walletRouter } from "./routers/escrow";
-import { approvalRequests, escrowConfig, kycApplications, merchantWallets, tenantApprovalPolicies, walletTransactions } from "../drizzle/schema";
+import { approvalRequests, escrowConfig, kycApplications, merchantPayoutAccounts, merchantWallets, tenantApprovalPolicies, walletTransactions } from "../drizzle/schema";
 
 const ADMIN = { user: { id: "u-admin", role: "admin", tenantId: null } } as any;
 
@@ -88,6 +88,12 @@ const PROP: Record<string, Record<string, string>> = {
   // runs unchanged (threshold 0 / absent policy = gate no-op).
   tenant_approval_policies: { tenant_id: "tenantId" },
   approval_requests: { tenant_id: "tenantId", id: "id" },
+  // W59 banking-pos: resolveWithdrawalAccount consults the verified payout
+  // account registry (legacy wallet columns backfill into it idempotently).
+  merchant_payout_accounts: {
+    id: "id", tenant_id: "tenantId", wallet_id: "walletId", provider: "provider",
+    account_number: "accountNumber", is_primary: "isPrimary", status: "status",
+  },
 };
 
 interface WalletRow { id: string; tenantId: string; currency: string; availableBalance: string; totalWithdrawn: string; [k: string]: unknown }
@@ -106,6 +112,7 @@ function makeWalletDb() {
     kycApplications: [{ tenantId: "tenant-1", type: "kyb", status: "approved" }] as any[],
     approvalPolicies: [] as any[],
     approvalRequests: [] as any[],
+    payoutAccounts: [] as any[],
   };
   const tableName = (table: unknown): string => {
     if (table === escrowConfig) return "escrow_config";
@@ -114,10 +121,11 @@ function makeWalletDb() {
     if (table === kycApplications) return "kyc_applications";
     if (table === tenantApprovalPolicies) return "tenant_approval_policies";
     if (table === approvalRequests) return "approval_requests";
+    if (table === merchantPayoutAccounts) return "merchant_payout_accounts";
     throw new Error("fake db: unknown table");
   };
   const rowsOf = (t: string): any[] =>
-    t === "escrow_config" ? store.config : t === "merchant_wallets" ? store.wallets : t === "kyc_applications" ? store.kycApplications : t === "tenant_approval_policies" ? store.approvalPolicies : t === "approval_requests" ? store.approvalRequests : store.walletTxs;
+    t === "escrow_config" ? store.config : t === "merchant_wallets" ? store.wallets : t === "kyc_applications" ? store.kycApplications : t === "tenant_approval_policies" ? store.approvalPolicies : t === "approval_requests" ? store.approvalRequests : t === "merchant_payout_accounts" ? store.payoutAccounts : store.walletTxs;
 
   function runSelect(t: string, fields: Record<string, unknown> | undefined, cond: unknown) {
     const { columns, values } = decode(cond);
@@ -184,6 +192,8 @@ function makeWalletDb() {
               undo?.push(() => { store.walletTxs = store.walletTxs.filter((r) => r.id !== vals.id); });
             } else if (t === "merchant_wallets") {
               store.wallets.push({ ...vals });
+            } else if (t === "merchant_payout_accounts") {
+              store.payoutAccounts.push({ ...vals });
             }
             return [vals];
           };

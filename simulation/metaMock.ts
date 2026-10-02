@@ -924,6 +924,76 @@ function handlePay(url: URL, method: string, body: any, rawBody: string | null):
       data: { status: "success", transfer_code: `TRF_sim_${ref}`, reference: ref },
     });
   }
+  // === W59 banking-pos === Paystack /bank list + /bank/resolve (NIBSS name
+  // enquiry) + /terminal/event push; Flutterwave /banks/NG, /accounts/resolve,
+  // /transfers (+?reference= verify). Deterministic: account number
+  // "0000000000" always FAILS resolution (drives the fail-closed journeys).
+  if (url.hostname.includes("paystack.co") && url.pathname === "/bank") {
+    return jsonResponse({
+      status: true,
+      message: "Banks retrieved",
+      data: [
+        { name: "Access Bank", code: "044", slug: "access-bank" },
+        { name: "GTBank", code: "058", slug: "gtbank" },
+        { name: "Zenith Bank", code: "057", slug: "zenith-bank" },
+        { name: "Kuda Microfinance Bank", code: "50211", slug: "kuda" },
+      ],
+    });
+  }
+  if (url.hostname.includes("paystack.co") && url.pathname.includes("/bank/resolve")) {
+    const acct = url.searchParams.get("account_number") ?? "";
+    if (acct === "0000000000" || acct.length !== 10) {
+      return jsonResponse({ status: false, message: "Could not resolve account name" }, 400);
+    }
+    return jsonResponse({
+      status: true,
+      message: "Account number resolved",
+      data: { account_number: acct, account_name: `SIM RESOLVED ${acct.slice(-4)}` },
+    });
+  }
+  if (url.hostname.includes("paystack.co") && url.pathname.includes("/terminal/event")) {
+    return jsonResponse({ status: true, message: "Event sent", data: { id: body?.data?.id ?? "sim-terminal" } });
+  }
+  if (url.hostname.includes("flutterwave.com") && url.pathname.endsWith("/banks/NG")) {
+    return jsonResponse({
+      status: "success",
+      message: "Banks fetched",
+      data: [
+        { name: "Access Bank", code: "044" },
+        { name: "GTBank", code: "058" },
+        { name: "Zenith Bank", code: "057" },
+      ],
+    });
+  }
+  if (url.hostname.includes("flutterwave.com") && url.pathname.endsWith("/accounts/resolve")) {
+    const acct = String(body?.account_number ?? "");
+    if (acct === "0000000000" || acct.length !== 10) {
+      return jsonResponse({ status: "error", message: "Sorry, that account number is invalid" }, 400);
+    }
+    return jsonResponse({
+      status: "success",
+      message: "Account details fetched",
+      data: { account_number: acct, account_name: `SIM RESOLVED ${acct.slice(-4)}` },
+    });
+  }
+  if (url.hostname.includes("flutterwave.com") && url.pathname.endsWith("/transfers") && method === "POST") {
+    const ref = body?.reference ?? "sim-ref";
+    return jsonResponse({
+      status: "success",
+      message: "Transfer Queued",
+      data: { id: 900001, status: "SUCCESSFUL", reference: ref },
+    });
+  }
+  if (url.hostname.includes("flutterwave.com") && url.pathname.endsWith("/transfers") && method === "GET") {
+    const ref = url.searchParams.get("reference") ?? "";
+    if (!ref) return jsonResponse({ status: "success", message: "Transfers fetched", data: [] });
+    return jsonResponse({
+      status: "success",
+      message: "Transfers fetched",
+      data: [{ id: 900001, status: "SUCCESSFUL", reference: ref }],
+    });
+  }
+  // === END W59 banking-pos ===
   // ── W38: paystack read-only charge-status probe (verify) ────────────────
   if (url.hostname.includes("paystack.co") && url.pathname.includes("/transaction/verify/")) {
     const ref = decodeURIComponent(url.pathname.split("/transaction/verify/")[1] ?? "sim-ref");

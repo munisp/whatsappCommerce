@@ -1,0 +1,8 @@
+{
+  "id": "J600",
+  "title": "USSD POS short-code: merchant create + payer settle",
+  "feature": "W59 banking-pos: handleUssdRequest pay by pos",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

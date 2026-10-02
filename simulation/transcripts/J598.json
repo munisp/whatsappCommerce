@@ -1,0 +1,8 @@
+{
+  "id": "J598",
+  "title": "POS create → webhook verify → settle once → receipt",
+  "feature": "W59 banking-pos: posPayments",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

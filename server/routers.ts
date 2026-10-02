@@ -134,6 +134,11 @@ import { ucDocsRouter } from "./routers/ucDocs";
 // === W58 statements ===
 import { walletStatementsRouter } from "./routers/walletStatements";
 // === END W58 statements ===
+// === W59 banking-pos ===
+import { payoutAccountsRouter } from "./routers/payoutAccounts";
+import { agentBankingRouter } from "./routers/agentBanking";
+import { posPaymentsRouter } from "./routers/posPayments";
+// === END W59 banking-pos ===
 // === END W46 uc-docs ===
 // === END W34 otel-sidecars ===
 import { erpProvisionRouter } from "./routers/erpProvision";
@@ -385,6 +390,11 @@ export const appRouter = router({
   // === W58 statements === merchant wallet statements ===
   walletStatements: walletStatementsRouter,
   // === END W58 statements ===
+  // === W59 banking-pos === payout accounts / agent CICO / POS sessions ===
+  payoutAccounts: payoutAccountsRouter,
+  agentBanking: agentBankingRouter,
+  posPayments: posPaymentsRouter,
+  // === END W59 banking-pos ===
   // === W53 EVENTS === merchant event/ticket mgmt + public storefront ===
   events: eventsRouter,
   // === END W53 EVENTS ===
