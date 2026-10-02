@@ -1,0 +1,35 @@
+{
+  "id": "J589",
+  "title": "monthly statement sweep: WA doc vs email fallback, idempotent",
+  "feature": "W58 statements: /api/scheduled/monthly-statements",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348019717289",
+      "wamid": "wamid.sim.001308",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790882985943,
+      "kind": "document",
+      "mediaKind": "document",
+      "caption": "Your wallet statement 2026-09-01 .. 2026-10-01",
+      "mediaId": "http://localhost:4173/api/uc-docs/sim-w46-589wa/wallet-statements/statement-2026-09-01_2026-10-01.pdf"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001309",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790882985993,
+      "kind": "document",
+      "mediaKind": "document",
+      "caption": "Your wallet statement 2026-09-01 .. 2026-10-01",
+      "mediaId": "http://localhost:4173/api/uc-docs/sim-tenant/wallet-statements/statement-2026-09-01_2026-10-01.pdf"
+    }
+  ]
+}

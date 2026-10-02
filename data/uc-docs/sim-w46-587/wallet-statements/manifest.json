@@ -1,0 +1,28 @@
+{
+  "statements": [
+    {
+      "id": "060461d6-0f72-4317-9acd-47bdd5ca5052",
+      "walletId": "wal-w58-587",
+      "periodStart": "2025-08-01",
+      "periodEnd": "2025-09-01",
+      "pdfPath": "sim-w46-587/wallet-statements/statement-2025-08-01_2025-09-01.pdf",
+      "openingCents": 200000,
+      "closingCents": 675000,
+      "txCount": 3,
+      "generatedAt": "2026-10-01T19:29:44.885Z",
+      "deliveries": []
+    },
+    {
+      "id": "0566ee50-088f-4cc9-90f2-1d35225e19bd",
+      "walletId": "wal-w58-587",
+      "periodStart": "2026-09-01",
+      "periodEnd": "2026-10-01",
+      "pdfPath": "sim-w46-587/wallet-statements/statement-2026-09-01_2026-10-01.pdf",
+      "openingCents": 675000,
+      "closingCents": 675000,
+      "txCount": 0,
+      "generatedAt": "2026-10-01T19:29:46.497Z",
+      "deliveries": []
+    }
+  ]
+}

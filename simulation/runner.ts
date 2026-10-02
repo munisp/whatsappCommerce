@@ -756,6 +756,13 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j585-credit-risk-parity"),
     import("./journeys/j586-i18n-w57"),
     // === END W57 risk-shield ===
+    // === W58 statements ===
+    import("./journeys/j587-statement-pdf-math"),
+    import("./journeys/j588-statement-download-authz"),
+    import("./journeys/j589-monthly-sweep"),
+    import("./journeys/j590-chat-statement-parity"),
+    import("./journeys/j591-statement-narration"),
+    // === END W58 statements ===
     // === END W55 parity ===
     // === END W54 CAPABILITIES ===
     // === END W51 PROMOS ===

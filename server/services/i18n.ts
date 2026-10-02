@@ -793,6 +793,10 @@ export type MessageKey =
   // (WA+TG+SMS keyword + USSD read-only balance query)
   | "walletBalanceLine" | "walletBalanceNone" | "walletLedgerHeader"
   | "walletLedgerEntry"
+  // === W58 statements === merchant "statement" keyword (WA+TG, admin-phone)
+  | "walletStatementReady" | "walletStatementNoWallet" | "walletStatementBadMonth"
+  | "walletStatementFailed"
+  // === END W58 statements ===
   // === W56 credit === merchant credit-intelligence chat keywords (WA+TG)
   | "creditScoreLine" | "creditScoreNotFound" | "creditScoreUsage"
   | "bureauConsentPrompt" | "bureauConsentRecorded" | "bureauConsentRequired"
@@ -922,6 +926,12 @@ const EN_CATALOG: MessageCatalog = {
   walletBalanceNone: "👛 You don't have a wallet with this store yet — refunds and store credit land here.",
   walletLedgerHeader: "Recent wallet activity:",
   walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
+  // === W58 statements ===
+  walletStatementReady: "📄 Wallet statement {period}: opening {opening}, closing {closing}. The PDF is on its way as a document.",
+  walletStatementNoWallet: "📄 No merchant wallet found for this store yet — a wallet is created when your first order is processed.",
+  walletStatementBadMonth: "📄 Which month? Reply e.g. STATEMENT 2025-08 or STATEMENT AUGUST.",
+  walletStatementFailed: "📄 I could not generate that statement right now — please try again in a moment.",
+  // === END W58 statements ===
   // === W56 credit ===
   creditScoreLine: "📊 Credit score for {subject}: {score}/1000 (grade {grade}).",
   creditScoreNotFound: "I couldn't find a customer matching {ref} for this store.",
@@ -1076,6 +1086,12 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletBalanceNone: "👛 Vous n'avez pas encore de portefeuille dans cette boutique — les remboursements et avoirs arrivent ici.",
     walletLedgerHeader: "Activité récente du portefeuille :",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
+    // === W58 statements ===
+    walletStatementReady: "📄 Relevé de portefeuille {period} : ouverture {opening}, clôture {closing}. Le PDF arrive en document.",
+    walletStatementNoWallet: "📄 Aucun portefeuille marchand pour cette boutique — il est créé à la première commande.",
+    walletStatementBadMonth: "📄 Quel mois ? Répondez p. ex. STATEMENT 2025-08 ou STATEMENT AOUT.",
+    walletStatementFailed: "📄 Impossible de générer ce relevé pour le moment — réessayez dans un instant.",
+    // === END W58 statements ===
   },
   ha: {
     languageMenuPrompt: "🌐 Zaɓi harshenka:",
@@ -1207,6 +1223,12 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletBalanceNone: "👛 Ba ku da walat a wannan kantin tukuna — maida kuɗi da bashin kantin suna zuwa nan.",
     walletLedgerHeader: "Ayyukan walat na baya-bayan nan:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
+    // === W58 statements ===
+    walletStatementReady: "📄 Bayanin walat {period}: buɗe {opening}, rufe {closing}. PDF na zuwa a matsayin takarda.",
+    walletStatementNoWallet: "📄 Babu walat ɗin ɗan kasuwa ga wannan kanti tukuna — ana ƙirƙirar shi da oda ta farko.",
+    walletStatementBadMonth: "📄 Wanne wata? Amsa misali STATEMENT 2025-08 ko STATEMENT AUGUSTA.",
+    walletStatementFailed: "📄 Ba a iya samar da bayanin yanzu — sake gwadawa an jima.",
+    // === END W58 statements ===
   },
   yo: {
     languageMenuPrompt: "🌐 Yan èdè rẹ:",
@@ -1338,6 +1360,12 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletBalanceNone: "👛 Kò sí apó-owó fún ọ ní ilé ìtajà yìí — àpèyìn owó àti kírédìtì ilé ìtajà máa wá síbí.",
     walletLedgerHeader: "Àwọn ìṣẹ̀lẹ̀ apó-owó tuntun:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
+    // === W58 statements ===
+    walletStatementReady: "📄 Àkópọ̀ apó-owó {period}: ìbẹ̀rù {opening}, ìparí {closing}. PDF ń bọ̀ gẹ́gẹ́ bí ìwé.",
+    walletStatementNoWallet: "📄 Kò sí apó-owó oníṣòwò fún ilé ìtajà yìí tẹ́lẹ̀ — a máa ṣẹ̀dá rẹ̀ ní ìtajà àkọ́kọ́.",
+    walletStatementBadMonth: "📄 Oṣù wo? Fìdí bíi STATEMENT 2025-08 tàbí STATEMENT OṢÙ KEJÌLÁ.",
+    walletStatementFailed: "📄 A kò lè ṣe àkópọ̀ náà báyìí — jọ̀wọ́ gbìyànjú lẹ́ẹ̀kan sí í.",
+    // === END W58 statements ===
   },
   ig: {
     languageMenuPrompt: "🌐 Họrọ asụsụ gị:",
@@ -1472,6 +1500,12 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletBalanceNone: "👛 I nwebeghị akpa ego na ụlọ ahịa a — nkwụghachi ụgwọ na kredit ụlọ ahịa na-abịa ebe a.",
     walletLedgerHeader: "Ihe omume akpa ego ọhụrụ:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
+    // === W58 statements ===
+    walletStatementReady: "📄 Nkwupụta akpa ego {period}: mmeghe {opening}, mmechi {closing}. PDF na-abịa dị ka akwụkwọ.",
+    walletStatementNoWallet: "📄 Enwebeghị akpa ego onye ahịa maka ụlọ ahịa a — a na-emepụta ya na iwu mbụ.",
+    walletStatementBadMonth: "📄 Ọnwa ole? Zaghachi dị ka STATEMENT 2025-08 ma ọ bụ STATEMENT AUGUST.",
+    walletStatementFailed: "📄 Enweghị ike ịmepụta nkwupụta ahụ ugbu a — biko nwaa ọzọ.",
+    // === END W58 statements ===
   },
   sw: {
     languageMenuPrompt: "🌐 Chagua lugha yako:",
@@ -1603,6 +1637,12 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletBalanceNone: "👛 Huna pochi na duka hili bado — marejesho na mikopo ya duka hufika hapa.",
     walletLedgerHeader: "Shughuli za hivi karibuni za pochi:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
+    // === W58 statements ===
+    walletStatementReady: "📄 Taarifa ya pochi {period}: ufunguzi {opening}, kufunga {closing}. PDF inakuja kama hati.",
+    walletStatementNoWallet: "📄 Hakuna pochi ya mfanyabiashara kwa duka hili bado — huundwa kwa agizo la kwanza.",
+    walletStatementBadMonth: "📄 Mwezi gani? Jibu k.m. STATEMENT 2025-08 au STATEMENT AGOSTI.",
+    walletStatementFailed: "📄 Taarifa haiwezi kutengenezwa sasa — tafadhali jaribu tena.",
+    // === END W58 statements ===
   },
   am: {
     languageMenuPrompt: "🌐 ቋንቋዎን ይምረጡ:",
@@ -1733,6 +1773,12 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletBalanceNone: "👛 እስካሁን በዚህ ሱቅ ዋሌት የለዎትም — ተመላሾች እና የሱቅ ክሬዲቶች እዚህ ይደርሳሉ።",
     walletLedgerHeader: "የቅርብ ጊዜ የዋሌት እንቅስቃሴ:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
+    // === W58 statements ===
+    walletStatementReady: "📄 የዋሌት መግለጫ {period}: መክፈቻ {opening}፣ መዝጊያ {closing}። PDFው እንደ ሰነድ ይመጣል።",
+    walletStatementNoWallet: "📄 ለዚህ ሱቅ እስካሁን የነጋዴ ዋሌት የለም — በመጀመሪያ ትዕዛዝ ይፈጠራል።",
+    walletStatementBadMonth: "📄 የትኛው ወር? ለምሳሌ STATEMENT 2025-08 ወይም STATEMENT ነሐሴ ይመልሱ።",
+    walletStatementFailed: "📄 መግለጫውን አሁን ማውጣት አልተቻለም — እባክዎ ትንሽ በኋላ ይሞክሩ።",
+    // === END W58 statements ===
     // === W55 parity (PARITY-7) === Amharic translation added (was the last
     // intentionally-missing key; fallback chain now exercised via J137's
     // unknown-locale seam).
@@ -1871,6 +1917,12 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletBalanceNone: "👛 You never get wallet for dis shop yet — refund and store credit go land here.",
     walletLedgerHeader: "Recent wallet activity:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
+    // === W58 statements ===
+    walletStatementReady: "📄 Wallet statement {period}: opening {opening}, closing {closing}. Di PDF dey come as document.",
+    walletStatementNoWallet: "📄 Dis shop never get merchant wallet yet — dem go create am wen first order land.",
+    walletStatementBadMonth: "📄 Which month? Reply like STATEMENT 2025-08 or STATEMENT AUGUST.",
+    walletStatementFailed: "📄 I no fit generate dat statement now — abeg try again small time.",
+    // === END W58 statements ===
   },
 };
 

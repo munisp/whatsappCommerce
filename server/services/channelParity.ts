@@ -134,6 +134,9 @@ export const PARITY_CATEGORIES: readonly ParityCategory[] = [
   { id: "staff_membership",    description: "Staff invite/add/remove + rider approval notices to secondary stakeholders", telegram: "full", notes: "Plain-text notices via sendCustomerText on BOTH channels; phone-bound invite acceptance and rider updates use phone_identity proofs." },
   // === END W47 stakeholders ===
   // === END W46 uc-docs ===
+  // === W58 statements === merchant wallet statement document (additive; J246 subset semantics) ===
+  { id: "wallet_statement",    description: "Merchant wallet monthly/on-demand statement document", telegram: "full", notes: "PDF chat document on both channels via ucDocsPdf.sendChatDocument (telegram sendDocument buffer upload; WA document link via waSender) — same doctrine as customer_statement." },
+  // === END W58 statements ===
   // === W46 uc-ux (Coder E): UC-17/21/23/24 (additive; J246 subset semantics) ===
   { id: "venue_order",        description: "Venue-table QR order notices (kitchen board confirmation to buyer)", telegram: "full", notes: "TABLE:<token> deep-link grammar is identical on both channels via the shared nlp engine; notices via sendCustomerText." },
   { id: "delivery_slot",      description: "Delivery slot picker + slot-booked confirmation", telegram: "full", notes: "Slot picker list + confirmation via the shared nlp engine / sendCustomerText; SLOT <n> grammar identical on both channels." },

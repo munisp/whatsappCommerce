@@ -12,9 +12,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790840806578,
+      "at": 1790882680453,
       "kind": "text",
-      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: R-J291-1790840806552-MUP8DLZU\n\n1 × Jollof Rice — ₦450.00\n\n*Total paid: ₦450.00*\nPayment ref: bipreorder:j291-src-1790840806552\n\n🔎 Track your order: http://localhost:4173/track/011b43cd-8b17-4b0e-a5b8-0a90d82cb04b.IyC99H5KS8ussmOJJZR89COb"
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: R-J291-1790882680421-MUPXB42W\n\n1 × Jollof Rice — ₦450.00\n\n*Total paid: ₦450.00*\nPayment ref: bipreorder:j291-src-1790882680421\n\n🔎 Track your order: http://localhost:4173/track/09f175d4-c3cd-40df-818e-0e38b811668a.HdvLOc8k58jZtjgFTpsVYjBX"
     },
     {
       "dir": "out",
@@ -23,11 +23,11 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790840806587,
+      "at": 1790882680461,
       "kind": "document",
       "mediaKind": "document",
-      "caption": "🧾 Receipt for order R-J291-1790840806552-MUP8DLZU",
-      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-R-J291-1790840806552-MUP8DLZU.pdf"
+      "caption": "🧾 Receipt for order R-J291-1790882680421-MUPXB42W",
+      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-R-J291-1790882680421-MUPXB42W.pdf"
     }
   ]
 }

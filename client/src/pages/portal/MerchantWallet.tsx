@@ -18,14 +18,38 @@ import { format } from "date-fns";
 import type { DateRange } from "react-day-picker";
 import { cn } from "@/lib/utils";
 
-const TX_TYPE_COLORS: Record<string, string> = {
-  escrow_credit: "text-yellow-600",
-  escrow_release: "text-green-600",
-  escrow_refund: "text-red-500",
-  float_income: "text-blue-600",
-  withdrawal: "text-gray-600",
-  fee_deduction: "text-orange-600",
+// === W58 statements ===
+// Plain-language narration per wallet tx type — raw enums NEVER render.
+// Portal pages are EN-only today (no client i18n framework in
+// client/src/pages/portal); that precedent is kept here intentionally.
+const TX_NARRATION: Record<string, string> = {
+  escrow_credit: "Payment held in escrow",
+  escrow_release: "Payment received",
+  escrow_refund: "Refund to buyer",
+  float_income: "Interest earned on balance",
+  withdrawal: "Withdrawal to bank",
+  fee_deduction: "Platform fee",
+  loan_disbursement: "Loan disbursement",
+  loan_repayment: "Loan repayment",
+  wholesale_trade: "Wholesale trade settlement",
+  fx_refund: "FX payout reversal",
 };
+
+/** True sign from the recorded balances (honest, per-row) with a static
+ *  fallback for zero-delta rows. */
+function txIsDebit(tx: { type: string; balanceBefore?: unknown; balanceAfter?: unknown }): boolean {
+  const before = toNum(tx.balanceBefore as any);
+  const after = toNum(tx.balanceAfter as any);
+  if (after !== before) return after < before;
+  return ["escrow_refund", "fee_deduction", "withdrawal", "loan_repayment"].includes(tx.type);
+}
+
+function narrate(tx: { type: string; description?: string | null; orderId?: string | null; reference?: string | null }): string {
+  const base = TX_NARRATION[tx.type] ?? "Wallet transaction";
+  const ref = tx.reference ?? null;
+  return ref ? `${base} — Ref ${ref}` : base;
+}
+// === END W58 statements ===
 
 // Coerce any backend amount (string/number/null/undefined/garbage) to a finite
 // number so the page can never render NaN or crash on malformed data.
@@ -65,6 +89,21 @@ export default function MerchantWallet() {
 
   const { data: wallet, isLoading: walletLoading, refetch } = trpc.wallet.getBalance.useQuery({ tenantId }, { enabled: !!tenantId });
   const { data: txs, isLoading: txLoading } = trpc.wallet.listTransactions.useQuery({ tenantId, limit: 50 }, { enabled: !!tenantId });
+  // === W58 statements === type filter chips + statement generate/download ===
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [statementMonth, setStatementMonth] = useState(""); // YYYY-MM
+  const { data: statements, refetch: refetchStatements } = trpc.walletStatements.listStatements.useQuery({ tenantId }, { enabled: !!tenantId });
+  const generateStatement = trpc.walletStatements.generateStatement.useMutation({
+    onSuccess: () => { toast.success("Statement generated."); refetchStatements(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const downloadStatement = trpc.walletStatements.getStatementDownload.useMutation({
+    onSuccess: (d) => window.open(d.url, "_blank", "noopener"),
+    onError: (e) => toast.error(e.message),
+  });
+  const filteredTxs = (txs ?? []).filter((t) => typeFilter === "all" || t.type === typeFilter);
+  const presentTypes = Array.from(new Set((txs ?? []).map((t) => t.type)));
+  // === END W58 statements ===
   const { data: config } = trpc.escrow.getConfig.useQuery();
   // Bank list barely ever changes — cache it for the whole session rather
   // than refetching every time the withdrawal dialog opens.
@@ -245,28 +284,117 @@ export default function MerchantWallet() {
           ) : (txs ?? []).length === 0 ? (
             <p className="text-center text-muted-foreground py-8">No transactions yet</p>
           ) : (
+            <div>
+              {/* === W58 statements === type filter chips === */}
+              <div className="flex flex-wrap gap-1.5 pb-3">
+                {["all", ...presentTypes].map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setTypeFilter(t)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-full text-xs border transition-colors",
+                      typeFilter === t
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-muted/40 text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    {t === "all" ? "All" : (TX_NARRATION[t] ?? "Transaction")}
+                  </button>
+                ))}
+              </div>
+              {/* header row: running balance column (statement-style) === */}
+              <div className="hidden sm:flex items-center justify-between text-xs text-muted-foreground border-b pb-1.5">
+                <span>Transaction</span>
+                <span className="flex gap-6">
+                  <span className="w-24 text-right">Amount</span>
+                  <span className="w-24 text-right">Balance</span>
+                </span>
+              </div>
+              <div className="space-y-0">
+                {filteredTxs.map((tx, idx) => {
+                  const debit = txIsDebit(tx);
+                  return (
+                    <div key={tx.id ?? idx} className="flex items-center justify-between py-3 border-b last:border-0">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{narrate(tx)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {tx.createdAt ? new Date(tx.createdAt).toLocaleString() : "—"}
+                          {tx.orderId ? "" : tx.reference ? "" : ""}
+                        </p>
+                      </div>
+                      <div className="flex gap-6 items-center shrink-0">
+                        <p className={cn("font-semibold w-24 text-right", debit ? "text-red-600" : "text-green-600")}>
+                          {debit ? "−" : "+"}{formatNGN(tx.amount)}
+                        </p>
+                        <p className="text-xs text-muted-foreground w-24 text-right">{formatNGN(tx.balanceAfter)}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+                {filteredTxs.length === 0 && (
+                  <p className="text-center text-muted-foreground py-6 text-sm">No transactions of this type</p>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* === W58 statements === bank-style PDF statements === */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">Statements</CardTitle>
+            <div className="flex items-center gap-2">
+              <Input
+                type="month"
+                value={statementMonth}
+                onChange={(e) => setStatementMonth(e.target.value)}
+                className="h-8 w-40 text-xs"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!statementMonth || generateStatement.isPending}
+                onClick={() => generateStatement.mutate({ tenantId, month: statementMonth })}
+              >
+                {generateStatement.isPending ? "Generating…" : "Generate"}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {(statements ?? []).length === 0 ? (
+            <p className="text-center text-muted-foreground py-6 text-sm">
+              No statements yet — pick a month above, or ask for one in chat with STATEMENT.
+            </p>
+          ) : (
             <div className="space-y-0">
-              {(txs ?? []).map((tx, idx) => (
-                <div key={tx.id ?? idx} className="flex items-center justify-between py-3 border-b last:border-0">
+              {(statements ?? []).map((st) => (
+                <div key={st.id} className="flex items-center justify-between py-2.5 border-b last:border-0">
                   <div>
-                    <p className="text-sm font-medium">{tx.description ?? (tx.type ?? "transaction").replace(/_/g, " ")}</p>
+                    <p className="text-sm font-medium">{st.periodStart} – {st.periodEnd}</p>
                     <p className="text-xs text-muted-foreground">
-                      {tx.createdAt ? new Date(tx.createdAt).toLocaleString() : "—"} · {tx.reference ?? tx.id?.slice(0, 8) ?? "—"}
+                      {st.txCount} transaction{st.txCount === 1 ? "" : "s"} · Closing {formatNGN(st.closingCents / 100)}
                     </p>
                   </div>
-                  <div className="text-right">
-                    <p className={`font-semibold ${TX_TYPE_COLORS[tx.type] ?? ""}`}>
-                      {["escrow_refund", "fee_deduction", "withdrawal"].includes(tx.type) ? "−" : "+"}
-                      {formatNGN(tx.amount)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">Bal: {formatNGN(tx.balanceAfter)}</p>
-                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={downloadStatement.isPending}
+                    onClick={() => downloadStatement.mutate({ tenantId, statementId: st.id })}
+                  >
+                    <Download className="h-3.5 w-3.5 mr-1" />
+                    PDF
+                  </Button>
                 </div>
               ))}
             </div>
           )}
         </CardContent>
       </Card>
+      {/* === END W58 statements === */}
 
       {/* Date Range Export Dialog */}
       <Dialog open={dateRangeOpen} onOpenChange={setDateRangeOpen}>

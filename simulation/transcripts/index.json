@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-01T07:52:16.663Z",
+  "generatedAt": "2026-10-01T19:30:13.602Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -4355,11 +4355,51 @@
       "messageCount": 0
     },
     {
+      "id": "J587",
+      "title": "wallet statement PDF: opening/closing math from seeded ledger",
+      "feature": "W58 statements: walletStatements.compute/generate",
+      "pass": true,
+      "file": "J587.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J588",
+      "title": "statement download authz (tenant scope + capability token)",
+      "feature": "W58 statements: walletStatements router + uc-docs private access",
+      "pass": true,
+      "file": "J588.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J589",
+      "title": "monthly statement sweep: WA doc vs email fallback, idempotent",
+      "feature": "W58 statements: /api/scheduled/monthly-statements",
+      "pass": true,
+      "file": "J589.json",
+      "messageCount": 2
+    },
+    {
       "id": "J59",
       "title": "supplier verification",
       "feature": "supplier-profile KYB gate + directory trust flag",
       "pass": true,
       "file": "J59.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J590",
+      "title": "merchant STATEMENT keyword on WA + TG (admin-phone authz)",
+      "feature": "W58 statements: chat statement on demand",
+      "pass": true,
+      "file": "J590.json",
+      "messageCount": 7
+    },
+    {
+      "id": "J591",
+      "title": "statement narration renders (no raw enum leaks)",
+      "feature": "W58 statements: narration templates + sign derivation",
+      "pass": true,
+      "file": "J591.json",
       "messageCount": 0
     },
     {

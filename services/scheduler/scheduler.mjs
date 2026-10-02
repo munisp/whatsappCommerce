@@ -153,6 +153,9 @@ export const SCHEDULE = [
   // === W54 capabilities === Consumer membership expiry sweep (hourly).
   { path: "/api/scheduled/membership-expiry", intervalMin: 60 },
   // === END W54 capabilities ===
+  // === W58 statements === Monthly merchant wallet statements (cron "0 0 8 1 * *" ≈ monthly).
+  { path: "/api/scheduled/monthly-statements", intervalMin: 43200 },
+  // === END W58 statements ===
 ];
 
 function b64url(buf) {
