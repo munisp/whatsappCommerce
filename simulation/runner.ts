@@ -763,6 +763,18 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j590-chat-statement-parity"),
     import("./journeys/j591-statement-narration"),
     // === END W58 statements ===
+    // === W59 banking-pos ===
+    import("./journeys/j592-payout-accounts"),
+    import("./journeys/j593-withdrawal-chosen-account"),
+    import("./journeys/j594-onboarding-bank-step"),
+    import("./journeys/j595-cico-cashin-atomicity"),
+    import("./journeys/j596-cico-cashout-split"),
+    import("./journeys/j597-banking-chat-parity"),
+    import("./journeys/j598-pos-lifecycle"),
+    import("./journeys/j599-pos-expiry"),
+    import("./journeys/j600-ussd-pos-code"),
+    import("./journeys/j601-softpos-doc"),
+    // === END W59 banking-pos ===
     // === END W55 parity ===
     // === END W54 CAPABILITIES ===
     // === END W51 PROMOS ===

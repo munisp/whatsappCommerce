@@ -907,6 +907,32 @@ async function processWaWebhookValue(
             }
           }
           // === END W58 statements ===
+          // === W59 banking-pos: merchant banking keywords ────────────────
+          // BANK ACCOUNTS / CASH IN|OUT / CONFIRM CICO-<ref> / FLOAT /
+          // PAY BY POS — admin-phone authz inside bankingChat (same seam as
+          // W56/W58); non-admins fall through.
+          if (/^\s*(BANK\s+ACCOUNTS?|CASH\s+(IN|OUT)\b|CONFIRM\s+CICO-|FLOAT|PAY\s+BY\s+POS)\b/i.test(textBody)) {
+            try {
+              const { handleBankingCommand } = await import("../services/bankingChat");
+              const bkOutcome = await handleBankingCommand({
+                db,
+                tenantId,
+                fromPhone: waPhoneNumber,
+                text: textBody,
+                channel: "whatsapp",
+              });
+              if (bkOutcome.handled) {
+                if (bkOutcome.reply) {
+                  await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, bkOutcome.reply)
+                    .catch((e: any) => console.error("[whatsapp-webhook] banking reply send error:", e?.message));
+                }
+                continue; // Skip NLP processing for banking commands
+              }
+            } catch (e: any) {
+              console.error("[whatsapp-webhook] banking command error:", e?.message);
+            }
+          }
+          // === END W59 banking-pos ===
           // === W28 odoo-sync (Coder A): tenant-admin Odoo commands ────────
           // "ODOO STATUS" / "ODOO SYNC NOW" from the tenant's admin phone
           // (settings.adminPhone). Non-admins / other texts fall through to
@@ -2962,6 +2988,45 @@ async function startServer() {
     }
   });
 
+  // === W59 banking-pos ===
+  // ── POS provider webhook (/api/webhooks/pos/:provider) ───────────────────
+  // Physical/softpos terminal charge confirmations. Signature verify per
+  // provider (fail-closed; unset secret rejects outside dev), ack 200 FIRST,
+  // then claim-first settlement via posPayments.confirmSession (idempotent —
+  // replays never double-settle).
+  app.post("/api/webhooks/pos/:provider", express.raw({ type: "application/json" }), async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const provider = String(req.params.provider ?? "");
+      if (!["paystack", "flutterwave", "softpos"].includes(provider)) {
+        return res.status(400).json({ error: "unknown-provider" });
+      }
+      const body = toRawBody(req.body);
+      const { verifyPosWebhookSignature, extractPosWebhookEvent, confirmSession } = await import("../services/posPayments");
+      if (!verifyPosWebhookSignature(provider, body, req.headers as Record<string, unknown>)) {
+        console.warn(`[pos-webhook] invalid ${provider} signature — rejected`);
+        return res.status(401).json({ error: "invalid-signature" });
+      }
+      const payload = JSON.parse(body.toString());
+      const event = extractPosWebhookEvent(provider, payload);
+      if (!event) return res.status(200).json({ received: true, action: "ignored" });
+      res.status(200).json({ received: true });
+      try {
+        const result = await confirmSession(db, event.reference, event.ok);
+        if (result.duplicate) {
+          console.info(`[pos-webhook] ${provider} ref=${event.reference} duplicate (no double-settle)`);
+        }
+      } catch (err: any) {
+        console.error(`[pos-webhook] confirm failed for ${event.reference}:`, err?.message);
+      }
+    } catch (e: any) {
+      console.error("[pos-webhook] error:", e?.message);
+      if (!res.headersSent) return res.status(500).json({ error: e?.message });
+    }
+  });
+  // === END W59 banking-pos ===
+
   // ── Bank escrow settlement callback (PSSP mode) ───────────────────────────
   // Authenticated via HMAC-SHA256 over the raw body (ESCROW_BANK_WEBHOOK_SECRET,
   // fail closed when unset) and the bankRef MUST match the reference generated
@@ -4389,6 +4454,27 @@ async function startServer() {
     }
   });
   // === END W58 statements ===
+
+  // === W59 banking-pos ===
+  // ── POST /api/scheduled/pos-expiry (every ~5 min) ───────────────────────
+  // Flips awaiting POS sessions past expiresAt to 'expired', releasing the
+  // session claim so a late webhook can never settle it. Idempotent.
+  // After deploy: manus-heartbeat create --name pos-expiry --cron "0 */5 * * * *" --path /api/scheduled/pos-expiry
+  app.post("/api/scheduled/pos-expiry", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { sweepExpiredSessions } = await import("../services/posPayments");
+      const run = await sweepExpiredSessions(db);
+      return res.json({ ok: true, run });
+    } catch (err: any) {
+      console.error("[pos-expiry]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W59 banking-pos ===
 
 
   // === W32 recurring ===

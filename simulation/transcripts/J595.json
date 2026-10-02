@@ -1,0 +1,8 @@
+{
+  "id": "J595",
+  "title": "cash-in atomicity + insufficient-float no-partial + capability gate",
+  "feature": "W59 banking-pos: agentBanking cash_in",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

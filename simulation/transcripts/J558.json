@@ -8,114 +8,114 @@
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348013889499",
-      "sessionId": "w54-j551-1790882965873",
+      "phone": "2348018538746",
+      "sessionId": "w54-j551-1790897912545",
       "text": "(dial)",
-      "at": 1790882966241
+      "at": 1790897912854
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348013889499",
-      "sessionId": "w54-j551-1790882965873",
+      "phone": "2348018538746",
+      "sessionId": "w54-j551-1790897912545",
       "text": "CON Big menu — pick one:\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n4. Extra Service 1\n5. Extra Service 2\n6. Extra Service 3\n7. Extra Service 4\n8. Extra Service 5\n9. Extra Service 6\n10. Extra Service 7\n11. Extra Service 8",
-      "at": 1790882966242
+      "at": 1790897912855
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348013889499",
-      "sessionId": "w54-j551-1790882965873",
+      "phone": "2348018538746",
+      "sessionId": "w54-j551-1790897912545",
       "text": "savings",
-      "at": 1790882966557
+      "at": 1790897913228
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348013889499",
-      "sessionId": "w54-j551-1790882965873",
+      "phone": "2348018538746",
+      "sessionId": "w54-j551-1790897912545",
       "text": "END Your savings circles:\nJ558 Esusu: NGN 500.00/weekly, cycle 1. Next payout: YOU.",
-      "at": 1790882966558
+      "at": 1790897913229
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348013889499",
-      "sessionId": "w54-j551b-1790882966558",
+      "phone": "2348018538746",
+      "sessionId": "w54-j551b-1790897913228",
       "text": "stokvel",
-      "at": 1790882966868
+      "at": 1790897913541
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348013889499",
-      "sessionId": "w54-j551b-1790882966558",
+      "phone": "2348018538746",
+      "sessionId": "w54-j551b-1790897913228",
       "text": "END Your savings circles:\nJ558 Esusu: NGN 500.00/weekly, cycle 1. Next payout: YOU.",
-      "at": 1790882966869
+      "at": 1790897913542
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348013889499",
-      "sessionId": "w54-j551c-1790882966868",
+      "phone": "2348018538746",
+      "sessionId": "w54-j551c-1790897913541",
       "text": "loyalty",
-      "at": 1790882967179
+      "at": 1790897913851
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348013889499",
-      "sessionId": "w54-j551c-1790882966868",
+      "phone": "2348018538746",
+      "sessionId": "w54-j551c-1790897913541",
       "text": "END Loyalty points balance: 42 pts.",
-      "at": 1790882967180
+      "at": 1790897913852
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348013889499",
-      "sessionId": "w54-j551d-1790882967179",
+      "phone": "2348018538746",
+      "sessionId": "w54-j551d-1790897913851",
       "text": "points",
-      "at": 1790882967490
+      "at": 1790897914162
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348013889499",
-      "sessionId": "w54-j551d-1790882967179",
+      "phone": "2348018538746",
+      "sessionId": "w54-j551d-1790897913851",
       "text": "END Loyalty points balance: 42 pts.",
-      "at": 1790882967491
+      "at": 1790897914163
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348017696185",
-      "sessionId": "w54-j551e-1790882967490",
+      "phone": "2348011175365",
+      "sessionId": "w54-j551e-1790897914162",
       "text": "savings",
-      "at": 1790882967798
+      "at": 1790897914472
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348017696185",
-      "sessionId": "w54-j551e-1790882967490",
+      "phone": "2348011175365",
+      "sessionId": "w54-j551e-1790897914162",
       "text": "END You are not in any savings circle yet.",
-      "at": 1790882967799
+      "at": 1790897914473
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348017696185",
-      "sessionId": "w54-j551f-1790882967798",
+      "phone": "2348011175365",
+      "sessionId": "w54-j551f-1790897914472",
       "text": "loyalty",
-      "at": 1790882968119
+      "at": 1790897914845
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348017696185",
-      "sessionId": "w54-j551f-1790882967798",
+      "phone": "2348011175365",
+      "sessionId": "w54-j551f-1790897914472",
       "text": "END Loyalty points balance: 0 pts.",
-      "at": 1790882968120
+      "at": 1790897914846
     }
   ]
 }

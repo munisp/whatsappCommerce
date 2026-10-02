@@ -797,6 +797,15 @@ export type MessageKey =
   | "walletStatementReady" | "walletStatementNoWallet" | "walletStatementBadMonth"
   | "walletStatementFailed"
   // === END W58 statements ===
+  // === W59 banking-pos === merchant banking keywords (WA+TG, admin-phone)
+  // + low-float alert + POS charge receipt
+  | "bankAccountsNone" | "bankAccountsHeader" | "bankAccountLine"
+  | "cicoUsage" | "cicoStarted" | "cicoConfirmed" | "cicoNotFound" | "cicoFailed"
+  | "floatLine" | "floatLowFlag"
+  | "posUsage" | "posSessionReady" | "posChargeReceipt"
+  | "posUssdNotFound" | "posUssdInsufficient" | "posUssdRetry" | "posUssdPaid" | "posUssdMerchantOnly"
+  | "agentLowFloatAlert" | "agentBankingDisabled"
+  // === END W59 banking-pos ===
   // === W56 credit === merchant credit-intelligence chat keywords (WA+TG)
   | "creditScoreLine" | "creditScoreNotFound" | "creditScoreUsage"
   | "bureauConsentPrompt" | "bureauConsentRecorded" | "bureauConsentRequired"
@@ -931,6 +940,28 @@ const EN_CATALOG: MessageCatalog = {
   walletStatementNoWallet: "📄 No merchant wallet found for this store yet — a wallet is created when your first order is processed.",
   walletStatementBadMonth: "📄 Which month? Reply e.g. STATEMENT 2025-08 or STATEMENT AUGUST.",
   walletStatementFailed: "📄 I could not generate that statement right now — please try again in a moment.",
+  // === W59 banking-pos ===
+  bankAccountsNone: "🏦 No payout accounts yet — add one from the Merchant Wallet page (verified by bank name enquiry).",
+  bankAccountsHeader: "🏦 Payout accounts:",
+  bankAccountLine: "{primary} {label} — {number} ({name})",
+  cicoUsage: "💵 Usage: CASH IN <phone> <amount> or CASH OUT <phone> <amount>, then CONFIRM CICO-<ref>.",
+  cicoStarted: "💵 {amount} for {phone} parked. Reply CONFIRM {ref} within 10 minutes to execute.",
+  cicoConfirmed: "✅ {ref} completed: {amount}. Commission {commission}. Float now {float}.",
+  cicoNotFound: "❌ No pending transaction found (it may have expired) — start again with CASH IN/OUT.",
+  cicoFailed: "❌ Transaction failed: {reason}. No money moved.",
+  floatLine: "🏪 Float: {float}. Today: in {in}, out {out}, commission {commission}.{low}",
+  floatLowFlag: " ⚠️ LOW FLOAT — top up soon.",
+  posUsage: "💳 Usage: PAY BY POS <amount> — e.g. PAY BY POS 5000.",
+  posSessionReady: "💳 POS session ready: {amount} — code *{code}* (ref {ref}). Customer pays by card/USSD within 15 minutes.",
+  posChargeReceipt: "💳 POS payment received: {amount} (ref {ref}).",
+  posUssdNotFound: "No pending POS payment with that code. Check the 6-digit code and try again.",
+  posUssdInsufficient: "Insufficient wallet balance for this POS payment.",
+  posUssdRetry: "Payment could not be completed right now — please dial again (you will not be charged twice).",
+  posUssdPaid: "✅ Paid {amount} (ref {ref}). Thank you!",
+  posUssdMerchantOnly: "Only the merchant can create a POS session. Ask the store to generate a code.",
+  agentLowFloatAlert: "⚠️ Agent float is low: {float} (threshold {threshold}). Please top up your float wallet.",
+  agentBankingDisabled: "💵 Agent banking is not enabled for this store.",
+  // === END W59 banking-pos ===📄 I could not generate that statement right now — please try again in a moment.",
   // === END W58 statements ===
   // === W56 credit ===
   creditScoreLine: "📊 Credit score for {subject}: {score}/1000 (grade {grade}).",
@@ -1091,6 +1122,28 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletStatementNoWallet: "📄 Aucun portefeuille marchand pour cette boutique — il est créé à la première commande.",
     walletStatementBadMonth: "📄 Quel mois ? Répondez p. ex. STATEMENT 2025-08 ou STATEMENT AOUT.",
     walletStatementFailed: "📄 Impossible de générer ce relevé pour le moment — réessayez dans un instant.",
+    // === W59 banking-pos ===
+    bankAccountsNone: "🏦 Aucun compte de paiement — ajoutez-en un depuis la page Portefeuille marchand (vérifié par la banque).",
+    bankAccountsHeader: "🏦 Comptes de paiement :",
+    bankAccountLine: "{primary} {label} — {number} ({name})",
+    cicoUsage: "💵 Usage : CASH IN <téléphone> <montant> ou CASH OUT <téléphone> <montant>, puis CONFIRM CICO-<ref>.",
+    cicoStarted: "💵 {amount} pour {phone} en attente. Répondez CONFIRM {ref} sous 10 minutes pour exécuter.",
+    cicoConfirmed: "✅ {ref} terminé : {amount}. Commission {commission}. Flotte : {float}.",
+    cicoNotFound: "❌ Aucune transaction en attente trouvée (expirée ?) — recommencez avec CASH IN/OUT.",
+    cicoFailed: "❌ Transaction échouée : {reason}. Aucun argent déplacé.",
+    floatLine: "🏪 Flotte : {float}. Aujourd'hui : entrées {in}, sorties {out}, commission {commission}.{low}",
+    floatLowFlag: " ⚠️ FLOTTE FAIBLE — rechargez bientôt.",
+    posUsage: "💳 Usage : PAY BY POS <montant> — ex. PAY BY POS 5000.",
+    posSessionReady: "💳 Session POS prête : {amount} — code *{code}* (réf {ref}). Le client paie par carte/USSD sous 15 minutes.",
+    posChargeReceipt: "💳 Paiement POS reçu : {amount} (réf {ref}).",
+    posUssdNotFound: "Aucun paiement POS en attente avec ce code. Vérifiez le code à 6 chiffres.",
+    posUssdInsufficient: "Solde de portefeuille insuffisant pour ce paiement POS.",
+    posUssdRetry: "Le paiement n'a pas abouti — recomposez (vous ne serez pas débité deux fois).",
+    posUssdPaid: "✅ Payé {amount} (réf {ref}). Merci !",
+    posUssdMerchantOnly: "Seul le marchand peut créer une session POS. Demandez un code à la boutique.",
+    agentLowFloatAlert: "⚠️ Flotte agent faible : {float} (seuil {threshold}). Veuillez recharger votre flotte.",
+    agentBankingDisabled: "💵 Les services bancaires d'agent ne sont pas activés pour cette boutique.",
+    // === END W59 banking-pos ===📄 Impossible de générer ce relevé pour le moment — réessayez dans un instant.",
     // === END W58 statements ===
   },
   ha: {
@@ -1228,6 +1281,28 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletStatementNoWallet: "📄 Babu walat ɗin ɗan kasuwa ga wannan kanti tukuna — ana ƙirƙirar shi da oda ta farko.",
     walletStatementBadMonth: "📄 Wanne wata? Amsa misali STATEMENT 2025-08 ko STATEMENT AUGUSTA.",
     walletStatementFailed: "📄 Ba a iya samar da bayanin yanzu — sake gwadawa an jima.",
+    // === W59 banking-pos ===
+    bankAccountsNone: "🏦 Babu asusun biya tukuna — ƙara ɗaya daga shafin Merchant Wallet (an tabbatar ta sunan banki).",
+    bankAccountsHeader: "🏦 Asusun biya:",
+    bankAccountLine: "{primary} {label} — {number} ({name})",
+    cicoUsage: "💵 Amfani: CASH IN <waya> <adadi> ko CASH OUT <waya> <adadi>, sannan CONFIRM CICO-<ref>.",
+    cicoStarted: "💵 An ajiye {amount} don {phone}. Amsa CONFIRM {ref} cikin minti 10 don aiwatarwa.",
+    cicoConfirmed: "✅ {ref} ya cika: {amount}. Kwamishina {commission}. Float yanzu {float}.",
+    cicoNotFound: "❌ Babu ma'amala da ke jira (wataƙila ta ƙare) — fara sake da CASH IN/OUT.",
+    cicoFailed: "❌ Ma'amala ta gaza: {reason}. Babu kuɗi da ya motsa.",
+    floatLine: "🏪 Float: {float}. Yau: shiga {in}, fita {out}, kwamishina {commission}.{low}",
+    floatLowFlag: " ⚠️ FLOAT YA ƊANƊANA — cika nan da nan.",
+    posUsage: "💳 Amfani: PAY BY POS <adadi> — misali PAY BY POS 5000.",
+    posSessionReady: "💳 Zagon POS yana a shirye: {amount} — lamba *{code}* (ref {ref}). Abokin ciniki yana biya ta kati/USSD cikin minti 15.",
+    posChargeReceipt: "💳 An karɓi biyan POS: {amount} (ref {ref}).",
+    posUssdNotFound: "Babu biyan POS da ke jira da wannan lamba. Duba lambar 6 kuma sake gwadawa.",
+    posUssdInsufficient: "Balans ɗin walat bai isa don wannan biyan POS ba.",
+    posUssdRetry: "Biyan bai cika ba yanzu — sake dailawa (ba za a caje ka sau biyu ba).",
+    posUssdPaid: "✅ An biya {amount} (ref {ref}). Na gode!",
+    posUssdMerchantOnly: "Kawai ɗan kanti zai iya ƙirƙirar zagon POS. Nemi lamba daga kanti.",
+    agentLowFloatAlert: "⚠️ Float na wakili ya ƙanƙana: {float} (iyaka {threshold}). Don Allah cika walat ɗin float.",
+    agentBankingDisabled: "💵 Ba a kunna bankin wakili don wannan kanti ba.",
+    // === END W59 banking-pos ===📄 Ba a iya samar da bayanin yanzu — sake gwadawa an jima.",
     // === END W58 statements ===
   },
   yo: {
@@ -1365,6 +1440,28 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletStatementNoWallet: "📄 Kò sí apó-owó oníṣòwò fún ilé ìtajà yìí tẹ́lẹ̀ — a máa ṣẹ̀dá rẹ̀ ní ìtajà àkọ́kọ́.",
     walletStatementBadMonth: "📄 Oṣù wo? Fìdí bíi STATEMENT 2025-08 tàbí STATEMENT OṢÙ KEJÌLÁ.",
     walletStatementFailed: "📄 A kò lè ṣe àkópọ̀ náà báyìí — jọ̀wọ́ gbìyànjú lẹ́ẹ̀kan sí í.",
+    // === W59 banking-pos ===
+    bankAccountsNone: "🏦 Kò sí àkáǹtì sanwó — ṣàfikún ọ̀kan láti ojú-ìwé Merchant Wallet (a fìdí rẹ̀ múlẹ̀ ní orúkọ báńkì).",
+    bankAccountsHeader: "🏦 Àwọn àkáǹtì sanwó:",
+    bankAccountLine: "{primary} {label} — {number} ({name})",
+    cicoUsage: "💵 Ìlò: CASH IN <fóònù> <owó> tàbí CASH OUT <fóònù> <owó>, kí o sì CONFIRM CICO-<ref>.",
+    cicoStarted: "💵 A ti fipamọ́ {amount} fún {phone}. Dahun CONFIRM {ref} nínú ìṣẹ́jú mẹ́wàá láti ṣe é.",
+    cicoConfirmed: "✅ {ref} ti parí: {amount}. Kómiṣọ́nì {commission}. Float ní báyìí {float}.",
+    cicoNotFound: "❌ Kò sí ìṣòwò tí ń dúró de (ó lè ti parí) — bẹ̀rẹ̀ lẹ́ẹ̀kansi pẹ̀lú CASH IN/OUT.",
+    cicoFailed: "❌ Ìṣòwò kùnà: {reason}. Kò sí owó tó rìn.",
+    floatLine: "🏪 Float: {float}. Oní: wọlé {in}, jáde {out}, kómiṣọ́nì {commission}.{low}",
+    floatLowFlag: " ⚠️ FLOAT ṢE DÌÉ — gbé e kún lẹ́kùnrẹ́rẹ́.",
+    posUsage: "💳 Ìlò: PAY BY POS <owó> — àpẹẹrẹ PAY BY POS 5000.",
+    posSessionReady: "💳 Àsìṣe POS ṣetan: {amount} — kóòdù *{code}* (ref {ref}). Oníbàárà sanwó pẹ̀lú káàdì/USSD nínú ìṣẹ́jú mẹ́ẹ̀ẹ́dógún.",
+    posChargeReceipt: "💳 A gba owó POS: {amount} (ref {ref}).",
+    posUssdNotFound: "Kò sí owó POS tí ń dúró de pẹ̀lú kóòdù yẹn. Ṣàyẹ̀wò kóòdù ẹ̀dẹ́mẹ́fà náà.",
+    posUssdInsufficient: "Òwò ní nínú apó kò tó fún ìsanwó POS yìí.",
+    posUssdRetry: "Ìsanwó kò parí ní báyìí — jọ̀wọ́ pe padà (kò ní gbá owó rẹ lẹ́mẹ́jì).",
+    posUssdPaid: "✅ A ti san {amount} (ref {ref}). Ẹ ṣeun!",
+    posUssdMerchantOnly: "Ọniṣòwò nìkan ló lè ṣẹ̀dá àsìṣe POS. Béèrè kóòdù lọ́wọ́ ilé ìtajà.",
+    agentLowFloatAlert: "⚠️ Float aṣojú ṣe díẹ̀: {float} (ààlà {threshold}). Jọ̀wọ́ gbé apó float rẹ̀ kún.",
+    agentBankingDisabled: "💵 A kò mú ẹ̀yà báńkì aṣojú ṣiṣẹ́ fún ìlúlò yìí.",
+    // === END W59 banking-pos ===📄 A kò lè ṣe àkópọ̀ náà báyìí — jọ̀wọ́ gbìyànjú lẹ́ẹ̀kan sí í.",
     // === END W58 statements ===
   },
   ig: {
@@ -1505,6 +1602,28 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletStatementNoWallet: "📄 Enwebeghị akpa ego onye ahịa maka ụlọ ahịa a — a na-emepụta ya na iwu mbụ.",
     walletStatementBadMonth: "📄 Ọnwa ole? Zaghachi dị ka STATEMENT 2025-08 ma ọ bụ STATEMENT AUGUST.",
     walletStatementFailed: "📄 Enweghị ike ịmepụta nkwupụta ahụ ugbu a — biko nwaa ọzọ.",
+    // === W59 banking-pos ===
+    bankAccountsNone: "🏦 Enwebeghị akaụntụ ịkwụ ụgwọ — tinye otu n'ibe Merchant Wallet (enyocha ya aha banki).",
+    bankAccountsHeader: "🏦 Akaụntụ ịkwụ ụgwọ:",
+    bankAccountLine: "{primary} {label} — {number} ({name})",
+    cicoUsage: "💵 Ojiji: CASH IN <ekwentị> <ego> ma ọ bụ CASH OUT <ekwentị> <ego>, mgbe ahụ CONFIRM CICO-<ref>.",
+    cicoStarted: "💵 Echekwara {amount} maka {phone}. Zaa CONFIRM {ref} n'ime nkeji 10 iji mezuo.",
+    cicoConfirmed: "✅ {ref} zuru ezu: {amount}. Kọmishọn {commission}. Float ugbu a {float}.",
+    cicoNotFound: "❌ Enweghị azụmahịa na-echere (nwere ike ịgwụ) — malite ọzọ site na CASH IN/OUT.",
+    cicoFailed: "❌ Azụmahịa dara: {reason}. Enweghị ego kwagara.",
+    floatLine: "🏪 Float: {float}. Taa: abata {in}, pụta {out}, kọmishọn {commission}.{low}",
+    floatLowFlag: " ⚠️ FLOAT DỊ NTAKIRI — juputa ya n'oge.",
+    posUsage: "💳 Ojiji: PAY BY POS <ego> — dịka PAY BY POS 5000.",
+    posSessionReady: "💳 Oge POS dị njikere: {amount} — koodu *{code}* (ref {ref}). Onye ahịa na-akwụ site na kaadị/USSD n'ime nkeji 15.",
+    posChargeReceipt: "💳 Enwetara ụgwọ POS: {amount} (ref {ref}).",
+    posUssdNotFound: "Enweghị ụgwọ POS na-echere na koodu ahụ. Lelee koodu 6 ahụ ma nwaa ọzọ.",
+    posUssdInsufficient: "Ego dị n'obere akpa ezukwaghị maka ụgwọ POS a.",
+    posUssdRetry: "Ịkwụ ụgwọ agaghị ugbu a — kpọọ ọzọ (agaghị ewepụ ego gị ugboro abụọ).",
+    posUssdPaid: "✅ A kwụala {amount} (ref {ref}). Daalụ!",
+    posUssdMerchantOnly: "Naanị onye ahịa nwere ike ịmepụta oge POS. Jụọ koodu n'ụlọ ahịa.",
+    agentLowFloatAlert: "⚠️ Float ọrụ dị ala: {float} (oke {threshold}). Biko juputa obere akpa float gị.",
+    agentBankingDisabled: "💵 Akọrọ banki ọrụ anọghị n'ọrụ maka ụlọ ahịa a.",
+    // === END W59 banking-pos ===📄 Enweghị ike ịmepụta nkwupụta ahụ ugbu a — biko nwaa ọzọ.",
     // === END W58 statements ===
   },
   sw: {
@@ -1642,6 +1761,28 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletStatementNoWallet: "📄 Hakuna pochi ya mfanyabiashara kwa duka hili bado — huundwa kwa agizo la kwanza.",
     walletStatementBadMonth: "📄 Mwezi gani? Jibu k.m. STATEMENT 2025-08 au STATEMENT AGOSTI.",
     walletStatementFailed: "📄 Taarifa haiwezi kutengenezwa sasa — tafadhali jaribu tena.",
+    // === W59 banking-pos ===
+    bankAccountsNone: "🏦 Hakuna akaunti za malipo bado — ongeza moja kutoka ukurasa wa Merchant Wallet (imethibitishwa na banki).",
+    bankAccountsHeader: "🏦 Akaunti za malipo:",
+    bankAccountLine: "{primary} {label} — {number} ({name})",
+    cicoUsage: "💵 Matumizi: CASH IN <simu> <kiasi> au CASH OUT <simu> <kiasi>, kisha CONFIRM CICO-<ref>.",
+    cicoStarted: "💵 {amount} kwa {phone} imewekwa. Jibu CONFIRM {ref} ndani ya dakika 10 kuitekeleza.",
+    cicoConfirmed: "✅ {ref} imekamilika: {amount}. Kamisheni {commission}. Float sasa {float}.",
+    cicoNotFound: "❌ Hakuna muamala unao subiri (labda umeisha) — anza tena na CASH IN/OUT.",
+    cicoFailed: "❌ Muamala umeshindwa: {reason}. Hakuna pesa iliyohamishwa.",
+    floatLine: "🏪 Float: {float}. Leo: ndani {in}, nje {out}, kamisheni {commission}.{low}",
+    floatLowFlag: " ⚠️ FLOAT NI CHACHE — jaza haraka.",
+    posUsage: "💳 Matumizi: PAY BY POS <kiasi> — mf. PAY BY POS 5000.",
+    posSessionReady: "💳 Kipindi cha POS kiko tayari: {amount} — msimbo *{code}* (ref {ref}). Mteja analipa kwa kadi/USSD ndani ya dakika 15.",
+    posChargeReceipt: "💳 Malipo ya POS yamepokelewa: {amount} (ref {ref}).",
+    posUssdNotFound: "Hakuna malipo ya POS yanayosubiri na msimbo huo. Angalia msimbo wa tarakimu 6.",
+    posUssdInsufficient: "Salio la pochi halitoshi kwa malipo haya ya POS.",
+    posUssdRetry: "Malipo hayakukamilika sasa hivi — piga tena (hutatozwa mara mbili).",
+    posUssdPaid: "✅ Umelipa {amount} (ref {ref}). Asante!",
+    posUssdMerchantOnly: "Mfanyabiashara pekee ndiye anaweza kuunda kipindi cha POS. Omba msimbo dukani.",
+    agentLowFloatAlert: "⚠️ Float ya wakala iko chini: {float} (kizingiti {threshold}). Tafadhali jaza pochi yako ya float.",
+    agentBankingDisabled: "💵 Huduma za benki za wakala hazijawashwa kwa duka hili.",
+    // === END W59 banking-pos ===📄 Taarifa haiwezi kutengenezwa sasa — tafadhali jaribu tena.",
     // === END W58 statements ===
   },
   am: {
@@ -1778,6 +1919,28 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletStatementNoWallet: "📄 ለዚህ ሱቅ እስካሁን የነጋዴ ዋሌት የለም — በመጀመሪያ ትዕዛዝ ይፈጠራል።",
     walletStatementBadMonth: "📄 የትኛው ወር? ለምሳሌ STATEMENT 2025-08 ወይም STATEMENT ነሐሴ ይመልሱ።",
     walletStatementFailed: "📄 መግለጫውን አሁን ማውጣት አልተቻለም — እባክዎ ትንሽ በኋላ ይሞክሩ።",
+    // === W59 banking-pos ===
+    bankAccountsNone: "🏦 እስካሁን የክፍያ መለያ የለም — ከMerchant Wallet ገጽ አንዱን ይጨምሩ (በባንክ ስም መጠይቅ የተረጋገጠ).",
+    bankAccountsHeader: "🏦 የክፍያ መለያዎች:",
+    bankAccountLine: "{primary} {label} — {number} ({name})",
+    cicoUsage: "💵 አጠቃቀም: CASH IN <ስልክ> <መጠን> ወይም CASH OUT <ስልክ> <መጠን>፣ ከዚያ CONFIRM CICO-<ref>.",
+    cicoStarted: "💵 {amount} ለ{phone} ተያዟል። ለመፈጸም በ10 ደቂቃ ውስጥ CONFIRM {ref} ብለው ይመልሱ።",
+    cicoConfirmed: "✅ {ref} ተጠናቋል: {amount}። ኮሚሽን {commission}። Float አሁን {float}።",
+    cicoNotFound: "❌ በመጠባበቅ ላይ ያለ ግብይት አልተገኘም (ምናልባት አልፏል) — በCASH IN/OUT እንደገና ይጀምሩ።",
+    cicoFailed: "❌ ግብይቱ አልተሳካም: {reason}። ምንም ገንዘብ አልተንቀሳቀሰም።",
+    floatLine: "🏪 Float: {float}። ዛሬ: ገቢ {in}፣ ወጪ {out}፣ ኮሚሽን {commission}።{low}",
+    floatLowFlag: " ⚠️ FLOAT ዝቅ ብሏል — በቅርቡ ይሙሉ።",
+    posUsage: "💳 አጠቃቀም: PAY BY POS <መጠን> — ለምሳሌ PAY BY POS 5000.",
+    posSessionReady: "💳 POS ክፍለ ጊዜ ዝግጁ ነው: {amount} — ኮድ *{code}* (ref {ref})። ደምበኛው በካርድ/USSD በ15 ደቂቃ ውስጥ ይከፍላል።",
+    posChargeReceipt: "💳 የPOS ክፍያ ተቀብሏል: {amount} (ref {ref})።",
+    posUssdNotFound: "በዚያ ኮድ የሚጠብቅ የPOS ክፍያ የለም። 6-አሃዙን ኮድ ያረጋግጡ።",
+    posUssdInsufficient: "የዋሌት ቀሪ ሂሳብ ለዚህ የPOS ክፍያ አይበቃም።",
+    posUssdRetry: "ክፍያው አሁን ሊጠናቀቅ አልቻለም — እባክዎ እንደገና ይደውሉ (ሁለት ጊዜ አይከፍሉም)።",
+    posUssdPaid: "✅ {amount} ተከፍሏል (ref {ref})። አመሰግናለሁ!",
+    posUssdMerchantOnly: "ነጋዴው ብቻ POS ክፍለ ጊዜ መፍጠር ይችላል። ከሱቁ ኮድ ይጠይቁ።",
+    agentLowFloatAlert: "⚠️ የወኪል float ዝቅ ብሏል: {float} (መደበኛ {threshold})። እባክዎ የfloat ዋሌትዎን ይሙሉ።",
+    agentBankingDisabled: "💵 የወኪል ባንክ ለዚህ ሱቅ አልነቃም።",
+    // === END W59 banking-pos ===📄 መግለጫውን አሁን ማውጣት አልተቻለም — እባክዎ ትንሽ በኋላ ይሞክሩ።",
     // === END W58 statements ===
     // === W55 parity (PARITY-7) === Amharic translation added (was the last
     // intentionally-missing key; fallback chain now exercised via J137's
@@ -1922,6 +2085,28 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     walletStatementNoWallet: "📄 Dis shop never get merchant wallet yet — dem go create am wen first order land.",
     walletStatementBadMonth: "📄 Which month? Reply like STATEMENT 2025-08 or STATEMENT AUGUST.",
     walletStatementFailed: "📄 I no fit generate dat statement now — abeg try again small time.",
+    // === W59 banking-pos ===
+    bankAccountsNone: "🏦 No payout account yet — add one from di Merchant Wallet page (bank name enquiry go verify am).",
+    bankAccountsHeader: "🏦 Payout accounts:",
+    bankAccountLine: "{primary} {label} — {number} ({name})",
+    cicoUsage: "💵 How to use: CASH IN <phone> <amount> or CASH OUT <phone> <amount>, den CONFIRM CICO-<ref>.",
+    cicoStarted: "💵 {amount} for {phone} don park. Reply CONFIRM {ref} inside 10 minutes to run am.",
+    cicoConfirmed: "✅ {ref} don complete: {amount}. Commission {commission}. Float now {float}.",
+    cicoNotFound: "❌ No pending transaction dey (e fit don expire) — start again with CASH IN/OUT.",
+    cicoFailed: "❌ Transaction fail: {reason}. No money move.",
+    floatLine: "🏪 Float: {float}. Today: in {in}, out {out}, commission {commission}.{low}",
+    floatLowFlag: " ⚠️ FLOAT DON LOW — top up quick quick.",
+    posUsage: "💳 How to use: PAY BY POS <amount> — like PAY BY POS 5000.",
+    posSessionReady: "💳 POS session ready: {amount} — code *{code}* (ref {ref}). Customer fit pay with card/USSD inside 15 minutes.",
+    posChargeReceipt: "💳 POS payment don land: {amount} (ref {ref}).",
+    posUssdNotFound: "No POS payment dey wait with dat code. Check di 6-digit code well.",
+    posUssdInsufficient: "Wallet balance no reach for dis POS payment.",
+    posUssdRetry: "Payment no complete now — dial again (dem no go charge you twice).",
+    posUssdPaid: "✅ You don pay {amount} (ref {ref}). Thank you!",
+    posUssdMerchantOnly: "Na only di merchant fit create POS session. Ask di store for code.",
+    agentLowFloatAlert: "⚠️ Agent float don low: {float} (threshold {threshold}). Abeg top up your float wallet.",
+    agentBankingDisabled: "💵 Agent banking no dey on for dis store.",
+    // === END W59 banking-pos ===📄 I no fit generate dat statement now — abeg try again small time.",
     // === END W58 statements ===
   },
 };

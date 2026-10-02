@@ -86,6 +86,10 @@ const EscrowDashboard = lazy(() => import("./pages/EscrowDashboard"));
 const LogisticsTracker = lazy(() => import("./pages/LogisticsTracker"));
 const DisputeManagement = lazy(() => import("./pages/DisputeManagement"));
 const MerchantWallet = lazy(() => import("./pages/portal/MerchantWallet"));
+// === W59 banking-pos ===
+const AgentBanking = lazy(() => import("./pages/portal/AgentBanking"));
+const PosTerminals = lazy(() => import("./pages/portal/PosTerminals"));
+// === END W59 banking-pos ===
 // === W27 savings-insurance-vouchers (Coder G) ===
 const SavingsCircles = lazy(() => import("./pages/SavingsCircles"));
 const InsurancePolicies = lazy(() => import("./pages/InsurancePolicies"));
@@ -257,6 +261,10 @@ function Router() {
           <Route path="/logistics" component={LogisticsTracker} />
           <Route path="/disputes" component={DisputeManagement} />
           <Route path="/portal/wallet" component={MerchantWallet} />
+          {/* === W59 banking-pos === */}
+          <Route path="/portal/agent-banking" component={AgentBanking} />
+          <Route path="/portal/pos-terminals" component={PosTerminals} />
+          {/* === END W59 banking-pos === */}
           <Route path="/portal/setup" component={() => <OnboardingWizard onComplete={() => { window.location.href = "/portal"; }} />} />
           <Route path="/portal/analytics" component={MerchantAnalytics} />
           <Route path="/portal/broadcasts" component={PortalBroadcasts} />

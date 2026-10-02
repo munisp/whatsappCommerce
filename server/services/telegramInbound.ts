@@ -552,6 +552,23 @@ async function dispatchToNlp(
       }
     }
     // === END W58 statements ===
+    // === W59 banking-pos === merchant banking keywords (WA parity):
+    // admin-phone authz inside the handler; TG identity resolves to the
+    // linked E.164 phone upstream.
+    if (/^\s*(BANK\s+ACCOUNTS?|CASH\s+(IN|OUT)\b|CONFIRM\s+CICO-|FLOAT|PAY\s+BY\s+POS)\b/i.test(message)) {
+      const { handleBankingCommand } = await import("./bankingChat");
+      const bkOutcome = await handleBankingCommand({
+        db, tenantId: cfg.tenantId, fromPhone: phoneRef, text: message, channel: "telegram",
+      });
+      if (bkOutcome?.handled) {
+        if (bkOutcome.reply) {
+          await sendTelegramTextReply(cfg.tenantId, ev.chatId, bkOutcome.reply)
+            .catch((e: any) => console.warn("[telegram-inbound] banking reply failed:", e?.message));
+        }
+        return;
+      }
+    }
+    // === END W59 banking-pos ===
     const i18n = await import("./i18n");
     const locale = await i18n.resolveLocale({ tenantId: cfg.tenantId, phone: sessionKey, text: message }).catch(() => "en");
     if (i18n.matchLocalizedIntent(message, locale) === "menu") {

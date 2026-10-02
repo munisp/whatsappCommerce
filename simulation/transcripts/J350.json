@@ -7,43 +7,43 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348013404543",
+      "phone": "2348015105299",
       "wamid": "wamid.sim.000978",
       "statuses": [
         "sent"
       ],
-      "at": 1790882754303,
+      "at": 1790897697088,
       "kind": "text",
       "body": "⚠️ We could not charge your saved card for your Chicken Monthly subscription (₦3,000.00) — attempt 1/3. We'll retry automatically; update your card with \"my cards\" if it keeps failing."
     },
     {
       "dir": "out",
-      "phone": "2348013404543",
+      "phone": "2348015105299",
       "wamid": "wamid.sim.000979",
       "statuses": [
         "sent"
       ],
-      "at": 1790882754744,
+      "at": 1790897697535,
       "kind": "text",
       "body": "⚠️ We could not charge your saved card for your Chicken Monthly subscription (₦3,000.00) — attempt 2/3. We'll retry automatically; update your card with \"my cards\" if it keeps failing."
     },
     {
       "dir": "out",
-      "phone": "2348013404543",
+      "phone": "2348015105299",
       "wamid": "wamid.sim.000980",
       "statuses": [
         "sent"
       ],
-      "at": 1790882755182,
+      "at": 1790897697983,
       "kind": "text",
       "body": "❌ We could not charge your saved card for your Chicken Monthly subscription (₦3,000.00) after 3 attempts — your subscription is now past due. Update your card (\"my cards\") and reply \"resume subscription\"."
     },
     {
       "dir": "in",
-      "phone": "2348012742871",
-      "profileName": "Sim User 2871",
+      "phone": "2348014169611",
+      "profileName": "Sim User 9611",
       "inboundId": "wamid.sim.in.text.00539",
-      "at": 1790882756047,
+      "at": 1790897698852,
       "kind": "text",
       "text": "pause subscription"
     },
@@ -51,25 +51,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00539",
-      "at": 1790882756053
+      "at": 1790897698859
     },
     {
       "dir": "out",
-      "phone": "2348012742871",
+      "phone": "2348014169611",
       "wamid": "wamid.sim.000981",
       "statuses": [
         "sent"
       ],
-      "at": 1790882756086,
+      "at": 1790897698902,
       "kind": "text",
       "body": "⏸️ Your subscription is paused — no more charges until you reply \"resume subscription\"."
     },
     {
       "dir": "in",
-      "phone": "2348012742871",
-      "profileName": "Sim User 2871",
+      "phone": "2348014169611",
+      "profileName": "Sim User 9611",
       "inboundId": "wamid.sim.in.text.00540",
-      "at": 1790882756595,
+      "at": 1790897699399,
       "kind": "text",
       "text": "resume subscription"
     },
@@ -77,25 +77,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00540",
-      "at": 1790882756602
+      "at": 1790897699407
     },
     {
       "dir": "out",
-      "phone": "2348012742871",
+      "phone": "2348014169611",
       "wamid": "wamid.sim.000982",
       "statuses": [
         "sent"
       ],
-      "at": 1790882756634,
+      "at": 1790897699447,
       "kind": "text",
       "body": "▶️ Your subscription is active again — the next charge runs on the next billing tick."
     },
     {
       "dir": "in",
-      "phone": "2348012986539",
-      "profileName": "Sim User 6539",
+      "phone": "2348013680564",
+      "profileName": "Sim User 0564",
       "inboundId": "wamid.sim.in.text.00541",
-      "at": 1790882757318,
+      "at": 1790897700133,
       "kind": "text",
       "text": "pause subscription"
     },
@@ -103,16 +103,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00541",
-      "at": 1790882757325
+      "at": 1790897700140
     },
     {
       "dir": "out",
-      "phone": "2348012986539",
+      "phone": "2348013680564",
       "wamid": "wamid.sim.000983",
       "statuses": [
         "sent"
       ],
-      "at": 1790882757363,
+      "at": 1790897700179,
       "kind": "text",
       "body": "I couldn't find a subscription on this number that can be changed like that."
     }

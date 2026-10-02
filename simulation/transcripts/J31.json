@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018174027",
-      "profileName": "Sim User 4027",
+      "phone": "2348011488165",
+      "profileName": "Sim User 8165",
       "inboundId": "wamid.sim.in.text.00112",
-      "at": 1790882154399,
+      "at": 1790897089310,
       "kind": "text",
       "text": "menu"
     },
@@ -18,16 +18,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00112",
-      "at": 1790882154406
+      "at": 1790897089317
     },
     {
       "dir": "out",
-      "phone": "2348018174027",
+      "phone": "2348011488165",
       "wamid": "wamid.sim.000193",
       "statuses": [
         "sent"
       ],
-      "at": 1790882154423,
+      "at": 1790897089334,
       "kind": "interactive",
       "body": "Welcome to Sim Store! How can we help you today?",
       "footer": "Tap an option, or reply with its number.",
@@ -58,10 +58,10 @@
     },
     {
       "dir": "in",
-      "phone": "2348018174027",
-      "profileName": "Sim User 4027",
+      "phone": "2348011488165",
+      "profileName": "Sim User 8165",
       "inboundId": "wamid.sim.in.list.00113",
-      "at": 1790882154942,
+      "at": 1790897089855,
       "kind": "list_reply",
       "text": "Restock / Buy supplies",
       "payloadId": "menu_4"
@@ -70,25 +70,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.list.00113",
-      "at": 1790882154949
+      "at": 1790897089862
     },
     {
       "dir": "out",
-      "phone": "2348018174027",
+      "phone": "2348011488165",
       "wamid": "wamid.sim.000194",
       "statuses": [
         "sent"
       ],
-      "at": 1790882154962,
+      "at": 1790897089875,
       "kind": "text",
       "body": "*Restock / Buy supplies*\n\n1. 🏭 Browse suppliers & restock\n2. 📋 My purchase orders\n\nReply with a number, or \"cancel\" to exit."
     },
     {
       "dir": "in",
-      "phone": "2348018174027",
-      "profileName": "Sim User 4027",
+      "phone": "2348011488165",
+      "profileName": "Sim User 8165",
       "inboundId": "wamid.sim.in.text.00114",
-      "at": 1790882155486,
+      "at": 1790897090400,
       "kind": "text",
       "text": "1"
     },
@@ -96,25 +96,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00114",
-      "at": 1790882155493
+      "at": 1790897090414
     },
     {
       "dir": "out",
-      "phone": "2348018174027",
+      "phone": "2348011488165",
       "wamid": "wamid.sim.000195",
       "statuses": [
         "sent"
       ],
-      "at": 1790882155518,
+      "at": 1790897090434,
       "kind": "text",
       "body": "*Choose a supplier:*\n\n1. Lagos Plastics Manufacturing — lead 5d · MOQ ₦1,000.00 — credit: ₦500,000.00 avail (net 14d)\n\nReply with a number."
     },
     {
       "dir": "in",
-      "phone": "2348018174027",
-      "profileName": "Sim User 4027",
+      "phone": "2348011488165",
+      "profileName": "Sim User 8165",
       "inboundId": "wamid.sim.in.text.00115",
-      "at": 1790882156031,
+      "at": 1790897090945,
       "kind": "text",
       "text": "1"
     },
@@ -122,25 +122,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00115",
-      "at": 1790882156038
+      "at": 1790897090953
     },
     {
       "dir": "out",
-      "phone": "2348018174027",
+      "phone": "2348011488165",
       "wamid": "wamid.sim.000196",
       "statuses": [
         "sent"
       ],
-      "at": 1790882156061,
+      "at": 1790897090975,
       "kind": "text",
       "body": "*Lagos Plastics Manufacturing — wholesale catalog* (lead time 5d)\nMinimum order: ₦1,000.00.\n\n1. PET Preforms 500ml — ₦40.00 (min 100)\n2. Plastic Crates 20L — ₦2,500.00\n\nReply with:\n• *add <item#> <qty>* to add (e.g. add 2 10)\n• *remove <line#>* to drop a cart line\n• *cart* to review\n• *done* to check out\n• *cancel* to exit"
     },
     {
       "dir": "in",
-      "phone": "2348018174027",
-      "profileName": "Sim User 4027",
+      "phone": "2348011488165",
+      "profileName": "Sim User 8165",
       "inboundId": "wamid.sim.in.text.00116",
-      "at": 1790882156575,
+      "at": 1790897091491,
       "kind": "text",
       "text": "add 1 50"
     },
@@ -148,16 +148,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00116",
-      "at": 1790882156582
+      "at": 1790897091498
     },
     {
       "dir": "out",
-      "phone": "2348018174027",
+      "phone": "2348011488165",
       "wamid": "wamid.sim.000197",
       "statuses": [
         "sent"
       ],
-      "at": 1790882156597,
+      "at": 1790897091516,
       "kind": "text",
       "body": "⚠️ PET Preforms 500ml has a minimum quantity of 100."
     }

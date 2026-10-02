@@ -29,6 +29,10 @@ const SlaExtensionResponse = lazy(() => import("@/pages/SlaExtensionResponse"));
 const PortalDashboard = lazy(() => import("@/pages/portal/PortalDashboard"));
 const SsoCallback = lazy(() => import("@/pages/portal/SsoCallback"));
 const MerchantWallet = lazy(() => import("@/pages/portal/MerchantWallet"));
+// === W59 banking-pos ===
+const AgentBanking = lazy(() => import("@/pages/portal/AgentBanking"));
+const PosTerminals = lazy(() => import("@/pages/portal/PosTerminals"));
+// === END W59 banking-pos ===
 const OnboardingWizard = lazy(() => import("@/pages/portal/OnboardingWizard"));
 const MerchantAnalytics = lazy(() => import("@/pages/portal/MerchantAnalytics"));
 
@@ -130,6 +134,10 @@ function Router() {
         <Route path="/portal/magic-login" component={PortalMagicLogin} />
         <Route path="/portal/sso-callback" component={SsoCallback} />
         <Route path="/portal/wallet" component={MerchantWallet} />
+        {/* === W59 banking-pos === */}
+        <Route path="/portal/agent-banking" component={AgentBanking} />
+        <Route path="/portal/pos-terminals" component={PosTerminals} />
+        {/* === END W59 banking-pos === */}
         <Route
           path="/portal/setup"
           component={() => <OnboardingWizard onComplete={() => { window.location.href = `${BASE_PATH}/portal`; }} />}

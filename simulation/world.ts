@@ -327,6 +327,15 @@ export async function bootWorld(): Promise<World> {
     setEnv("MEDUSA_WEBHOOK_SECRET", "sim-medusa-webhook-secret-0123456789");
     // === END W28 medusa-storefront ===
 
+    // 1b. Fresh world = fresh doc store: uc-docs (statement/proforma/receipt
+    // PDFs + per-tenant manifests) persists on disk and is COMMITTED as gate
+    // artifacts, so a fresh clone would otherwise leak "already generated /
+    // already delivered" state into J587-J589-style journeys. Wipe it once at
+    // boot; generation is deterministic so regen reproduces the artifacts.
+    try {
+      fs.rmSync(path.resolve(process.cwd(), process.env.UC_DOCS_DIR ?? "data/uc-docs"), { recursive: true, force: true });
+    } catch { /* doc store absent — fine */ }
+
     // 2. Fetch interceptor BEFORE any server module can fire a request.
     installFetchMock();
     onWaSend((call, wamid, failStatus) => recorder.recordOutbound(call, wamid, failStatus));

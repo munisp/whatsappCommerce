@@ -132,6 +132,31 @@ export default function MerchantWallet() {
     onError: (e) => toast.error(e.message),
   });
 
+  // === W59 banking-pos === Payout Accounts card: verified multi-account
+  // registry (fail-closed name enquiry server-side), setPrimary/disable.
+  const { data: payoutAccounts, refetch: refetchPayoutAccounts } = trpc.payoutAccounts.list.useQuery(
+    { tenantId }, { enabled: !!tenantId },
+  );
+  const [newAccountNumber, setNewAccountNumber] = useState("");
+  const [newBankCode, setNewBankCode] = useState("");
+  const [newProvider, setNewProvider] = useState<"paystack" | "flutterwave">("paystack");
+  const addPayoutAccount = trpc.payoutAccounts.add.useMutation({
+    onSuccess: (r) => {
+      toast.success(r.duplicate ? "Account already saved." : `Verified + saved: ${r.account.accountName}`);
+      setNewAccountNumber("");
+      refetchPayoutAccounts();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const setPrimaryAccount = trpc.payoutAccounts.setPrimary.useMutation({
+    onSuccess: () => { toast.success("Primary account updated."); refetchPayoutAccounts(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const disableAccount = trpc.payoutAccounts.disable.useMutation({
+    onSuccess: () => { toast.success("Account disabled."); refetchPayoutAccounts(); },
+    onError: (e) => toast.error(e.message),
+  });
+  // === END W59 banking-pos ===
   const topUp = trpc.wallet.topUp.useMutation({
     onSuccess: (data: any) => {
       // topUp always returns a real provider checkout link (Paystack/
@@ -583,6 +608,53 @@ export default function MerchantWallet() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* === W59 banking-pos === Payout Accounts card === */}
+      <Card className="mt-4">
+        <CardHeader><CardTitle>Payout Accounts</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          {(payoutAccounts ?? []).map((a: any) => (
+            <div key={a.id} className="flex items-center justify-between gap-2 border-b pb-2">
+              <div>
+                <span className="font-medium">{a.accountName}</span>{" "}
+                <span className="text-muted-foreground">…{a.accountNumber.slice(-4)} ({a.provider})</span>
+                {a.isPrimary && <Badge className="ml-2">Primary</Badge>}
+                {a.status !== "active" && <Badge variant="outline" className="ml-2">{a.status}</Badge>}
+              </div>
+              <div className="flex gap-2">
+                {!a.isPrimary && a.status === "active" && (
+                  <Button size="sm" variant="outline" onClick={() => setPrimaryAccount.mutate({ tenantId, accountId: a.id })}>Set primary</Button>
+                )}
+                {a.status === "active" && (
+                  <Button size="sm" variant="ghost" onClick={() => disableAccount.mutate({ tenantId, accountId: a.id })}>Disable</Button>
+                )}
+              </div>
+            </div>
+          ))}
+          <div className="flex flex-wrap items-end gap-2 pt-2">
+            <div>
+              <Label htmlFor="w59-acct">Account number</Label>
+              <Input id="w59-acct" value={newAccountNumber} onChange={(e) => setNewAccountNumber(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="10-digit NUBAN" />
+            </div>
+            <div>
+              <Label htmlFor="w59-bank">Bank code</Label>
+              <Input id="w59-bank" value={newBankCode} onChange={(e) => setNewBankCode(e.target.value)} placeholder="e.g. 044" className="w-28" />
+            </div>
+            <div>
+              <Label htmlFor="w59-rail">Rail</Label>
+              <select id="w59-rail" className="border rounded px-2 py-2 text-sm" value={newProvider} onChange={(e) => setNewProvider(e.target.value as "paystack" | "flutterwave")}>
+                <option value="paystack">Paystack</option>
+                <option value="flutterwave">Flutterwave</option>
+              </select>
+            </div>
+            <Button
+              disabled={newAccountNumber.length !== 10 || !newBankCode || addPayoutAccount.isPending}
+              onClick={() => addPayoutAccount.mutate({ tenantId, accountNumber: newAccountNumber, bankCode: newBankCode, provider: newProvider })}
+            >{addPayoutAccount.isPending ? "Verifying…" : "Add verified account"}</Button>
+          </div>
+          <p className="text-xs text-muted-foreground">Accounts are verified by bank name enquiry before saving; withdrawals pay the primary account.</p>
+        </CardContent>
+      </Card>
+      {/* === END W59 banking-pos === */}
     </div>
     </DashboardLayout>
   );

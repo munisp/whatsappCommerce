@@ -2094,6 +2094,11 @@ export const walletRouter = router({
       // satisfied exactly once at decision time.
       approvalId: z.string().uuid().optional(),
       // === END W31 approvals ===
+      // === W59 banking-pos === optional explicit payout account; defaults to
+      // the active primary merchant_payout_accounts row (legacy wallet
+      // columns backfilled), provider column drives the transfer rail.
+      payoutAccountId: z.string().uuid().optional(),
+      // === END W59 banking-pos ===
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -2183,21 +2188,30 @@ export const walletRouter = router({
       // W30 (V2#2b): the payout destination on file is used as-is. Changing
       // it is a separate step-up-gated audited procedure
       // (updatePayoutBankDetails) — never an inline side effect of a debit.
-      const payoutAccountName = wallet.bankAccountName;
-      const payoutAccountNumber = wallet.bankAccountNumber;
-      const payoutBankCode = wallet.bankCode;
-      if (!payoutAccountNumber || !payoutBankCode || !payoutAccountName) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "No payout bank details on file — set them via escrow.updatePayoutBankDetails (requires step-up OTP) first",
-        });
-      }
-      if (!ENV.paystackSecretKey) {
+      // === W59 banking-pos === destination now resolves through the verified
+      // merchant_payout_accounts registry: explicit payoutAccountId, else the
+      // active primary (legacy wallet columns backfilled idempotently), else
+      // the legacy columns themselves (provider 'paystack'). The account's
+      // provider column drives rail selection below.
+      const { resolveWithdrawalAccount } = await import("../services/payoutAccounts");
+      const payoutAccount = await resolveWithdrawalAccount(db, input.tenantId, wallet, input.payoutAccountId);
+      const payoutProvider = payoutAccount.provider;
+      const payoutAccountName = payoutAccount.accountName;
+      const payoutAccountNumber = payoutAccount.accountNumber;
+      const payoutBankCode = payoutAccount.bankCode;
+      if (payoutProvider === "paystack" && !ENV.paystackSecretKey) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: "No payment provider configured (set PAYSTACK_SECRET_KEY). Withdrawals cannot be paid out without a real provider.",
         });
       }
+      if (payoutProvider === "flutterwave" && !process.env.FLUTTERWAVE_SECRET_KEY) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "No payment provider configured (set FLUTTERWAVE_SECRET_KEY). Withdrawals cannot be paid out without a real provider.",
+        });
+      }
+      // === END W59 banking-pos ===
 
       // A1-03: the reference-existence check above runs OUTSIDE the debit
       // transaction, so two concurrent same-reference calls can both pass it.
@@ -2249,6 +2263,9 @@ export const walletRouter = router({
               bankAccountName: payoutAccountName,
               bankAccountNumber: payoutAccountNumber,
               bankCode: payoutBankCode,
+              // === W59 banking-pos === rail + account provenance
+              provider: payoutProvider,
+              payoutAccountId: payoutAccount.accountId,
             },
             createdAt: new Date(),
           });
@@ -2278,29 +2295,58 @@ export const walletRouter = router({
       // transaction with an external HTTP call), so this is a compensating
       // action, not a rollback.
       const { createTransferRecipient, initiateTransfer, verifyTransfer, PaystackTransferError } = await import("../services/payments/paystackTransfer");
+      // === W59 banking-pos === rail dispatch on payoutProvider: 'paystack'
+      // keeps the recipient+transfer flow below unchanged; 'flutterwave'
+      // goes through the thin flutterwaveTransfer adapter (no recipient
+      // object — account details ride on each transfer). Per-rail
+      // verify-before-refund is dispatched the same way further down.
       let outcome: { status: "success" | "pending" | "processing" | "otp"; transferCode: string | null; recipientCode: string } | { status: "failed"; error: string };
       let createdRecipientCode: string | null = null;
       try {
-        const recipientCode = await createTransferRecipient({
-          secretKey: ENV.paystackSecretKey,
-          accountName: payoutAccountName,
-          accountNumber: payoutAccountNumber,
-          bankCode: payoutBankCode,
-          currency: wallet.currency,
-        });
-        createdRecipientCode = recipientCode;
-        const transfer = await initiateTransfer({
-          secretKey: ENV.paystackSecretKey,
-          recipientCode,
-          amountMajor: input.amount,
-          reason: `Wallet withdrawal — ${input.tenantId}`,
-          reference: ref,
-          currency: wallet.currency,
-        });
-        outcome = { status: transfer.status, transferCode: transfer.transferCode, recipientCode };
+        if (payoutProvider === "flutterwave") {
+          const fw = await import("../services/payments/flutterwaveTransfer");
+          const transfer = await fw.initiateTransfer({
+            accountNumber: payoutAccountNumber,
+            bankCode: payoutBankCode,
+            accountName: payoutAccountName,
+            amountCents: Math.round(input.amount * 100),
+            narration: `Wallet withdrawal — ${input.tenantId}`,
+            reference: ref,
+            currency: wallet.currency,
+          });
+          outcome = { status: transfer.status, transferCode: transfer.transferId != null ? String(transfer.transferId) : null, recipientCode: "" };
+        } else {
+          const recipientCode = await createTransferRecipient({
+            secretKey: ENV.paystackSecretKey,
+            accountName: payoutAccountName,
+            accountNumber: payoutAccountNumber,
+            bankCode: payoutBankCode,
+            currency: wallet.currency,
+          });
+          createdRecipientCode = recipientCode;
+          const transfer = await initiateTransfer({
+            secretKey: ENV.paystackSecretKey,
+            recipientCode,
+            amountMajor: input.amount,
+            reason: `Wallet withdrawal — ${input.tenantId}`,
+            reference: ref,
+            currency: wallet.currency,
+          });
+          outcome = { status: transfer.status, transferCode: transfer.transferCode, recipientCode };
+        }
       } catch (err: unknown) {
         outcome = { status: "failed", error: err instanceof PaystackTransferError ? err.message : (err as Error)?.message ?? "Unknown transfer error" };
       }
+      // Per-rail post-timeout lookup (verify-before-refund).
+      const railVerify = async (reference: string): Promise<{ status: string | null; transferCode: string | null; found: boolean }> => {
+        if (payoutProvider === "flutterwave") {
+          const fw = await import("../services/payments/flutterwaveTransfer");
+          const r = await fw.verifyTransfer(reference);
+          return { status: r.status, transferCode: r.transferId != null ? String(r.transferId) : null, found: r.found };
+        }
+        return verifyTransfer(ENV.paystackSecretKey, reference);
+      };
+      // === END W59 banking-pos ===
 
       if (outcome.status === "failed") {
         // F7 — timeout double-spend guard: a network/timeout failure on
@@ -2315,17 +2361,19 @@ export const walletRouter = router({
         for (let attempt = 0; attempt < 3 && verified === null; attempt++) {
           if (attempt > 0) await new Promise((r) => setTimeout(r, 500 * attempt));
           try {
-            verified = await verifyTransfer(ENV.paystackSecretKey, ref);
+            verified = await railVerify(ref);
           } catch (err: unknown) {
             verifyError = err instanceof Error ? err.message : String(err);
           }
         }
 
-        if (verified && verified.found && verified.status && verified.status !== "failed" && verified.status !== "reversed") {
+        if (verified && verified.found && verified.status && verified.status !== "failed" && verified.status !== "reversed" && verified.status.toUpperCase() !== "FAILED") {
           // The transfer EXISTS and may still pay out — do NOT refund. Treat
           // it as in-flight; the transfer.success/failed webhook finalizes it.
+          const rawLive = verified.status.toUpperCase();
           const liveStatus = (verified.status === "success" || verified.status === "pending"
-            || verified.status === "processing" || verified.status === "otp" ? verified.status : "pending") as
+            || verified.status === "processing" || verified.status === "otp" ? verified.status
+            : rawLive === "SUCCESSFUL" ? "success" : "pending") as
             "success" | "pending" | "processing" | "otp";
           outcome = { status: liveStatus, transferCode: verified.transferCode, recipientCode: createdRecipientCode ?? "" };
           console.warn(`[withdrawal] initiateTransfer errored but transfer ${ref} exists at Paystack (status ${liveStatus}) — NOT refunding; webhook will finalize`);

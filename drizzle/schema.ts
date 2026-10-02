@@ -1569,6 +1569,8 @@ export const walletTxTypeEnum = pgEnum("wallet_tx_type", [
   "wholesale_trade",   // wholesale early-pay debit (buyer) / credit (supplier) legs
   // === W45 money-ledger (additive; never reorder the above) ===
   "fx_refund",         // compensating re-credit when an FX payout delivery aborts (PAY-16)
+  // === W59 banking-pos (additive; never reorder the above) ===
+  "agent_cico",        // agent banking cash-in/cash-out leg on the agent wallet
 ]);
 
 // ─── Escrow Config (platform-level) ──────────────────────────────────────────
@@ -1606,6 +1608,12 @@ export const escrowConfig = pgTable("escrow_config", {
   // each facility fee accrual diverted to provision_fund_ledger). 0 disables.
   provisionFundBps: integer("provision_fund_bps").default(250).notNull(),
   // === END W57 risk-shield ===
+  // === W59 banking-pos === agent cash-in/cash-out commission rate (bps of
+  // the CICO amount, integer cents split) and the agent float low-water mark
+  // (integer cents) that triggers the fail-open low-float WA alert.
+  agentCommissionBps: integer("agent_commission_bps").default(100).notNull(),
+  agentFloatAlertThresholdCents: integer("agent_float_alert_threshold_cents").default(1000000).notNull(),
+  // === END W59 banking-pos ===
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
@@ -7422,3 +7430,99 @@ export const provisionFundLedger = pgTable("provision_fund_ledger", {
 export type ProvisionFundLedgerRow = typeof provisionFundLedger.$inferSelect;
 export type NewProvisionFundLedgerRow = typeof provisionFundLedger.$inferInsert;
 // === END W57 risk-shield ===
+
+// === W59 banking-pos ===
+// Merchant payout accounts (Feature 1): verified multi-account withdrawal
+// destinations per merchant wallet. accountName is populated by fail-closed
+// NIBSS name enquiry BEFORE insert; unique(walletId, provider, accountNumber)
+// makes re-add idempotent; a row-locked single-primary invariant is enforced
+// by services/payoutAccounts.ts setPrimary.
+export const merchantPayoutAccounts = pgTable("merchant_payout_accounts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  walletId: varchar("walletId", { length: 36 }).notNull(),
+  bankCode: varchar("bankCode", { length: 10 }).notNull(),
+  accountNumber: varchar("accountNumber", { length: 20 }).notNull(),
+  accountName: varchar("accountName", { length: 255 }).notNull(),
+  provider: varchar("provider", { length: 16 }).notNull(), // 'paystack' | 'flutterwave'
+  label: varchar("label", { length: 64 }),
+  isPrimary: boolean("isPrimary").default(false).notNull(),
+  verifiedAt: timestamp("verifiedAt").notNull().defaultNow(),
+  status: varchar("status", { length: 16 }).default("active").notNull(), // 'active' | 'disabled'
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("merchant_payout_accounts_wallet_provider_account_uniq").on(t.walletId, t.provider, t.accountNumber),
+  index("merchant_payout_accounts_tenant_idx").on(t.tenantId, t.status),
+  index("merchant_payout_accounts_wallet_idx").on(t.walletId, t.isPrimary),
+]);
+export type MerchantPayoutAccountRow = typeof merchantPayoutAccounts.$inferSelect;
+export type NewMerchantPayoutAccountRow = typeof merchantPayoutAccounts.$inferInsert;
+
+// Agent banking cash-in/cash-out ledger (Feature 2): one row per CICO
+// transaction; integer cents only; reference is the unique idempotency key
+// (`cico:<kind>:<agentTenantId>:<clientRef>`). Exact split documented in
+// services/agentBanking.ts: amountCents = net customer movement, feeCents
+// charged on top, commissionCents = floor(amountCents * bps / 10000).
+export const agentCicoTransactions = pgTable("agent_cico_transactions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  agentTenantId: varchar("agentTenantId", { length: 36 }).notNull(),
+  customerPhone: varchar("customerPhone", { length: 32 }).notNull(),
+  kind: varchar("kind", { length: 16 }).notNull(), // 'cash_in' | 'cash_out'
+  amountCents: integer("amountCents").notNull(),
+  feeCents: integer("feeCents").default(0).notNull(),
+  commissionCents: integer("commissionCents").default(0).notNull(),
+  status: varchar("status", { length: 16 }).default("pending").notNull(), // 'pending' | 'completed' | 'failed'
+  reference: varchar("reference", { length: 64 }).notNull(),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("agent_cico_transactions_ref_uniq").on(t.reference),
+  index("agent_cico_transactions_agent_idx").on(t.agentTenantId, t.createdAt),
+]);
+export type AgentCicoTransactionRow = typeof agentCicoTransactions.$inferSelect;
+export type NewAgentCicoTransactionRow = typeof agentCicoTransactions.$inferInsert;
+
+// Merchant POS terminal registry (Feature 3): provider terminals (physical,
+// softpos, ussd_ref channel) registered per tenant; terminalRef unique per
+// (tenantId, provider) for idempotent re-registration.
+export const merchantPosTerminals = pgTable("merchant_pos_terminals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  provider: varchar("provider", { length: 16 }).notNull(), // 'paystack' | 'flutterwave' | 'softpos'
+  terminalRef: varchar("terminalRef", { length: 64 }).notNull(),
+  label: varchar("label", { length: 64 }),
+  storeLocation: varchar("storeLocation", { length: 255 }),
+  status: varchar("status", { length: 16 }).default("active").notNull(), // 'active' | 'disabled'
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("merchant_pos_terminals_ref_uniq").on(t.tenantId, t.provider, t.terminalRef),
+  index("merchant_pos_terminals_tenant_idx").on(t.tenantId, t.status),
+]);
+export type MerchantPosTerminalRow = typeof merchantPosTerminals.$inferSelect;
+export type NewMerchantPosTerminalRow = typeof merchantPosTerminals.$inferInsert;
+
+// POS payment sessions (Feature 3): short-lived charge intents surfaced as a
+// USSD short code + QR payload and pushed to a terminal; settled claim-first
+// by the provider webhook on the unique reference; expiry sweep releases
+// awaiting sessions. No PAN ever touches the platform (softPOS SDK does NFC).
+export const posPaymentSessions = pgTable("pos_payment_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  orderId: varchar("orderId", { length: 36 }),
+  amountCents: integer("amountCents").notNull(),
+  reference: varchar("reference", { length: 64 }).notNull(),
+  status: varchar("status", { length: 16 }).default("awaiting").notNull(), // 'awaiting' | 'charged' | 'failed' | 'expired'
+  channel: varchar("channel", { length: 16 }).notNull(), // 'physical' | 'softpos' | 'ussd_ref'
+  terminalId: uuid("terminalId"),
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("pos_payment_sessions_ref_uniq").on(t.reference),
+  index("pos_payment_sessions_tenant_idx").on(t.tenantId, t.createdAt),
+  index("pos_payment_sessions_expiry_idx").on(t.status, t.expiresAt),
+]);
+export type PosPaymentSessionRow = typeof posPaymentSessions.$inferSelect;
+export type NewPosPaymentSessionRow = typeof posPaymentSessions.$inferInsert;
+// === END W59 banking-pos ===
