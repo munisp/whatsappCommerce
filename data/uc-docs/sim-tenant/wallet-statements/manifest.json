@@ -1,33 +1,33 @@
 {
   "statements": [
     {
-      "id": "40039c2b-5c84-4541-8a32-0a6fe9d6b650",
-      "walletId": "ec98b759-605d-4ba3-ada8-f22e3cb64c55",
+      "id": "8f71ab9d-8957-4ce2-be3d-007a6fff89d9",
+      "walletId": "80d95f35-f2b3-4237-8b20-40761fc335d3",
       "periodStart": "2026-09-01",
       "periodEnd": "2026-10-01",
       "pdfPath": "sim-tenant/wallet-statements/statement-2026-09-01_2026-10-01.pdf",
       "openingCents": 0,
       "closingCents": 500000,
       "txCount": 1,
-      "generatedAt": "2026-10-01T23:38:56.974Z",
+      "generatedAt": "2026-10-02T06:14:07.224Z",
       "deliveries": [
         {
           "channel": "whatsapp",
-          "at": "2026-10-01T23:38:53.413Z",
+          "at": "2026-10-02T06:14:03.916Z",
           "messageId": "wamid.sim.001309",
           "target": "2348099900000"
         },
         {
           "channel": "whatsapp",
-          "at": "2026-10-01T23:38:55.300Z",
+          "at": "2026-10-02T06:14:05.564Z",
           "messageId": "wamid.sim.001310",
-          "target": "2348014642460"
+          "target": "2348013506676"
         },
         {
           "channel": "telegram",
-          "at": "2026-10-01T23:38:56.976Z",
+          "at": "2026-10-02T06:14:07.225Z",
           "messageId": null,
-          "target": "2348014642460"
+          "target": "2348013506676"
         }
       ]
     }

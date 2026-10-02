@@ -12,17 +12,17 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790897788134,
+      "at": 1790921503700,
       "kind": "interactive",
-      "body": "📦 PO-20261001-CA4N from Sim Store — ₦2,000.00 — pay now",
+      "body": "📦 PO-20261002-EZRH from Sim Store — ₦2,000.00 — pay now",
       "footer": "Approve to accept this purchase order.",
       "buttons": [
         {
-          "id": "po_approve:ab0db67c-3ba8-4ea8-b71d-292422f3382a",
+          "id": "po_approve:fb0737ab-03b6-4e81-96fb-8eeb870cafe8",
           "title": "Approve"
         },
         {
-          "id": "po_reject:ab0db67c-3ba8-4ea8-b71d-292422f3382a",
+          "id": "po_reject:fb0737ab-03b6-4e81-96fb-8eeb870cafe8",
           "title": "Reject"
         }
       ]
@@ -34,9 +34,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790897788147,
+      "at": 1790921503712,
       "kind": "text",
-      "body": "🚨 A payment dispute on your wholesale order ord-w45-j394-muq6ax9l was routed to the supplier for response (dispute 2b0c1243-9a7c-41b1-b365-953adcb5a057)."
+      "body": "🚨 A payment dispute on your wholesale order ord-w45-j394-muqkf8bb was routed to the supplier for response (dispute ca914a70-eabe-4b93-bab5-7ae761ebede0)."
     }
   ]
 }

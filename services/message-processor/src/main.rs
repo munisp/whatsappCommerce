@@ -70,8 +70,32 @@ impl KafkaEvent {
     }
 }
 
+// === W60 persistence ===
+/// True when the process runs as production (ENV or APP_ENV). Production is
+/// fail-closed for durable-state dependencies (Redis dedupe/DLQ).
+pub fn is_production() -> bool {
+    std::env::var("ENV")
+        .or_else(|_| std::env::var("APP_ENV"))
+        .map(|v| v.eq_ignore_ascii_case("production") || v.eq_ignore_ascii_case("prod"))
+        .unwrap_or(false)
+}
+
+/// Dev-only escape hatch for durable-state deps. Never honored in production.
+fn dev_inmemory_allowed(flag: &str) -> bool {
+    !is_production()
+        && std::env::var(flag)
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+}
+
+/// REDIS_DURABLE_URL (noeviction instance) preferred, then REDIS_URL.
+fn redis_url_from_env() -> Option<String> {
+    std::env::var("REDIS_DURABLE_URL").ok().filter(|v| !v.trim().is_empty())
+        .or_else(|| std::env::var("REDIS_URL").ok().filter(|v| !v.trim().is_empty()))
+}
+
 // ─── Deduplication Cache ──────────────────────────────────────────────────────
-/// In-memory dedup cache with TTL. In production, back with Redis SETNX.
+/// In-memory L1 dedup cache with TTL. Backed by Redis SETNX (see `Dedupe`).
 ///
 /// PERF-SC-2: NO per-message `retain()` (that was a full O(N) DashMap sweep in
 /// the consumer hot loop). Expiry is enforced per entry at lookup time, and a
@@ -144,6 +168,112 @@ impl DeduplicationCache {
     }
 }
 
+// === W60 persistence ===
+// ─── Durable Deduplication (Redis SETNX L2 + DashMap L1) ─────────────────────
+/// CRITICAL FIX (W60): the DashMap used to be the SOLE dedupe for consumed
+/// Kafka events — a restart wiped the seen-set and every redelivered event in
+/// the TTL window was reprocessed. Now the authoritative dedupe is Redis
+/// SETNX (`msgproc:seen:<event_id>`, 24h TTL — the notification-service
+/// `ns:idem:` pattern, pipeline.go:257); the DashMap is an L1 fast-path only.
+///
+/// FAIL-CLOSED: if Redis is unset/unreachable at startup the processor
+/// REFUSES to consume (panic with a loud error) rather than silently
+/// degrading to in-memory dedupe. Dev escape hatch: MP_ALLOW_INMEMORY_DEDUP=1
+/// with ENV != production. Mid-stream Redis errors do not process the event:
+/// ProcessOutcome::DedupeUnavailable is returned and the offset is NOT
+/// committed, so the event is replayed (restart/rebalance) once Redis heals.
+pub enum Dedupe {
+    Redis { conn: redis::aio::MultiplexedConnection, l1: DeduplicationCache },
+    Memory { l1: DeduplicationCache },
+}
+
+/// Result of a dedupe claim.
+pub enum DedupeVerdict {
+    New,
+    Duplicate,
+    /// Dedupe store unreachable — fail-closed; caller must NOT process and
+    /// must NOT commit the offset.
+    Unavailable,
+}
+
+impl Dedupe {
+    /// Redis SETNX key prefix + TTL (notification-service ns:idem: pattern).
+    const KEY_PREFIX: &'static str = "msgproc:seen:";
+    const TTL_SECS: u64 = 86_400; // 24h
+
+    pub async fn connect_from_env() -> Self {
+        let allow_mem = dev_inmemory_allowed("MP_ALLOW_INMEMORY_DEDUP");
+        match redis_url_from_env() {
+            Some(url) => match redis::Client::open(url) {
+                Ok(client) => match client.get_multiplexed_async_connection().await {
+                    Ok(conn) => {
+                        tracing::info!(prefix = Self::KEY_PREFIX, ttl_secs = Self::TTL_SECS,
+                            "[dedupe] durable backend: Redis SETNX (L2) + DashMap (L1)");
+                        return Dedupe::Redis { conn, l1: DeduplicationCache::new(300) };
+                    }
+                    Err(e) => tracing::error!(error = %e, "[dedupe] REDIS_URL set but connect failed"),
+                },
+                Err(e) => tracing::error!(error = %e, "[dedupe] invalid REDIS_URL"),
+            },
+            None => tracing::error!("[dedupe] REDIS_URL/REDIS_DURABLE_URL not set"),
+        }
+        if allow_mem {
+            tracing::warn!("[dedupe] MP_ALLOW_INMEMORY_DEDUP=1 (dev only) — in-memory DashMap dedupe; NOT durable across restart");
+            Dedupe::Memory { l1: DeduplicationCache::new(300) }
+        } else {
+            panic!("[dedupe] FATAL: durable Redis dedupe unavailable (REDIS_URL unset/unreachable) — refusing to consume Kafka events without idempotency. Set REDIS_URL, or MP_ALLOW_INMEMORY_DEDUP=1 outside production.");
+        }
+    }
+
+    pub fn backend(&self) -> &'static str {
+        match self {
+            Dedupe::Redis { .. } => "redis+l1",
+            Dedupe::Memory { .. } => "memory-dev-only",
+        }
+    }
+
+    /// Claim `event_id` (trace_id) BEFORE processing. L1 hit short-circuits;
+    /// otherwise Redis SET NX EX is authoritative and warms L1 on a dup.
+    pub async fn check(&mut self, event_id: &str) -> DedupeVerdict {
+        match self {
+            Dedupe::Redis { conn, l1 } => {
+                if l1.is_duplicate(event_id) {
+                    return DedupeVerdict::Duplicate;
+                }
+                let res: redis::RedisResult<Option<String>> = redis::cmd("SET")
+                    .arg(format!("{}{}", Self::KEY_PREFIX, event_id))
+                    .arg("1")
+                    .arg("EX")
+                    .arg(Self::TTL_SECS)
+                    .arg("NX")
+                    .query_async(conn)
+                    .await;
+                match res {
+                    // SET NX succeeded → key did not exist → new event.
+                    Ok(Some(_)) => DedupeVerdict::New,
+                    // Nil → key already exists → duplicate; warm L1.
+                    Ok(None) => {
+                        l1.is_duplicate(event_id);
+                        DedupeVerdict::Duplicate
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, event_id = %event_id,
+                            "[dedupe] Redis SETNX failed — FAIL-CLOSED: event not processed, offset NOT committed");
+                        DedupeVerdict::Unavailable
+                    }
+                }
+            }
+            Dedupe::Memory { l1 } => {
+                if l1.is_duplicate(event_id) {
+                    DedupeVerdict::Duplicate
+                } else {
+                    DedupeVerdict::New
+                }
+            }
+        }
+    }
+}
+
 // ─── Message Router ───────────────────────────────────────────────────────────
 /// Routes events to appropriate downstream handlers based on event_type.
 pub struct MessageRouter {
@@ -197,15 +327,25 @@ impl Dlq {
     pub async fn connect_from_env() -> Self {
         // PERF-SC-16: the DLQ list is durable state — prefer the noeviction
         // instance (REDIS_DURABLE_URL) over the LRU cache instance.
-        let url_env = std::env::var("REDIS_DURABLE_URL").ok().filter(|v| !v.trim().is_empty())
-            .or_else(|| std::env::var("REDIS_URL").ok());
+        let url_env = redis_url_from_env();
+        // === W60 persistence ===
+        // The in-memory Vec fallback loses every dead-lettered event on
+        // restart. It is DEV-ONLY: production is fail-closed — no Redis URL,
+        // no startup. Dev keeps the fallback with a loud log.
+        if url_env.is_none() {
+            if is_production() {
+                panic!("[dlq] FATAL: REDIS_URL/REDIS_DURABLE_URL unset in production — refusing to start with an in-memory DLQ (dead-lettered events would be lost on restart)");
+            }
+            tracing::warn!("[dlq] REDIS_URL not set — in-memory DLQ (DEV ONLY, NOT durable across restart)");
+            return Dlq::Memory(Vec::new());
+        }
         match url_env {
             Some(url) => {
                 let client = match redis::Client::open(url) {
                     Ok(c) => c,
                     Err(e) => {
                         tracing::error!(error = %e, "[dlq] invalid REDIS_URL — FALLBACK: in-memory DLQ (NOT durable across restart)");
-                        return Dlq::Memory(Vec::new());
+                        return Self::memory_fallback();
                     }
                 };
                 match client.get_multiplexed_async_connection().await {
@@ -215,15 +355,23 @@ impl Dlq {
                     }
                     Err(e) => {
                         tracing::error!(error = %e, "[dlq] REDIS_URL set but connect failed — FALLBACK: in-memory DLQ (NOT durable across restart)");
-                        Dlq::Memory(Vec::new())
+                        Self::memory_fallback()
                     }
                 }
             }
-            _ => {
-                tracing::warn!("[dlq] REDIS_URL not set — in-memory DLQ (NOT durable across restart)");
-                Dlq::Memory(Vec::new())
-            }
+            _ => unreachable!("url_env checked non-empty above"),
         }
+    }
+
+    /// === W60 persistence ===
+    /// In-memory DLQ is dev-only: production fails closed rather than risking
+    /// silent loss of dead-lettered events on restart.
+    fn memory_fallback() -> Self {
+        if is_production() {
+            panic!("[dlq] FATAL: Redis DLQ unreachable in production — refusing to start with an in-memory DLQ (dead-lettered events would be lost on restart)");
+        }
+        tracing::warn!("[dlq] DEV in-memory DLQ active — NOT durable across restart");
+        Dlq::Memory(Vec::new())
     }
 
     /// Which backend is active — surfaced in logs/health so an in-memory
@@ -314,10 +462,14 @@ pub enum ProcessOutcome {
     Routed,
     Duplicate,
     DeadLettered,
+    /// === W60 persistence ===
+    /// Durable dedupe store unreachable — event NOT processed and offset NOT
+    /// committed (fail-closed; replayed on restart/rebalance).
+    DedupeUnavailable,
 }
 
 pub struct MessageProcessor {
-    dedup: DeduplicationCache,
+    dedup: Dedupe,
     router: MessageRouter,
     dlq: Dlq,
 }
@@ -357,7 +509,9 @@ impl MessageProcessor {
         });
 
         Self {
-            dedup: DeduplicationCache::new(300), // 5-minute dedup window
+            // === W60 persistence === Redis SETNX dedupe (24h) is authoritative;
+            // the DashMap is L1 only. Fails closed at startup without Redis.
+            dedup: Dedupe::connect_from_env().await,
             router,
             dlq: Dlq::connect_from_env().await,
         }
@@ -369,10 +523,20 @@ impl MessageProcessor {
     pub async fn process(&mut self, raw_message: &str) -> ProcessOutcome {
         match KafkaEvent::from_json(raw_message) {
             Ok(event) => {
-                // Deduplicate by trace_id
-                if self.dedup.is_duplicate(&event.trace_id) {
-                    tracing::debug!(trace_id = %event.trace_id, "[processor] duplicate event skipped");
-                    return ProcessOutcome::Duplicate;
+                // === W60 persistence === Deduplicate by trace_id via Redis
+                // SETNX (msgproc:seen:<trace_id>, 24h TTL) BEFORE processing —
+                // the DashMap L1 alone was wiped on restart, reprocessing every
+                // redelivered event in the TTL window.
+                match self.dedup.check(&event.trace_id).await {
+                    DedupeVerdict::Duplicate => {
+                        tracing::debug!(trace_id = %event.trace_id, "[processor] duplicate event skipped");
+                        return ProcessOutcome::Duplicate;
+                    }
+                    DedupeVerdict::Unavailable => {
+                        // Fail-closed: do not route, do not let the caller commit.
+                        return ProcessOutcome::DedupeUnavailable;
+                    }
+                    DedupeVerdict::New => {}
                 }
                 self.router.route(&event);
                 ProcessOutcome::Routed
@@ -496,7 +660,7 @@ async fn main() {
         .expect("failed to create kafka DLQ producer");
 
     let mut processor = MessageProcessor::new().await;
-    tracing::info!(backend = processor.dlq_backend(), kafka_dlq = %dlq_topic, "DLQ backend");
+    tracing::info!(backend = processor.dlq_backend(), dedupe = processor.dedup.backend(), kafka_dlq = %dlq_topic, "DLQ + dedupe backends");
 
     let mut since_commit: usize = 0;
     loop {
@@ -520,6 +684,14 @@ async fn main() {
                 };
 
                 let outcome = processor.process(raw).await;
+                // === W60 persistence === fail-closed dedupe: on Redis outage
+                // the event was NOT processed — do NOT commit the offset, so
+                // it is replayed on restart/rebalance once Redis heals.
+                if outcome == ProcessOutcome::DedupeUnavailable {
+                    tracing::error!("[consumer] dedupe store unavailable — offset NOT committed; backing off");
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
                 if outcome == ProcessOutcome::DeadLettered {
                     // PERF-SC-7: spawned, non-blocking DLQ produce.
                     spawn_dlq_produce(
@@ -552,6 +724,13 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// === W60 persistence ===
+    /// Unit tests run without Redis: enable the dev-only in-memory dedupe
+    /// escape hatch so MessageProcessor::new() does not fail closed.
+    fn allow_dev_inmemory_dedupe() {
+        std::env::set_var("MP_ALLOW_INMEMORY_DEDUP", "1");
+    }
 
     #[test]
     fn test_deduplication() {
@@ -598,6 +777,7 @@ mod tests {
 
     #[test]
     fn test_processor_dlq() {
+        allow_dev_inmemory_dedupe();
         tokio_test::block_on(async {
             let mut processor = MessageProcessor::new().await;
             assert_eq!(processor.process("invalid json {{{").await, ProcessOutcome::DeadLettered);
@@ -609,6 +789,7 @@ mod tests {
     // topic/DLQ configuration.
     #[test]
     fn test_process_outcomes() {
+        allow_dev_inmemory_dedupe();
         tokio_test::block_on(async {
             let mut processor = MessageProcessor::new().await;
             let good = r#"{"event_type":"orders.created","source":"t","timestamp":1,"trace_id":"t-1","payload":{}}"#;
@@ -652,5 +833,31 @@ mod tests {
             assert_eq!(dlq.drain(2).await, vec!["a".to_string(), "b".to_string()]);
             assert_eq!(dlq.len().await, 1);
         });
+    }
+
+    // === W60 persistence ===
+    // Durable dedupe: in-memory (dev) mode dedupes via the L1 cache and
+    // reports an honest backend; prod-mode detection and the dev gate.
+    #[test]
+    fn test_dedupe_memory_dev_mode() {
+        tokio_test::block_on(async {
+            let mut d = Dedupe::Memory { l1: DeduplicationCache::new(300) };
+            assert_eq!(d.backend(), "memory-dev-only");
+            assert!(matches!(d.check("evt-1").await, DedupeVerdict::New));
+            assert!(matches!(d.check("evt-1").await, DedupeVerdict::Duplicate));
+            assert!(matches!(d.check("evt-2").await, DedupeVerdict::New));
+        });
+    }
+
+    #[test]
+    fn test_prod_fail_closed_gates() {
+        // In the sandbox ENV is unset → not production → dev gate honors flag.
+        std::env::remove_var("ENV");
+        std::env::remove_var("APP_ENV");
+        assert!(!is_production());
+        assert!(dev_inmemory_allowed("MP_ALLOW_INMEMORY_DEDUP"));
+        // Dedupe key shape: msgproc:seen:<event_id> per the W60 audit fix.
+        assert_eq!(Dedupe::KEY_PREFIX, "msgproc:seen:");
+        assert_eq!(Dedupe::TTL_SECS, 86_400);
     }
 }

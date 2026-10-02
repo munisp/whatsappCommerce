@@ -62,6 +62,9 @@ struct Config {
     circuit_breaker_threshold: u32,
     circuit_breaker_reset_secs: u64,
     dlq_dir: String,
+    // === W60 persistence === durable DLQ backend (Redis list `hermes:dlq`).
+    redis_url: Option<String>,
+    dlq_cap: isize,
 }
 
 impl Config {
@@ -106,6 +109,58 @@ impl Config {
                 .unwrap_or(30),
             dlq_dir: std::env::var("DLQ_DIR")
                 .unwrap_or_else(|_| "/tmp/hermes-dlq".into()),
+            // === W60 persistence === prefer the noeviction instance for DLQ
+            // durability (same convention as message-processor PERF-SC-16).
+            redis_url: std::env::var("REDIS_DURABLE_URL").ok().filter(|v| !v.trim().is_empty())
+                .or_else(|| std::env::var("REDIS_URL").ok().filter(|v| !v.trim().is_empty())),
+            dlq_cap: std::env::var("HERMES_DLQ_CAP")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(10_000),
+        }
+    }
+}
+
+// === W60 persistence ===
+/// Durable DLQ backend. Pod-local JSONL files are lost on pod loss/reschedule;
+/// production must RPUSH to the Redis list `hermes:dlq` (capped via LTRIM) and
+/// refuses to start without it. The file fallback is dev-only.
+#[derive(Clone)]
+enum DlqBackend {
+    Redis(redis::aio::MultiplexedConnection),
+    File, // dev-only
+}
+
+impl DlqBackend {
+    const REDIS_KEY: &'static str = "hermes:dlq";
+
+    async fn connect(config: &Config) -> Self {
+        let prod = config.env == "production";
+        match &config.redis_url {
+            Some(url) => match redis::Client::open(url.as_str()) {
+                Ok(client) => match client.get_multiplexed_async_connection().await {
+                    Ok(conn) => {
+                        info!(key = Self::REDIS_KEY, cap = config.dlq_cap, "[dlq] durable backend: Redis list");
+                        return DlqBackend::Redis(conn);
+                    }
+                    Err(e) => error!(error = %e, "[dlq] Redis configured but connect failed"),
+                },
+                Err(e) => error!(error = %e, "[dlq] invalid Redis URL"),
+            },
+            None => error!("[dlq] REDIS_URL/REDIS_DURABLE_URL not set"),
+        }
+        if prod {
+            error!("[dlq] FATAL: production requires a Redis DLQ (REDIS_URL) — pod-local JSONL files are lost on pod loss/reschedule. Refusing to start.");
+            std::process::exit(1);
+        }
+        tracing::warn!(dlq_dir = %config.dlq_dir, "[dlq] DEV fallback: append-only JSONL file DLQ (NOT durable across pod loss)");
+        DlqBackend::File
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            DlqBackend::Redis(_) => "redis",
+            DlqBackend::File => "file-dev-only",
         }
     }
 }
@@ -226,10 +281,11 @@ struct AppState {
     total_failed: Arc<AtomicU64>,
     total_dlq: Arc<AtomicU64>,
     routes: Arc<RwLock<Vec<RouteTarget>>>,
+    dlq: DlqBackend, // === W60 persistence === durable DLQ
 }
 
 impl AppState {
-    fn new(config: Config) -> Self {
+    fn new(config: Config, dlq: DlqBackend) -> Self {
         let cfg = Arc::new(config);
 
         // Default routing table: platform events → Hermes Agent + Python skills
@@ -272,6 +328,7 @@ impl AppState {
             total_dlq: Arc::new(AtomicU64::new(0)),
             routes: Arc::new(RwLock::new(default_routes)),
             config: cfg,
+            dlq,
         }
     }
 
@@ -408,7 +465,7 @@ async fn deliver_with_retry(
     // All retries exhausted → send to DLQ
     state.total_failed.fetch_add(1, Ordering::Relaxed);
     state.total_dlq.fetch_add(1, Ordering::Relaxed);
-    write_to_dlq(&state.config.dlq_dir, &event, &target.name, &last_error).await;
+    write_to_dlq(&state, &event, &target.name, &last_error).await;
 
     RoutingResult {
         event_id: event.id.clone(),
@@ -449,7 +506,48 @@ async fn deliver_once(
     Ok(())
 }
 
-async fn write_to_dlq(dlq_dir: &str, event: &EventEnvelope, target: &str, error: &Option<String>) {
+// === W60 persistence ===
+/// Dead-letter sink. Primary: Redis list `hermes:dlq` (RPUSH + LTRIM cap) so
+/// dead-lettered events survive pod loss/reschedule. Dev-only fallback: the
+/// legacy append-only JSONL file. In production the file path is unreachable
+/// (startup fails closed); a mid-stream Redis failure in prod is logged as a
+/// loud error (event remains retryable upstream — it is NOT silently dropped
+/// to disk).
+async fn write_to_dlq(state: &AppState, event: &EventEnvelope, target: &str, error: &Option<String>) {
+    let entry = serde_json::json!({
+        "event": event,
+        "target": target,
+        "error": error,
+        "dlq_at": Utc::now().to_rfc3339(),
+    });
+    let short_id = event.id.get(..8).unwrap_or(event.id.as_str());
+    if let DlqBackend::Redis(conn) = &state.dlq {
+        if let Ok(content) = serde_json::to_string(&entry) {
+            let mut conn = conn.clone();
+            let res: redis::RedisResult<()> = redis::pipe()
+                .rpush(DlqBackend::REDIS_KEY, content)
+                .ltrim(DlqBackend::REDIS_KEY, -state.config.dlq_cap, -1)
+                .query_async(&mut conn)
+                .await;
+            match res {
+                Ok(()) => {
+                    error!(event_id = %event.id, short_id, target, dlq = DlqBackend::REDIS_KEY, "event sent to DLQ (redis)");
+                    return;
+                }
+                Err(e) => {
+                    error!(event_id = %event.id, short_id, target, error = %e, "[dlq] Redis RPUSH failed — event NOT dead-lettered durably");
+                    if state.config.env == "production" {
+                        return; // fail-closed: no silent disk spill in prod
+                    }
+                    // dev: fall through to file fallback
+                }
+            }
+        }
+    }
+    write_to_dlq_file(&state.config.dlq_dir, event, target, error).await;
+}
+
+async fn write_to_dlq_file(dlq_dir: &str, event: &EventEnvelope, target: &str, error: &Option<String>) {
     let _ = tokio::fs::create_dir_all(dlq_dir).await;
     // PERF-SC-14: (a) `&event.id[..8]` panicked on ids shorter than 8 bytes
     // (ids come from unconstrained inbound JSON, inside a spawned task —
@@ -705,10 +803,16 @@ async fn main() -> Result<()> {
         "hermes-router starting"
     );
 
-    // Ensure DLQ directory exists
-    tokio::fs::create_dir_all(&config.dlq_dir).await?;
+    // === W60 persistence === durable DLQ: Redis list in prod (fail-closed),
+    // JSONL file fallback dev-only.
+    let dlq = DlqBackend::connect(&config).await;
+    info!(dlq_backend = dlq.name(), env = %config.env, "DLQ persistence mode");
+    if matches!(dlq, DlqBackend::File) {
+        // Dev fallback only — ensure the directory exists.
+        tokio::fs::create_dir_all(&config.dlq_dir).await?;
+    }
 
-    let state = AppState::new(config.clone());
+    let state = AppState::new(config.clone(), dlq);
     let port = config.port;
 
     let app = Router::new()

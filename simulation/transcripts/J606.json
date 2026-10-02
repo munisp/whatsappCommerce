@@ -1,0 +1,42 @@
+{
+  "id": "J606",
+  "title": "onboarding edit proposal survives restart (Redis-primary store)",
+  "feature": "W60 persistence: waOnboarding pending edit proposals",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348016671337",
+      "wamid": "wamid.sim.001313",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790921655779,
+      "kind": "text",
+      "body": "Sure — reply with your changes in one message and I'll rework the proposal."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016671337",
+      "wamid": "wamid.sim.001314",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790921655779,
+      "kind": "text",
+      "body": "rejected, redrafting"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016671337",
+      "wamid": "wamid.sim.001315",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790921655779,
+      "kind": "text",
+      "body": "revised proposal"
+    }
+  ]
+}

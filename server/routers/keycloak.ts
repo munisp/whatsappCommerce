@@ -191,7 +191,7 @@ export const keycloakRouter = router({
         state: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
 
@@ -362,6 +362,22 @@ export const keycloakRouter = router({
       };
 
       const sessionToken = jwt.sign(sessionPayload, ENV.jwtSecret);
+
+      // === W60 persistence (audit-b auth-token hygiene) ===
+      // Mirror the SSO portal session into an httpOnly SameSite=Lax cookie;
+      // the SPA stops writing portal_session_token to localStorage (cookie
+      // first, one-release localStorage fallback reader retained client-side
+      // with a TODO).
+      try {
+        const { getSessionCookieOptions } = await import("../_core/cookies");
+        ctx.res.cookie("portal_session", sessionToken, {
+          ...getSessionCookieOptions(ctx.req),
+          maxAge: 24 * 3600 * 1000,
+        });
+      } catch (cookieErr: any) {
+        console.warn("[keycloak] portal_session cookie set failed:", cookieErr?.message);
+      }
+      // === END W60 persistence ===
 
       // ── Upsert SSO profile for the tenant ────────────────────────────────
       // Provisions the tenant's SSO identity on first login; keeps email/name

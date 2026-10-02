@@ -7,245 +7,245 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348016450673",
+      "phone": "2348012906326",
       "wamid": "wamid.sim.000963",
       "statuses": [
         "sent"
       ],
-      "at": 1790897689756,
+      "at": 1790921407457,
       "kind": "text",
-      "body": "✅ Deposit ₦100.00 received — your Braids Deluxe J348 appointment on Sun, 04 Oct 2026 23:34:49 GMT is confirmed (ref 97d2ff6f)."
+      "body": "✅ Deposit ₦100.00 received — your Braids Deluxe J348 appointment on Mon, 05 Oct 2026 06:10:07 GMT is confirmed (ref 3530c11c)."
     },
     {
       "dir": "in",
-      "phone": "2348016450673",
-      "profileName": "Sim User 0673",
+      "phone": "2348012906326",
+      "profileName": "Sim User 6326",
       "inboundId": "wamid.sim.in.text.00533",
-      "at": 1790897690157,
+      "at": 1790921407835,
       "kind": "text",
-      "text": "cancel appointment 97d2ff6f"
+      "text": "cancel appointment 3530c11c"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00533",
-      "at": 1790897690166
+      "at": 1790921407843
     },
     {
       "dir": "out",
-      "phone": "2348016450673",
+      "phone": "2348012906326",
       "wamid": "wamid.sim.000964",
       "statuses": [
         "sent"
       ],
-      "at": 1790897690216,
+      "at": 1790921407895,
       "kind": "text",
-      "body": "Your appointment (ref 97d2ff6f) is cancelled. Your ₦100.00 deposit has been refunded."
+      "body": "Your appointment (ref 3530c11c) is cancelled. Your ₦100.00 deposit has been refunded."
     },
     {
       "dir": "out",
-      "phone": "2348016450673",
+      "phone": "2348012906326",
       "wamid": "wamid.sim.000965",
       "statuses": [
         "sent"
       ],
-      "at": 1790897690219,
+      "at": 1790921407898,
       "kind": "text",
       "body": "✅ Appointment cancelled — your deposit is being refunded."
     },
     {
       "dir": "in",
-      "phone": "2348016450673",
-      "profileName": "Sim User 0673",
+      "phone": "2348012906326",
+      "profileName": "Sim User 6326",
       "inboundId": "wamid.sim.in.text.00534",
-      "at": 1790897690704,
+      "at": 1790921408379,
       "kind": "text",
-      "text": "cancel appointment 97d2ff6f"
+      "text": "cancel appointment 3530c11c"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00534",
-      "at": 1790897690719
+      "at": 1790921408386
     },
     {
       "dir": "out",
-      "phone": "2348016450673",
+      "phone": "2348012906326",
       "wamid": "wamid.sim.000966",
       "statuses": [
         "sent"
       ],
-      "at": 1790897690751,
+      "at": 1790921408406,
       "kind": "text",
       "body": "I couldn't find an active appointment on this number."
     },
     {
       "dir": "out",
-      "phone": "2348016469165",
+      "phone": "2348014264106",
       "wamid": "wamid.sim.000967",
       "statuses": [
         "sent"
       ],
-      "at": 1790897691300,
+      "at": 1790921408974,
       "kind": "text",
-      "body": "✅ Deposit ₦100.00 received — your Braids Deluxe J348 appointment on Fri, 02 Oct 2026 02:34:51 GMT is confirmed (ref 18f7f4fe)."
+      "body": "✅ Deposit ₦100.00 received — your Braids Deluxe J348 appointment on Fri, 02 Oct 2026 09:10:08 GMT is confirmed (ref e28bba27)."
     },
     {
       "dir": "in",
-      "phone": "2348016469165",
-      "profileName": "Sim User 9165",
+      "phone": "2348014264106",
+      "profileName": "Sim User 4106",
       "inboundId": "wamid.sim.in.text.00535",
-      "at": 1790897691716,
+      "at": 1790921409370,
       "kind": "text",
-      "text": "cancel appointment 18f7f4fe"
+      "text": "cancel appointment e28bba27"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00535",
-      "at": 1790897691726
+      "at": 1790921409378
     },
     {
       "dir": "out",
-      "phone": "2348016469165",
+      "phone": "2348014264106",
       "wamid": "wamid.sim.000968",
       "statuses": [
         "sent"
       ],
-      "at": 1790897691899,
+      "at": 1790921409413,
       "kind": "text",
-      "body": "Your appointment (ref 18f7f4fe) is cancelled. Because this is within 24h of the start time, the ₦100.00 deposit is forfeited."
+      "body": "Your appointment (ref e28bba27) is cancelled. Because this is within 24h of the start time, the ₦100.00 deposit is forfeited."
     },
     {
       "dir": "out",
-      "phone": "2348016469165",
+      "phone": "2348014264106",
       "wamid": "wamid.sim.000969",
       "statuses": [
         "sent"
       ],
-      "at": 1790897691932,
+      "at": 1790921409417,
       "kind": "text",
       "body": "Appointment cancelled. Because this was inside the cancel window, the deposit is forfeited."
     },
     {
       "dir": "out",
-      "phone": "2348014650621",
+      "phone": "2348017088932",
       "wamid": "wamid.sim.000970",
       "statuses": [
         "sent"
       ],
-      "at": 1790897692409,
+      "at": 1790921409961,
       "kind": "text",
-      "body": "✅ Deposit ₦100.00 received — your Braids Deluxe J348 appointment on Sat, 03 Oct 2026 05:34:52 GMT is confirmed (ref 7e471113)."
+      "body": "✅ Deposit ₦100.00 received — your Braids Deluxe J348 appointment on Sat, 03 Oct 2026 12:10:09 GMT is confirmed (ref 7cd641bd)."
     },
     {
       "dir": "in",
-      "phone": "2348013390999",
-      "profileName": "Sim User 0999",
+      "phone": "2348014226934",
+      "profileName": "Sim User 6934",
       "inboundId": "wamid.sim.in.text.00536",
-      "at": 1790897692813,
+      "at": 1790921410374,
       "kind": "text",
-      "text": "APPT NOSHOW 7e471113"
+      "text": "APPT NOSHOW 7cd641bd"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00536",
-      "at": 1790897692820
+      "at": 1790921410382
     },
     {
       "dir": "out",
-      "phone": "2348014650621",
+      "phone": "2348017088932",
       "wamid": "wamid.sim.000971",
       "statuses": [
         "sent"
       ],
-      "at": 1790897692874,
+      "at": 1790921410417,
       "kind": "text",
-      "body": "You missed your appointment (ref 7e471113). As a no-show, the deposit is kept. Please chat with us to rebook."
+      "body": "You missed your appointment (ref 7cd641bd). As a no-show, the deposit is kept. Please chat with us to rebook."
     },
     {
       "dir": "out",
-      "phone": "2348013390999",
+      "phone": "2348014226934",
       "wamid": "wamid.sim.000972",
       "statuses": [
         "sent"
       ],
-      "at": 1790897692878,
+      "at": 1790921410422,
       "kind": "text",
-      "body": "Appointment 7e471113 marked no-show — deposit kept, customer notified."
+      "body": "Appointment 7cd641bd marked no-show — deposit kept, customer notified."
     },
     {
       "dir": "out",
-      "phone": "2348011515871",
+      "phone": "2348016920700",
       "wamid": "wamid.sim.000973",
       "statuses": [
         "sent"
       ],
-      "at": 1790897693404,
+      "at": 1790921410957,
       "kind": "text",
-      "body": "✅ Deposit ₦100.00 received — your Braids Deluxe J348 appointment on Fri, 02 Oct 2026 04:34:53 GMT is confirmed (ref 2048b82d)."
+      "body": "✅ Deposit ₦100.00 received — your Braids Deluxe J348 appointment on Fri, 02 Oct 2026 11:10:10 GMT is confirmed (ref 3b801245)."
     },
     {
       "dir": "in",
-      "phone": "2348011515871",
-      "profileName": "Sim User 5871",
+      "phone": "2348016920700",
+      "profileName": "Sim User 0700",
       "inboundId": "wamid.sim.in.text.00537",
-      "at": 1790897693810,
+      "at": 1790921411363,
       "kind": "text",
-      "text": "cancel appointment 2048b82d"
+      "text": "cancel appointment 3b801245"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00537",
-      "at": 1790897693817
+      "at": 1790921411370
     },
     {
       "dir": "out",
-      "phone": "2348011515871",
+      "phone": "2348016920700",
       "wamid": "wamid.sim.000974",
       "statuses": [
         "sent"
       ],
-      "at": 1790897693869,
+      "at": 1790921411414,
       "kind": "text",
-      "body": "Your appointment (ref 2048b82d) is cancelled. Your ₦100.00 deposit has been refunded."
+      "body": "Your appointment (ref 3b801245) is cancelled. Your ₦100.00 deposit has been refunded."
     },
     {
       "dir": "out",
-      "phone": "2348011515871",
+      "phone": "2348016920700",
       "wamid": "wamid.sim.000975",
       "statuses": [
         "sent"
       ],
-      "at": 1790897693873,
+      "at": 1790921411418,
       "kind": "text",
       "body": "✅ Appointment cancelled — your deposit is being refunded."
     },
     {
       "dir": "in",
-      "phone": "2348016450673",
-      "profileName": "Sim User 0673",
+      "phone": "2348012906326",
+      "profileName": "Sim User 6326",
       "inboundId": "wamid.sim.in.text.00538",
-      "at": 1790897694359,
+      "at": 1790921411920,
       "kind": "text",
-      "text": "APPT NOSHOW 7e471113"
+      "text": "APPT NOSHOW 7cd641bd"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00538",
-      "at": 1790897694368
+      "at": 1790921411928
     },
     {
       "dir": "out",
-      "phone": "2348016450673",
+      "phone": "2348012906326",
       "wamid": "wamid.sim.000976",
       "statuses": [
         "sent"
       ],
-      "at": 1790897694405,
+      "at": 1790921411953,
       "kind": "text",
       "body": "Sorry, only store staff can manage appointments."
     }

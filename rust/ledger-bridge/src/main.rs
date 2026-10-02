@@ -1527,6 +1527,19 @@ fn build_otel_tracer(
 }
 // === END W35 otel ===
 
+// === W60 persistence ===
+/// The in-memory ledger (pending/balances DashMaps) is DEV/SIM ONLY: a restart
+/// loses all balances/reservations — money loss. It is permitted solely when
+/// ENV (or APP_ENV) is EXPLICITLY a dev/sim value AND LEDGER_ALLOW_INMEMORY
+/// is set. Anything else (including ENV unset or ENV=production) refuses to
+/// start with the in-memory ledger.
+fn is_dev_or_sim_env(env_name: &str) -> bool {
+    matches!(
+        env_name.trim().to_ascii_lowercase().as_str(),
+        "dev" | "development" | "sim" | "simulation" | "local"
+    )
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // === W35 otel ===
@@ -1545,9 +1558,28 @@ async fn main() -> Result<()> {
         );
         std::process::exit(1);
     }
+    // === W60 persistence ===
+    // HARDENED: the in-memory ledger requires BOTH LEDGER_ALLOW_INMEMORY=true
+    // AND an explicit dev/sim ENV. Previously the flag alone enabled it —
+    // a stray env var in prod would have run the money ledger from pod memory.
+    let env_name = env::var("ENV").or_else(|_| env::var("APP_ENV")).unwrap_or_default();
     if cfg.allow_inmemory {
-        warn!("LEDGER_ALLOW_INMEMORY=true — DEV MODE: in-memory ledger fallback is ENABLED. Do not use in production.");
+        if !is_dev_or_sim_env(&env_name) {
+            error!(
+                env = %env_name,
+                "FATAL: LEDGER_ALLOW_INMEMORY=true but ENV/APP_ENV is not explicitly dev/sim — \
+                 the in-memory ledger is not durable (restart loses all balances/reservations). \
+                 Refusing to start. Set ENV=dev (or sim) for local development only."
+            );
+            std::process::exit(1);
+        }
+        warn!(env = %env_name, "LEDGER_ALLOW_INMEMORY=true + dev/sim ENV — DEV MODE: in-memory ledger fallback ENABLED. NEVER in production.");
     }
+    info!(
+        ledger_mode = if cfg.allow_inmemory { "in-memory-dev-only" } else { "tigerbeetle-durable" },
+        env = %env_name,
+        "ledger persistence mode"
+    );
     if cfg.platform_escrow_account.is_none() && !cfg.allow_inmemory {
         warn!("PLATFORM_ESCROW_ACCOUNT_ID is not set — /ledger/reserve without an explicit credit_account_id will fail");
     }
@@ -1592,6 +1624,17 @@ mod tests {
 
     /// Dev-only in-memory AppState: TigerBeetle pointed at an unreachable
     /// address (health() == false), no PostgreSQL, in-memory fallback enabled.
+    // === W60 persistence === in-memory ledger is gated to explicit dev/sim ENV.
+    #[test]
+    fn test_inmemory_env_gate() {
+        for ok in ["dev", "development", "sim", "simulation", "local", "DEV", " Sim "] {
+            assert!(is_dev_or_sim_env(ok), "{ok} should be allowed");
+        }
+        for no in ["", "production", "prod", "staging", "qa"] {
+            assert!(!is_dev_or_sim_env(no), "{no} must be refused");
+        }
+    }
+
     fn dev_state() -> AppState {
         AppState {
             pending: Arc::new(DashMap::new()),

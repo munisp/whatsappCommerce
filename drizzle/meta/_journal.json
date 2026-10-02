@@ -1212,6 +1212,13 @@
       "when": 1790610001000,
       "tag": "0179_w59_banking_pos",
       "breakpoints": true
+    },
+    {
+      "idx": 180,
+      "version": "7",
+      "when": 1790610002000,
+      "tag": "0180_w60_server_persistence",
+      "breakpoints": true
     }
   ]
 }

@@ -606,8 +606,19 @@ export async function createChatOrder(
   // if a concurrent checkout claimed the last unit since the pre-check, it
   // throws InsufficientStockError and the WHOLE order rolls back — no order,
   // no payment link, no oversell.
+  // === W60 VERIFY (J18 full-run flake): claim-FIRST inside the tx. Two
+  // racers in the same millisecond generate the SAME orderNumber
+  // (`ORD-${Date.now().toString(36)}`); with the insert first, the loser's
+  // INSERT hit orders_number_idx (unique tenantId+orderNumber) BEFORE
+  // reserveStock could throw InsufficientStockError, so the raw unique
+  // violation escaped to the webhook catch and the loser never got the
+  // shortage reply. Reserving first turns the loser path into the designed
+  // InsufficientStockError → shortage reply, regardless of ms collisions.
+  // inventoryReservations.orderId has no FK, so reserving before the order
+  // row insert inside one tx is safe (both commit or both roll back). ===
   try {
     await db.transaction(async (tx) => {
+      await reserveStock(tx, opts.tenantId, orderId, reserveItems);
       await tx.insert(orders).values({
         id: orderId,
         tenantId: opts.tenantId,
@@ -672,7 +683,6 @@ export async function createChatOrder(
         createdAt: new Date(),
         updatedAt: new Date(),
       });
-      await reserveStock(tx, opts.tenantId, orderId, reserveItems);
     });
   } catch (err) {
     if (err instanceof InsufficientStockError) {

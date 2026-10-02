@@ -775,6 +775,13 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j600-ussd-pos-code"),
     import("./journeys/j601-softpos-doc"),
     // === END W59 banking-pos ===
+    // === W60 persistence ===
+    import("./journeys/j602-cico-restart-claim"),
+    import("./journeys/j603-cico-expired-intent"),
+    import("./journeys/j604-medusa-outbox-sweep"),
+    import("./journeys/j605-suppression-fail-closed"),
+    import("./journeys/j606-onboarding-edit-persistence"),
+    // === END W60 persistence ===
     // === END W55 parity ===
     // === END W54 CAPABILITIES ===
     // === END W51 PROMOS ===

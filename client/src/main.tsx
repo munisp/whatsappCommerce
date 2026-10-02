@@ -97,10 +97,18 @@ const trpcClient = trpc.createClient({
       url: "/api/trpc",
       transformer: superjson,
       headers() {
+        // === W60 persistence (documented, kept as-is) ===
+        // sessionStorage "manus-cookie" Bearer fallback — INTENTIONAL.
         // Preview auto-login fallback: when the browser blocks iframe cookies
         // (Safari ITP / private browsing / WebView), the runtime mirrors the
         // session into sessionStorage so we can forward it as a Bearer token.
-        // The regular OAuth cookie flow keeps working and takes priority server-side.
+        // The regular OAuth cookie flow keeps working and takes priority
+        // server-side (cookie auth is checked before the Bearer header), so
+        // this path only activates where cookies are already blocked.
+        // NOTE: the W60 portal_session httpOnly cookie (tenantInvite.validate
+        // / keycloak.exchangeCode) is unrelated to this flow — portal tokens
+        // no longer touch localStorage; this sessionStorage shim stays for
+        // the core app session under Safari ITP.
         try {
           const raw = sessionStorage.getItem("manus-cookie");
           if (raw) {

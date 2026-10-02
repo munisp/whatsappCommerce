@@ -32,6 +32,7 @@ import {
 } from "./waSender";
 import { isTranscriptionConfigured, transcribeAudio } from "./transcribe";
 import { redactString } from "./logRedact"; // W46 platform-p2 (PLT-25)
+import { isProd } from "../_core/env"; // W60 persistence (prod fail-closed)
 // === W47 crosscutting ===
 // ONB-I18N-1: intake-channel system messages come from the copilot locale
 // packs (en/fr/ha/yo/ig/pcm) — never hardcoded English. language.ts is a
@@ -361,11 +362,81 @@ function intakeLang(session: OnboardingSession | null | undefined, text?: string
 
 /**
  * Proposals awaiting a free-text edit, keyed by normalized sender phone.
- * In-memory is sufficient: the webhook runs in a single process and a lost
- * entry degrades gracefully (the text is treated as a normal message).
- * Exported for tests.
+ * === W60 persistence === (W60-A MEDIUM #18): primary store is the Redis
+ * hash `wa:onb:edit` (field = phone, value = proposalId) with a 30-min TTL
+ * matching the proposal-edit window, so a restart/multi-instance deploy no
+ * longer loses the pending edit; production fails CLOSED when Redis is
+ * unreachable (PersistedStateUnavailableError). The exported Map below is
+ * the dev/test fallback (and the test seam) — a lost entry degrades
+ * gracefully (the text is treated as a normal message).
  */
 export const pendingEditProposals = new Map<string, string>();
+
+const ONB_EDIT_HASH = "wa:onb:edit";
+const ONB_EDIT_TTL_S = 30 * 60;
+
+/** Injectable store surface (mirrors cronAuth's CronReplayStore seam) so
+ * tests/sims can share one "Redis" across simulated process restarts. */
+export interface OnboardingEditStore {
+  set(phone: string, proposalId: string, ttlSeconds: number): Promise<void>;
+  get(phone: string): Promise<string | undefined>;
+  del(phone: string): Promise<void>;
+}
+let injectedEditStore: OnboardingEditStore | null = null;
+export function __setOnboardingEditStoreForTest(store: OnboardingEditStore | null): void {
+  injectedEditStore = store;
+}
+
+async function setPendingEditProposal(phone: string, proposalId: string): Promise<void> {
+  if (injectedEditStore) return injectedEditStore.set(phone, proposalId, ONB_EDIT_TTL_S);
+  try {
+    const { getRedis } = await import("../redis");
+    const redis = await getRedis();
+    if (!redis) throw new Error("Redis client is not connected");
+    await redis.hset(ONB_EDIT_HASH, phone, proposalId);
+    await redis.expire(ONB_EDIT_HASH, ONB_EDIT_TTL_S);
+    return;
+  } catch (e: any) {
+    if (isProd) {
+      const { PersistedStateUnavailableError } = await import("./persistedState");
+      throw new PersistedStateUnavailableError("onb-edit-proposal", e);
+    }
+    pendingEditProposals.set(phone, proposalId);
+  }
+}
+
+async function getPendingEditProposal(phone: string): Promise<string | undefined> {
+  if (injectedEditStore) return injectedEditStore.get(phone);
+  try {
+    const { getRedis } = await import("../redis");
+    const redis = await getRedis();
+    if (!redis) throw new Error("Redis client is not connected");
+    return (await redis.hget(ONB_EDIT_HASH, phone)) ?? undefined;
+  } catch (e: any) {
+    if (isProd) {
+      const { PersistedStateUnavailableError } = await import("./persistedState");
+      throw new PersistedStateUnavailableError("onb-edit-proposal", e);
+    }
+    return pendingEditProposals.get(phone);
+  }
+}
+
+async function deletePendingEditProposal(phone: string): Promise<void> {
+  if (injectedEditStore) return injectedEditStore.del(phone);
+  try {
+    const { getRedis } = await import("../redis");
+    const redis = await getRedis();
+    if (!redis) throw new Error("Redis client is not connected");
+    await redis.hdel(ONB_EDIT_HASH, phone);
+    return;
+  } catch (e: any) {
+    if (isProd) {
+      const { PersistedStateUnavailableError } = await import("./persistedState");
+      throw new PersistedStateUnavailableError("onb-edit-proposal", e);
+    }
+    pendingEditProposals.delete(phone);
+  }
+}
 
 function appUrl(): string {
   return (process.env.APP_URL ?? "http://localhost:3000").replace(/\/+$/, "");
@@ -466,7 +537,7 @@ async function processInbound(message: any, senderPhone: string): Promise<Inboun
       return { handled: true, outcome: started ? "greeting" : "throttled" };
     }
     if (parsed.kind === "edit") {
-      pendingEditProposals.set(phone, parsed.proposalId);
+      await setPendingEditProposal(phone, parsed.proposalId);
       await sendOnboardingText(phone, copilotT(intakeLang(session), "editPrompt"));
       return { handled: true, outcome: "edit_prompt" };
     }
@@ -514,7 +585,7 @@ async function processText(
     // The C1 contract exposes no explicit abandon(); starting a fresh session
     // for the same phone supersedes (abandons) the prior active session.
     const started = await startFreshSession(phone, copilot);
-    pendingEditProposals.delete(phone);
+    await deletePendingEditProposal(phone);
     return { handled: true, outcome: started ? "restart" : "throttled" };
   }
 
@@ -526,9 +597,9 @@ async function processText(
   // free text. So the WhatsApp edit flow is: reject the stale proposal (C1's
   // own reject reply invites a re-draft), then feed the user's free-text
   // changes into postMessage so the agent drafts a revised proposal.
-  const pendingProposal = pendingEditProposals.get(phone);
+  const pendingProposal = await getPendingEditProposal(phone);
   if (pendingProposal && session) {
-    pendingEditProposals.delete(phone);
+    await deletePendingEditProposal(phone);
     // Reject is best-effort: a stale/already-decided proposal must not eat
     // the user's message — postMessage below still runs either way.
     const reject = await copilot
@@ -544,7 +615,7 @@ async function processText(
     return { handled: true, outcome: "edit_applied" };
   }
   // Stale pending edit with no live session — drop it and start over.
-  if (pendingProposal) pendingEditProposals.delete(phone);
+  if (pendingProposal) await deletePendingEditProposal(phone);
 
   // ── Unknown sender → new session + greeting ──────────────────────────────
   if (!session) {

@@ -1,19 +1,19 @@
 {
   "statements": [
     {
-      "id": "93e20d92-6096-44a0-ac11-6db84d32007e",
+      "id": "79ef7e95-a445-4b18-bd46-06d65ed467e8",
       "walletId": "wal-w58-588",
-      "periodStart": "2026-08-17",
-      "periodEnd": "2026-10-01",
-      "pdfPath": "sim-w46-588/wallet-statements/statement-2026-08-17_2026-10-01.pdf",
+      "periodStart": "2026-08-18",
+      "periodEnd": "2026-10-02",
+      "pdfPath": "sim-w46-588/wallet-statements/statement-2026-08-18_2026-10-02.pdf",
       "openingCents": 0,
       "closingCents": 10000,
       "txCount": 1,
-      "generatedAt": "2026-10-01T23:38:52.681Z",
+      "generatedAt": "2026-10-02T06:14:03.189Z",
       "deliveries": []
     },
     {
-      "id": "a5d0d0f9-9f90-4570-ae7d-9e6c039bd215",
+      "id": "5eefa729-f004-44f2-bff8-85f5de22a03e",
       "walletId": "wal-w58-588",
       "periodStart": "2026-09-01",
       "periodEnd": "2026-10-01",
@@ -21,7 +21,7 @@
       "openingCents": 10000,
       "closingCents": 10000,
       "txCount": 0,
-      "generatedAt": "2026-10-01T23:38:54.284Z",
+      "generatedAt": "2026-10-02T06:14:04.477Z",
       "deliveries": []
     }
   ]

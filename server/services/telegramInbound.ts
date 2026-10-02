@@ -301,7 +301,9 @@ const TG_STOP_REPLY =
   "You can still message us anytime, and send /start to opt back in.";
 
 // === W47 merchant === per-(tenant, chat) cooldown for the store-not-open reply.
-const telegramIntakeBlockedCooldown = new Map<string, number>();
+// === W60 persistence === the W47 telegramIntakeBlockedCooldown map moved
+// to Redis (tg:intake-cooldown:*, SET NX PX via services/persistedState) —
+// restart/multi-instance safe.
 // === END W47 merchant ===
 
 /**
@@ -456,10 +458,11 @@ async function dispatchToNlp(
       const intake = await checkOrderIntakeAllowed(db, tenantRow);
       if (!intake.allowed) {
         console.warn(`[telegram-inbound] intake blocked (tenant=${cfg.tenantId}, reason=${intake.reason}) for chat ${ev.chatId}`);
-        const cooldownKey = `${cfg.tenantId}:${ev.chatId}`;
-        const last = telegramIntakeBlockedCooldown.get(cooldownKey) ?? 0;
-        if (Date.now() - last > 24 * 3600 * 1000 && intake.buyerMessage) {
-          telegramIntakeBlockedCooldown.set(cooldownKey, Date.now());
+        const cooldownKey = `tg:intake-cooldown:${cfg.tenantId}:${ev.chatId}`;
+        // === W60 persistence === Redis SET NX PX 24h (dev-only memory
+        // fallback); Redis loss in prod skips the reply, never the gate.
+        const { setNxOnce } = await import("./persistedState");
+        if (intake.buyerMessage && (await setNxOnce(cooldownKey, 24 * 3600 * 1000, { label: "tg-intake-reply-cooldown" }))) {
           await sendTelegramTextReply(cfg.tenantId, ev.chatId, intake.buyerMessage)
             .catch((e: any) => console.warn("[telegram-inbound] store-not-open reply failed:", e?.message));
         }

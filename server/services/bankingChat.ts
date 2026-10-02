@@ -74,28 +74,57 @@ interface PendingCico {
   amountCents: number;
   createdAt: number;
 }
-const pendingCico = new Map<string, PendingCico>();
 const PENDING_TTL_MS = 10 * 60 * 1000;
 
-function parkCico(intent: PendingCico): string {
-  // Sweep expired intents lazily.
-  pendingCico.forEach((v, k) => {
-    if (Date.now() - v.createdAt > PENDING_TTL_MS) pendingCico.delete(k);
-  });
+// === W60 persistence ===
+// W60-A CRITICAL #1: the in-proc pendingCico Map is gone — intents live in
+// the pending_cico_intents table (migration 0180). parkCico inserts
+// idempotently (ON CONFLICT DO NOTHING); takeCico claims atomically via
+// DELETE ... WHERE key AND "expiresAt" > now() RETURNING * so a CONFIRM
+// executes exactly once, survives restarts, and is multi-instance safe.
+import { sql, and, gt } from "drizzle-orm";
+import { pendingCicoIntents } from "../../drizzle/schema";
+
+async function parkCico(db: Db, intent: PendingCico, agentIdentity?: string | null): Promise<string> {
+  // Lazy sweep of expired intents on insert.
+  await db.execute(sql`DELETE FROM pending_cico_intents WHERE "expiresAt" <= now()`).catch(() => {});
   const ref = `CICO-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-  pendingCico.set(`${intent.tenantId}:${ref}`, intent);
+  const key = `${intent.tenantId}:${ref}`;
+  await db
+    .insert(pendingCicoIntents)
+    .values({
+      key,
+      tenantId: intent.tenantId,
+      agentIdentity: agentIdentity ?? null,
+      kind: intent.kind,
+      phone: intent.phone,
+      amountCents: intent.amountCents,
+      payload: null,
+      expiresAt: new Date(intent.createdAt + PENDING_TTL_MS),
+      createdAt: new Date(intent.createdAt),
+    })
+    .onConflictDoNothing();
   return ref;
 }
 
-function takeCico(tenantId: string, reference: string): PendingCico | null {
+async function takeCico(db: Db, tenantId: string, reference: string): Promise<PendingCico | null> {
   const key = `${tenantId}:${reference.toUpperCase()}`;
-  const intent = pendingCico.get(key) ?? null;
-  if (intent && Date.now() - intent.createdAt <= PENDING_TTL_MS) {
-    pendingCico.delete(key);
-    return intent;
-  }
-  return null;
+  // Atomic exactly-once claim: single-statement DELETE … RETURNING.
+  const rows = await db
+    .delete(pendingCicoIntents)
+    .where(and(eq(pendingCicoIntents.key, key), gt(pendingCicoIntents.expiresAt, new Date())))
+    .returning();
+  const row = rows?.[0];
+  if (!row) return null;
+  return {
+    tenantId: row.tenantId,
+    kind: row.kind as "cash_in" | "cash_out",
+    phone: row.phone,
+    amountCents: Number(row.amountCents),
+    createdAt: new Date(row.createdAt).getTime(),
+  };
 }
+// === END W60 persistence ===
 
 const fmt = (cents: number) => `NGN ${(cents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
 
@@ -149,14 +178,14 @@ export async function handleBankingCommand(opts: {
         if (!Number.isInteger(amountCents) || amountCents <= 0) {
           return { handled: true, reply: t27(locale, "cicoUsage") };
         }
-        const ref = parkCico({ tenantId: opts.tenantId, kind: parsed.kind, phone: parsed.phone, amountCents, createdAt: Date.now() });
+        const ref = await parkCico(opts.db, { tenantId: opts.tenantId, kind: parsed.kind, phone: parsed.phone, amountCents, createdAt: Date.now() }, opts.fromPhone);
         return { handled: true, reply: t27(locale, "cicoStarted", { ref, amount: fmt(amountCents), phone: parsed.phone }) };
       }
 
       case "confirmCico": {
         const { assertAgentBankingEnabled, executeCico } = await import("./agentBanking");
         await assertAgentBankingEnabled(opts.db, opts.tenantId);
-        const intent = takeCico(opts.tenantId, parsed.reference);
+        const intent = await takeCico(opts.db, opts.tenantId, parsed.reference);
         if (!intent) return { handled: true, reply: t27(locale, "cicoNotFound") };
         try {
           const res = await executeCico(opts.db, {

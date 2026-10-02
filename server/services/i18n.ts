@@ -441,7 +441,12 @@ function scoreLocales(lower: string): Record<Locale, number> {
       // to terminate the token), misdetecting a customer's FIRST message as
       // Hausa and persisting the wrong locale for 30 days. Mirrors the copilot
       // detector (services/onboardingCopilot/language.ts).
-      const re = new RegExp(`(^|[^a-zà-ỹ'])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-zà-ỹ']|$)`, "i");
+      // === W60 VERIFY (J533 flake): digits are word chars too — random
+      // referral codes like "REF-EH7JPQ" put ha "eh" / yo "ra" / pcm "na" at
+      // a digit "boundary" and mis-detected a weak locale, so the MSG-23
+      // low-confidence picker hijacked the DEAL/REF inbound grammar. Same
+      // root cause as the W55 J545 fix in routers/nlp.ts detectLanguage. ===
+      const re = new RegExp(`(^|[^a-zà-ỹ'0-9])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-zà-ỹ'0-9]|$)`, "i");
       if (re.test(lower)) scores[lang] += w.includes(" ") ? 2 : 1.5;
     }
   }

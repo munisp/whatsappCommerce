@@ -85,6 +85,11 @@ SealedSecrets is a documented alternative. Map every key listed there before
 5. **Fluvio** — compose deliberately has no Fluvio container; either
    `fluvio cluster start` in-cluster or keep InfinyOn Cloud via the
    ExternalName Service (`k8s/base/fluvio.yaml`).
+   - **fluvio-consumer offsets (W60 persistence):** offsets persist to
+     `FLUVIO_OFFSET_FILE` on pod-local disk, so a reschedule without a PVC
+     replays from 0. This is SAFE: `/api/internal/events` dedupes via the
+     Postgres `processed_webhook_events` ledger, absorbing replays. To
+     eliminate the replay window, mount a PVC at the offset-file directory.
 6. **Decommission** — keep compose up (ports remapped) until
    `cilium connectivity test` + a journey smoke pass on k8s, then scale
    compose to zero.
