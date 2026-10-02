@@ -42,6 +42,10 @@ export function linesToPdf(input: SimplePdfInput): Buffer {
   const objects: string[] = [];
   const pageIds = pages.map((_, i) => 3 + i);
   const contentIds = pages.map((_, i) => 3 + pages.length + i);
+  // Font id comes AFTER the content ids — for a single-page PDF content id 4
+  // would otherwise collide with the hardcoded font id 4 and clobber the
+  // content stream (rendering "undefined" in place of the page text).
+  const fontId = 3 + pages.length * 2;
   objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
   objects[2] = `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pages.length} >>`;
   pages.forEach((pageLines, i) => {
@@ -49,12 +53,12 @@ export function linesToPdf(input: SimplePdfInput): Buffer {
     for (const line of pageLines) content += `(${esc(line)}) Tj T*\n`;
     content += "ET\n";
     objects[pageIds[i]!] =
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents ${contentIds[i]} 0 R >>`;
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentIds[i]} 0 R >>`;
     objects[contentIds[i]!] = `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}endstream`;
   });
-  objects[4] = "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>";
+  objects[fontId] = "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>";
 
-  const count = 3 + pages.length * 2;
+  const count = fontId;
   let pdf = "%PDF-1.4\n";
   const offsets: number[] = [];
   for (let i = 1; i <= count; i++) {

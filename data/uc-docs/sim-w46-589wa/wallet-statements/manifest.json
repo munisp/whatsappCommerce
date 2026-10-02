@@ -1,0 +1,23 @@
+{
+  "statements": [
+    {
+      "id": "efb8caba-8410-47aa-b77c-2b7aa39272df",
+      "walletId": "wal-w58-589-0",
+      "periodStart": "2026-09-01",
+      "periodEnd": "2026-10-01",
+      "pdfPath": "sim-w46-589wa/wallet-statements/statement-2026-09-01_2026-10-01.pdf",
+      "openingCents": 0,
+      "closingCents": 100000,
+      "txCount": 1,
+      "generatedAt": "2026-10-01T19:29:45.935Z",
+      "deliveries": [
+        {
+          "channel": "whatsapp",
+          "at": "2026-10-01T19:29:45.945Z",
+          "messageId": "wamid.sim.001308",
+          "target": "2348019717289"
+        }
+      ]
+    }
+  ]
+}

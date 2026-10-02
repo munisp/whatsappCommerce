@@ -1,0 +1,74 @@
+{
+  "id": "J590",
+  "title": "merchant STATEMENT keyword on WA + TG (admin-phone authz)",
+  "feature": "W58 statements: chat statement on demand",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348011109087",
+      "profileName": "Sim User 9087",
+      "inboundId": "wamid.sim.in.text.00630",
+      "at": 1790882987489,
+      "kind": "text",
+      "text": "statement"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00630",
+      "at": 1790882987496
+    },
+    {
+      "dir": "out",
+      "phone": "2348011109087",
+      "wamid": "wamid.sim.001310",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790882987526,
+      "kind": "document",
+      "mediaKind": "document",
+      "caption": "Your wallet statement 2026-09-01 .. 2026-10-01",
+      "mediaId": "http://localhost:4173/api/uc-docs/sim-tenant/wallet-statements/statement-2026-09-01_2026-10-01.pdf"
+    },
+    {
+      "dir": "out",
+      "phone": "2348011109087",
+      "wamid": "wamid.sim.001311",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790882987529,
+      "kind": "text",
+      "body": "📄 Wallet statement 2026-09-01 .. 2026-10-01: opening NGN 0.00, closing NGN 5,000.00. The PDF is on its way as a document."
+    },
+    {
+      "dir": "in",
+      "phone": "2348018414891",
+      "profileName": "Sim User 4891",
+      "inboundId": "wamid.sim.in.text.00631",
+      "at": 1790882988035,
+      "kind": "text",
+      "text": "statement"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00631",
+      "at": 1790882988042
+    },
+    {
+      "dir": "out",
+      "phone": "2348018414891",
+      "wamid": "wamid.sim.001312",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790882988073,
+      "kind": "text",
+      "body": "Sorry, I didn't quite get that — type 'menu' to see options."
+    }
+  ]
+}

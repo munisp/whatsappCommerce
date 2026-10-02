@@ -131,6 +131,9 @@ import { embeddedRouter } from "./routers/embedded";
 import { telemetryRouter } from "./routers/telemetry";
 // === W46 uc-docs (Coder D) ===
 import { ucDocsRouter } from "./routers/ucDocs";
+// === W58 statements ===
+import { walletStatementsRouter } from "./routers/walletStatements";
+// === END W58 statements ===
 // === END W46 uc-docs ===
 // === END W34 otel-sidecars ===
 import { erpProvisionRouter } from "./routers/erpProvision";
@@ -379,6 +382,9 @@ export const appRouter = router({
   // === W46 uc-docs (Coder D): statements/proformas/agents/tier-pricing ===
   ucDocs: ucDocsRouter,
   // === END W46 uc-docs ===
+  // === W58 statements === merchant wallet statements ===
+  walletStatements: walletStatementsRouter,
+  // === END W58 statements ===
   // === W53 EVENTS === merchant event/ticket mgmt + public storefront ===
   events: eventsRouter,
   // === END W53 EVENTS ===

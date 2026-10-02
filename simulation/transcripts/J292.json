@@ -12,9 +12,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790840807030,
+      "at": 1790882680934,
       "kind": "text",
-      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J292-1790840806984\n\n\n*Total paid: ₦400.00*\nPayment ref: bipcap:c78cbc53-2c1a-49e2-ba00-6f5cdc4734b3:2\n\n🔎 Track your order: http://localhost:4173/track/j292-order-1790840806981.8p3BHYjcX9ndAdNRI8uW7_rC"
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J292-1790882680878\n\n\n*Total paid: ₦400.00*\nPayment ref: bipcap:c49d026b-753c-43c5-9649-eb4ada935a18:2\n\n🔎 Track your order: http://localhost:4173/track/j292-order-1790882680873.vpiWj_OyGCcRJpjeOe2tvFjI"
     },
     {
       "dir": "out",
@@ -23,11 +23,11 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790840807040,
+      "at": 1790882680948,
       "kind": "document",
       "mediaKind": "document",
-      "caption": "🧾 Receipt for order J292-1790840806984",
-      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-J292-1790840806984.pdf"
+      "caption": "🧾 Receipt for order J292-1790882680878",
+      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-J292-1790882680878.pdf"
     },
     {
       "dir": "out",
@@ -36,7 +36,7 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790840807048,
+      "at": 1790882680955,
       "kind": "text",
       "body": "🎉 Final installment received — your order is fully paid! The shop has been notified to prepare your order."
     }

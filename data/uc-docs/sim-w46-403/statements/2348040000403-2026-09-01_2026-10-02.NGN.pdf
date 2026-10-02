@@ -6,13 +6,36 @@ endobj
 << /Type /Pages /Kids [3 0 R] /Count 1 >>
 endobj
 3 0 obj
-<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 4 0 R >>
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
 endobj
 4 0 obj
-<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+<< /Length 649 >>
+stream
+BT /F1 11 Tf 50 780 Td 16 TL
+(Statement of Account) Tj T*
+(====================) Tj T*
+() Tj T*
+(Merchant:      sim-w46-403) Tj T*
+(Customer:       \(2348040000403\)) Tj T*
+(Period:        2026-09-01 .. 2026-10-02) Tj T*
+(Currency:      NGN) Tj T*
+() Tj T*
+(ORDERS) Tj T*
+(  2026-10-01  W46-403A-165b      delivered    NGN 8000.00) Tj T*
+() Tj T*
+(PAYMENTS) Tj T*
+(  2026-10-01  W46PAY-403A-7b8d3f       NGN 8000.00) Tj T*
+() Tj T*
+(Total invoiced:  NGN 8000.00 across 1 order\(s\)) Tj T*
+(Total paid:      NGN 8000.00 across 1 payment\(s\)) Tj T*
+(Outstanding:     NGN 0.00) Tj T*
+() Tj T*
+(Generated from real order and payment records.) Tj T*
+ET
+endstream
 endobj
 5 0 obj
-undefined
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
 endobj
 xref
 0 6
@@ -21,9 +44,9 @@ xref
 0000000058 00000 n 
 0000000115 00000 n 
 0000000241 00000 n 
-0000000309 00000 n 
+0000000940 00000 n 
 trailer
 << /Size 6 /Root 1 0 R >>
 startxref
-334
+1008
 %%EOF

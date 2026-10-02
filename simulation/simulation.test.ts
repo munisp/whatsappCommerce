@@ -36,7 +36,7 @@ describe("WhatsApp feature simulation (496 journeys)", () => {
   });
 
   it("loads the full journey registry", () => {
-    expect(journeys.length).toBe(585); // W57 risk-shield: 577 + J579-J586 (identity graph ×2, registry, insurance ×2, provision, parity, i18n) = 585 ACTUAL via loadJourneys.
+    expect(journeys.length).toBe(590); // W58 statements: 585 + J587-J591 (PDF math, download authz, monthly sweep, chat parity, narration) = 590 ACTUAL via loadJourneys.
     const ids = journeys.map((j) => j.id);
     expect(new Set(ids).size).toBe(ids.length);
   });

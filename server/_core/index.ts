@@ -882,6 +882,31 @@ async function processWaWebhookValue(
             }
           }
           // === END W56 credit ===
+          // === W58 statements: merchant "STATEMENT [month]" keyword ─────
+          // Admin-phone authz inside walletStatementChat (same seam as the
+          // W56 credit-intelligence commands); non-admins fall through.
+          if (/^\s*STATEMENT\b/i.test(textBody)) {
+            try {
+              const { handleStatementCommand } = await import("../services/walletStatementChat");
+              const stOutcome = await handleStatementCommand({
+                db,
+                tenantId,
+                fromPhone: waPhoneNumber,
+                text: textBody,
+                channel: "whatsapp",
+              });
+              if (stOutcome.handled) {
+                if (stOutcome.reply) {
+                  await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, stOutcome.reply)
+                    .catch((e: any) => console.error("[whatsapp-webhook] statement reply send error:", e?.message));
+                }
+                continue; // Skip NLP processing for statement commands
+              }
+            } catch (e: any) {
+              console.error("[whatsapp-webhook] statement command error:", e?.message);
+            }
+          }
+          // === END W58 statements ===
           // === W28 odoo-sync (Coder A): tenant-admin Odoo commands ────────
           // "ODOO STATUS" / "ODOO SYNC NOW" from the tenant's admin phone
           // (settings.adminPhone). Non-admins / other texts fall through to
@@ -4340,6 +4365,30 @@ async function startServer() {
     }
   });
   // === END W54 capabilities ===
+
+  // === W58 statements ===
+  // ── POST /api/scheduled/monthly-statements (monthly) ──────────────────
+  // Bank-style merchant wallet statements: for each active wallet generate
+  // the PREVIOUS-month statement PDF (uc-docs private prefix) and deliver
+  // it on the merchant's preferred channel — WA document to the admin
+  // phone, else email, else skip with a log. Fail-open per tenant;
+  // idempotent per (wallet, period) via the statement manifest.
+  // After deploy: manus-heartbeat create --name monthly-statements --cron "0 0 8 1 * *" --path /api/scheduled/monthly-statements
+  app.post("/api/scheduled/monthly-statements", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runMonthlyStatementSweep } = await import("../services/walletStatements");
+      const run = await runMonthlyStatementSweep(db, {});
+      return res.json({ ok: true, run });
+    } catch (err: any) {
+      console.error("[monthly-statements]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W58 statements ===
 
 
   // === W32 recurring ===

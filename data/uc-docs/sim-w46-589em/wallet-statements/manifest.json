@@ -1,0 +1,23 @@
+{
+  "statements": [
+    {
+      "id": "ccb3788f-e790-40ca-9bf0-1697c5c4986e",
+      "walletId": "wal-w58-589-1",
+      "periodStart": "2026-09-01",
+      "periodEnd": "2026-10-01",
+      "pdfPath": "sim-w46-589em/wallet-statements/statement-2026-09-01_2026-10-01.pdf",
+      "openingCents": 0,
+      "closingCents": 100000,
+      "txCount": 1,
+      "generatedAt": "2026-10-01T19:29:45.968Z",
+      "deliveries": [
+        {
+          "channel": "email",
+          "at": "2026-10-01T19:29:45.970Z",
+          "messageId": null,
+          "target": "merchant589@sim.local"
+        }
+      ]
+    }
+  ]
+}

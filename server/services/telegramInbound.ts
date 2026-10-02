@@ -535,6 +535,23 @@ async function dispatchToNlp(
       }
     }
     // === END W56 credit ===
+    // === W58 statements === merchant "STATEMENT [month]" keyword (WA
+    // parity): admin-phone authz inside the handler; TG identity resolves to
+    // the linked E.164 phone upstream.
+    if (/^\s*STATEMENT\b/i.test(message)) {
+      const { handleStatementCommand } = await import("./walletStatementChat");
+      const stOutcome = await handleStatementCommand({
+        db, tenantId: cfg.tenantId, fromPhone: phoneRef, text: message, channel: "telegram",
+      });
+      if (stOutcome?.handled) {
+        if (stOutcome.reply) {
+          await sendTelegramTextReply(cfg.tenantId, ev.chatId, stOutcome.reply)
+            .catch((e: any) => console.warn("[telegram-inbound] statement reply failed:", e?.message));
+        }
+        return;
+      }
+    }
+    // === END W58 statements ===
     const i18n = await import("./i18n");
     const locale = await i18n.resolveLocale({ tenantId: cfg.tenantId, phone: sessionKey, text: message }).catch(() => "en");
     if (i18n.matchLocalizedIntent(message, locale) === "menu") {
