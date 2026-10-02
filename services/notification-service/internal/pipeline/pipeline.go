@@ -348,6 +348,20 @@ func (p *Pipeline) deadLetter(ctx context.Context, msg kafka.Message, reason str
 	})
 	if err != nil {
 		p.logger.Error("DLQ write failed — message dropped after commit", "error", err, "offset", msg.Offset)
+		// === W61 dataloss === NEVER silent-drop: spill the dead-lettered
+		// payload to the durable Redis list `notifications:dlq:spill` (capped
+		// via LTRIM) so the platform's /api/scheduled/dlq-drain route can
+		// re-persist it into fluvio_event_log and alert. Fail-open: a spill
+		// failure is logged loudly, not swallowed.
+		spillCtx, spillCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer spillCancel()
+		if serr := p.redis.RPush(spillCtx, "notifications:dlq:spill", msg.Value).Err(); serr != nil {
+			p.logger.Error("DLQ Redis spill ALSO failed — event LOST", "error", serr, "offset", msg.Offset)
+		} else {
+			p.redis.LTrim(spillCtx, "notifications:dlq:spill", -10000, -1)
+			p.logger.Warn("dead-lettered event spilled to Redis notifications:dlq:spill", "offset", msg.Offset)
+		}
+		// === END W61 dataloss ===
 	}
 }
 

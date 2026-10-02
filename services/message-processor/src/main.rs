@@ -479,6 +479,15 @@ impl MessageProcessor {
         let mut router = MessageRouter::new();
 
         // Register handlers (PERF-SC-21: debug!-level tracing in the hot path)
+        // === W61 dataloss === these handlers are still stubs (route-log only)
+        // and the offset IS committed after routing — a routed-but-unhandled
+        // event is acknowledged and gone from Kafka. Topic alignment (W61,
+        // subscribed_topics) now at least delivers events to THIS consumer.
+        // TODO(W62): minimally persist every consumed event to
+        // fluvio_event_log / hermes_event_log (durable landing pads swept by
+        // /api/scheduled/fluvio-event-sweep) BEFORE commit; full domain
+        // handling is W62 scope. The W60 Redis dedupe (msgproc:seen:*) stays
+        // authoritative.
         router.register("wa.message.received", |event| {
             tracing::debug!(trace_id = %event.trace_id, "[processor] inbound WA message");
             // In production: write to DB, trigger AI agent, update conversation state
@@ -587,14 +596,28 @@ fn kafka_dlq_topic() -> String {
 }
 
 fn subscribed_topics() -> Vec<String> {
+    // === W61 dataloss === topic-name alignment (audit CRITICAL #1):
+    // producers emit on `wa.messages.inbound` / `wa.messages.outbound`
+    // (services/event-gateway/main.go KAFKA_INBOUND_TOPIC/KAFKA_OUTBOUND_TOPIC,
+    // and server/_core/index.ts publishConversationEvent) while this consumer
+    // used to default to `wa.message.received` / `wa.message.status` — which
+    // are EVENT TYPES (KafkaEvent.event_type), not topics. Only kyc.events /
+    // orders.created / inventory.sync matched, so every WA event published to
+    // the real topics flowed into the void. The router below still routes on
+    // event_type ("wa.message.received" etc.), so only the SUBSCRIPTION
+    // defaults change here.
     env_or(
         "MP_KAFKA_TOPICS",
-        "wa.message.received,wa.message.status,kyc.events,orders.created,inventory.sync",
+        "wa.messages.inbound,wa.messages.outbound,kyc.events,orders.created,inventory.sync",
     )
     .split(',')
     .map(|t| t.trim().to_string())
     .filter(|t| !t.is_empty())
     .collect()
+    // TODO(W62): the registered handlers are still stubs (route-log only).
+    // They must minimally persist each consumed event to fluvio_event_log /
+    // hermes_event_log before the offset commit so a routed-but-unhandled
+    // event is durable; full domain handling is W62 scope.
 }
 
 /// Produce one dead-lettered raw payload to the Kafka DLQ topic with the
@@ -800,9 +823,12 @@ mod tests {
 
     #[test]
     fn test_topic_env_parsing() {
-        // Default topics are the five platform event topics.
+        // Default topics are the five platform event topics (W61: aligned
+        // with the producers' actual topic names — wa.messages.inbound /
+        // wa.messages.outbound — not event_type strings).
         let topics = subscribed_topics();
-        assert!(topics.contains(&"wa.message.received".to_string()));
+        assert!(topics.contains(&"wa.messages.inbound".to_string()));
+        assert!(topics.contains(&"wa.messages.outbound".to_string()));
         assert!(topics.contains(&"orders.created".to_string()));
         assert_eq!(kafka_dlq_topic(), std::env::var("MP_DLQ_TOPIC").unwrap_or_else(|_| "mp.dlq.events".to_string()));
     }

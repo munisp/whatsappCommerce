@@ -57,6 +57,13 @@ export const SCHEDULE = [
   { path: "/api/scheduled/bureau-report", intervalMin: 15 },
   // === END W56 credit ===
   { path: "/api/scheduled/wa-send-retry", intervalMin: 5 },
+  // === W61 dataloss === telegram retry invoker (was orphaned), SMS retry
+  // sweep, DLQ drain/replay, fluvio_event_log processor sweep.
+  { path: "/api/scheduled/telegram-send-retry", intervalMin: 5 },
+  { path: "/api/scheduled/sms-retry", intervalMin: 10 },
+  { path: "/api/scheduled/dlq-drain", intervalMin: 10 },
+  { path: "/api/scheduled/fluvio-event-sweep", intervalMin: 15 },
+  // === END W61 dataloss ===
   { path: "/api/scheduled/inventory-sync", intervalMin: 5 },
   { path: "/api/scheduled/reconciliation-alert", intervalMin: 60 },
   { path: "/api/scheduled/forecast-snapshot", intervalMin: 1440 },

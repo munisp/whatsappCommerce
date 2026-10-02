@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348014251034",
-      "profileName": "Sim User 1034",
+      "phone": "2348011661316",
+      "profileName": "Sim User 1316",
       "inboundId": "wamid.sim.in.text.00440",
-      "at": 1790921267807,
+      "at": 1790980236530,
       "kind": "text",
       "text": "bills due this week"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00440",
-      "at": 1790921267813
+      "at": 1790980236536
     },
     {
       "dir": "out",
-      "phone": "2348014251034",
+      "phone": "2348011661316",
       "wamid": "wamid.sim.000778",
       "statuses": [
         "sent"
       ],
-      "at": 1790921267847,
+      "at": 1790980236567,
       "kind": "text",
       "body": "You have 1 bill due in the next 7 days, total ₦2,500:\n• QA Flour Mills: ₦2,500 (due 2026-10-05)"
     },
     {
       "dir": "in",
-      "phone": "2348014251034",
-      "profileName": "Sim User 1034",
+      "phone": "2348011661316",
+      "profileName": "Sim User 1316",
       "inboundId": "wamid.sim.in.text.00441",
-      "at": 1790921268364,
+      "at": 1790980237071,
       "kind": "text",
       "text": "who do I owe most"
     },
@@ -44,25 +44,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00441",
-      "at": 1790921268373
+      "at": 1790980237079
     },
     {
       "dir": "out",
-      "phone": "2348014251034",
+      "phone": "2348011661316",
       "wamid": "wamid.sim.000779",
       "statuses": [
         "sent"
       ],
-      "at": 1790921268403,
+      "at": 1790980237105,
       "kind": "text",
       "body": "You owe QA Sugar Co the most: ₦8,000 open.\nAlso owed:\n• QA Flour Mills: ₦2,500"
     },
     {
       "dir": "in",
-      "phone": "2348014251034",
-      "profileName": "Sim User 1034",
+      "phone": "2348011661316",
+      "profileName": "Sim User 1316",
       "inboundId": "wamid.sim.in.text.00442",
-      "at": 1790921268906,
+      "at": 1790980237614,
       "kind": "text",
       "text": "has invoice 9002 been paid?"
     },
@@ -70,25 +70,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00442",
-      "at": 1790921268912
+      "at": 1790980237627
     },
     {
       "dir": "out",
-      "phone": "2348014251034",
+      "phone": "2348011661316",
       "wamid": "wamid.sim.000780",
       "statuses": [
         "sent"
       ],
-      "at": 1790921268938,
+      "at": 1790980237643,
       "kind": "text",
       "body": "Invoice #9002 (QA Buyer Bello) is PAID ✅ — ₦1,200 received."
     },
     {
       "dir": "in",
-      "phone": "2348014251034",
-      "profileName": "Sim User 1034",
+      "phone": "2348011661316",
+      "profileName": "Sim User 1316",
       "inboundId": "wamid.sim.in.text.00443",
-      "at": 1790921269449,
+      "at": 1790980238158,
       "kind": "text",
       "text": "invoice 9001 paid?"
     },
@@ -96,25 +96,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00443",
-      "at": 1790921269455
+      "at": 1790980238164
     },
     {
       "dir": "out",
-      "phone": "2348014251034",
+      "phone": "2348011661316",
       "wamid": "wamid.sim.000781",
       "statuses": [
         "sent"
       ],
-      "at": 1790921269469,
+      "at": 1790980238180,
       "kind": "text",
       "body": "Invoice #9001 (QA Buyer Amara) is PARTIALLY PAID — ₦1,500 of ₦4,000 received; ₦2,500 still outstanding."
     },
     {
       "dir": "in",
-      "phone": "2348014251034",
-      "profileName": "Sim User 1034",
+      "phone": "2348011661316",
+      "profileName": "Sim User 1316",
       "inboundId": "wamid.sim.in.text.00444",
-      "at": 1790921269992,
+      "at": 1790980238699,
       "kind": "text",
       "text": "expected inflows"
     },
@@ -122,25 +122,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00444",
-      "at": 1790921269999
+      "at": 1790980238706
     },
     {
       "dir": "out",
-      "phone": "2348014251034",
+      "phone": "2348011661316",
       "wamid": "wamid.sim.000782",
       "statuses": [
         "sent"
       ],
-      "at": 1790921270014,
+      "at": 1790980238723,
       "kind": "text",
       "body": "Expected inflows — open invoices: ₦2,500; escrow pending release: ₦39,716.70."
     },
     {
       "dir": "in",
-      "phone": "2348014251034",
-      "profileName": "Sim User 1034",
+      "phone": "2348011661316",
+      "profileName": "Sim User 1316",
       "inboundId": "wamid.sim.in.text.00445",
-      "at": 1790921270536,
+      "at": 1790980239242,
       "kind": "text",
       "text": "who owes me most"
     },
@@ -148,25 +148,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00445",
-      "at": 1790921270548
+      "at": 1790980239249
     },
     {
       "dir": "out",
-      "phone": "2348014251034",
+      "phone": "2348011661316",
       "wamid": "wamid.sim.000783",
       "statuses": [
         "sent"
       ],
-      "at": 1790921270563,
+      "at": 1790980239265,
       "kind": "text",
       "body": "QA Buyer Amara owes you the most: ₦2,500 outstanding across open invoices."
     },
     {
       "dir": "in",
-      "phone": "2348014251034",
-      "profileName": "Sim User 1034",
+      "phone": "2348011661316",
+      "profileName": "Sim User 1316",
       "inboundId": "wamid.sim.in.text.00446",
-      "at": 1790921271080,
+      "at": 1790980239790,
       "kind": "text",
       "text": "cash forecast"
     },
@@ -174,25 +174,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00446",
-      "at": 1790921271086
+      "at": 1790980239799
     },
     {
       "dir": "out",
-      "phone": "2348014251034",
+      "phone": "2348011661316",
       "wamid": "wamid.sim.000784",
       "statuses": [
         "sent"
       ],
-      "at": 1790921271132,
+      "at": 1790980239837,
       "kind": "text",
       "body": "Next 30 days: expected in ₦42,616.70, going out ₦10,500, net ₦32,116.70. No shortfall projected on your current balance and scheduled items."
     },
     {
       "dir": "in",
-      "phone": "2348014251034",
-      "profileName": "Sim User 1034",
+      "phone": "2348011661316",
+      "profileName": "Sim User 1316",
       "inboundId": "wamid.sim.in.text.00447",
-      "at": 1790921271626,
+      "at": 1790980240332,
       "kind": "text",
       "text": "hello there"
     },
@@ -200,25 +200,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00447",
-      "at": 1790921271635
+      "at": 1790980240339
     },
     {
       "dir": "out",
-      "phone": "2348014251034",
+      "phone": "2348011661316",
       "wamid": "wamid.sim.000785",
       "statuses": [
         "sent"
       ],
-      "at": 1790921271672,
+      "at": 1790980240366,
       "kind": "text",
       "body": "Sorry, I didn't quite get that — type 'menu' to see options."
     },
     {
       "dir": "in",
-      "phone": "2348014251034",
-      "profileName": "Sim User 1034",
+      "phone": "2348011661316",
+      "profileName": "Sim User 1316",
       "inboundId": "wamid.sim.in.text.00448",
-      "at": 1790921272182,
+      "at": 1790980240878,
       "kind": "text",
       "text": "who do I owe most"
     },
@@ -226,16 +226,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00448",
-      "at": 1790921272190
+      "at": 1790980240885
     },
     {
       "dir": "out",
-      "phone": "2348014251034",
+      "phone": "2348011661316",
       "wamid": "wamid.sim.000786",
       "statuses": [
         "sent"
       ],
-      "at": 1790921272207,
+      "at": 1790980240901,
       "kind": "text",
       "body": "You owe QA Sugar Co the most: ₦8,000 open.\nAlso owed:\n• QA Flour Mills: ₦2,500"
     }

@@ -1,0 +1,20 @@
+{
+  "id": "J608",
+  "title": "sms-retry sweep: claim-first backoff, recovery, dead-letter after 4",
+  "feature": "W61 dataloss: SMS retry sweep",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001317",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790980638151,
+      "kind": "text",
+      "body": "⚠️ SMS dead-lettered after 4 attempts.\nTo: 2348070608000\nError: SMS send failed (network): africa_talking-sms: HTTP 500"
+    }
+  ]
+}
