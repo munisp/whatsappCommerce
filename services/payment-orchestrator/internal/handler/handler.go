@@ -30,11 +30,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// StatusLedgerDrift marks intents whose provider-side flow finished but whose
-// ledger commit/void could not be confirmed after retries. Reconciliation
-// must repair these; they are never reported as completed.
-const StatusLedgerDrift = "ledger_drift"
-
 type Handler struct {
 	cfg    *config.Config
 	db     Store
@@ -147,7 +142,6 @@ func (h *Handler) InitiatePayment(c *gin.Context) {
 		Amount:         req.Amount,
 		Currency:       req.Currency,
 		Provider:       provider,
-		WorkflowID:     uuid.New().String(),
 		IdempotencyKey: idempotencyKey,
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
@@ -172,7 +166,6 @@ func (h *Handler) InitiatePayment(c *gin.Context) {
 			"payment_intent_id": existing.ID,
 			"status":            existing.Status,
 			"provider":          existing.Provider,
-			"workflow_id":       existing.WorkflowID,
 			"idempotent_replay": true,
 		})
 		return
@@ -189,7 +182,7 @@ func (h *Handler) InitiatePayment(c *gin.Context) {
 			c.JSON(http.StatusBadGateway, gin.H{"error": "ledger reservation failed", "detail": err.Error()})
 			return
 		}
-		intent.TigerBeetlePendingID = pendingID
+		intent.LedgerPendingID = pendingID
 		if err := h.db.SetLedgerPendingID(c.Request.Context(), intent.ID, pendingID); err != nil {
 			h.logger.Error("failed to persist ledger pending id", zap.Error(err))
 		}
@@ -206,7 +199,7 @@ func (h *Handler) InitiatePayment(c *gin.Context) {
 			c.JSON(http.StatusBadGateway, gin.H{"error": "payment initiation failed", "detail": err.Error()})
 			return
 		}
-		intent.MojaloopTransferID = transferID
+		intent.ProviderPaymentID = transferID
 		if err := h.db.SetProviderReference(c.Request.Context(), intent.ID, transferID); err != nil {
 			h.logger.Error("failed to persist mojaloop transfer id", zap.Error(err))
 		}
@@ -244,19 +237,22 @@ func (h *Handler) InitiatePayment(c *gin.Context) {
 		"status":            "initiated",
 		"provider":          provider,
 		"payment_url":       paymentURL,
-		"workflow_id":       intent.WorkflowID,
 	})
 }
 
 // voidAfterFailure voids the ledger reservation (with retries) after a
-// post-reserve failure, then marks the intent failed — or ledger_drift when
-// even the void could not be confirmed.
+// post-reserve failure, then marks the intent failed. When even the void
+// cannot be confirmed, the status is left untouched (still "pending" at
+// this point in the flow — see store.SetLedgerDriftFlag) and flagged via
+// metadata instead of a fabricated status value.
 func (h *Handler) voidAfterFailure(c *gin.Context, intent store.PaymentIntentRow, reason string) {
-	if intent.TigerBeetlePendingID != "" {
-		if err := h.voidLedgerWithRetry(c.Request.Context(), intent.TigerBeetlePendingID); err != nil {
-			h.logger.Error("void after failure failed; marking ledger_drift",
+	if intent.LedgerPendingID != "" {
+		if err := h.voidLedgerWithRetry(c.Request.Context(), intent.LedgerPendingID); err != nil {
+			h.logger.Error("void after failure failed; flagging ledger_drift",
 				zap.String("intent_id", intent.ID.String()), zap.Error(err))
-			h.setStatus(c, intent.ID, StatusLedgerDrift, reason+"; void failed: "+err.Error())
+			if flagErr := h.db.SetLedgerDriftFlag(c.Request.Context(), intent.ID, reason+"; void failed: "+err.Error()); flagErr != nil {
+				h.logger.Error("failed to persist ledger_drift flag", zap.Error(flagErr))
+			}
 			return
 		}
 	}
@@ -334,13 +330,17 @@ func (h *Handler) RefundPayment(c *gin.Context) {
 			return
 		}
 	case "mojaloop":
-		// No Mojaloop refund API — park in refund_pending and notify the platform.
+		// No Mojaloop refund API — flag refund_pending (status stays
+		// "completed"; "refund_pending" is not a valid status enum member)
+		// and notify the platform.
 		if err := h.emitRefundEvent(c.Request.Context(), intent); err != nil {
 			h.logger.Error("refund event emission failed", zap.Error(err))
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to emit refund request event", "detail": err.Error()})
 			return
 		}
-		h.setStatus(c, id, "refund_pending", "mojaloop refund requires manual/platform payout")
+		if err := h.db.SetRefundPendingFlag(c.Request.Context(), id, "mojaloop refund requires manual/platform payout"); err != nil {
+			h.logger.Error("failed to persist refund_pending flag", zap.Error(err))
+		}
 		c.JSON(http.StatusAccepted, gin.H{"status": "refund_pending", "payment_intent_id": id})
 		return
 	default:
@@ -350,11 +350,13 @@ func (h *Handler) RefundPayment(c *gin.Context) {
 
 	// Step 2: compensating ledger reversal. Only after this succeeds may the
 	// intent become refunded.
-	if intent.TigerBeetlePendingID != "" {
-		if err := h.reverseLedgerWithRetry(c.Request.Context(), intent.TigerBeetlePendingID); err != nil {
-			h.logger.Error("ledger reversal failed after provider refund; marking refund_pending",
+	if intent.LedgerPendingID != "" {
+		if err := h.reverseLedgerWithRetry(c.Request.Context(), intent.LedgerPendingID); err != nil {
+			h.logger.Error("ledger reversal failed after provider refund; flagging refund_pending",
 				zap.String("intent_id", id.String()), zap.Error(err))
-			h.setStatus(c, id, "refund_pending", "provider refunded; ledger reversal failed: "+err.Error())
+			if flagErr := h.db.SetRefundPendingFlag(c.Request.Context(), id, "provider refunded; ledger reversal failed: "+err.Error()); flagErr != nil {
+				h.logger.Error("failed to persist refund_pending flag", zap.Error(flagErr))
+			}
 			c.JSON(http.StatusBadGateway, gin.H{
 				"error":  "ledger compensation failed after provider refund",
 				"detail": err.Error(),
@@ -386,15 +388,15 @@ func (h *Handler) VoidPayment(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "can only void pending/initiated payments"})
 		return
 	}
-	// Void the TigerBeetle pending entry — refuse to mark voided when the
+	// Void the TigerBeetle pending entry — refuse to mark cancelled when the
 	// ledger void could not be confirmed.
-	if err := h.voidLedgerWithRetry(c.Request.Context(), intent.TigerBeetlePendingID); err != nil {
+	if err := h.voidLedgerWithRetry(c.Request.Context(), intent.LedgerPendingID); err != nil {
 		h.logger.Error("ledger void failed", zap.Error(err))
 		c.JSON(http.StatusBadGateway, gin.H{"error": "ledger void failed", "detail": err.Error()})
 		return
 	}
-	h.setStatus(c, id, "voided", "manual_void")
-	c.JSON(http.StatusOK, gin.H{"status": "voided", "payment_intent_id": id})
+	h.setStatus(c, id, "cancelled", "manual_void")
+	c.JSON(http.StatusOK, gin.H{"status": "cancelled", "payment_intent_id": id})
 }
 
 // HandleMojaloopCallback processes async Mojaloop transfer completion callbacks.
@@ -416,12 +418,16 @@ func (h *Handler) HandleMojaloopCallback(c *gin.Context) {
 	switch transferState {
 	case "COMMITTED":
 		// Commit the TigerBeetle pending entry. If the commit cannot be
-		// confirmed after retries, mark ledger_drift — NOT completed — so the
-		// order is never confirmed against an unsettled ledger entry.
-		if err := h.commitLedgerWithRetry(c.Request.Context(), intent.TigerBeetlePendingID); err != nil {
-			h.logger.Error("ledger commit failed after retries; marking ledger_drift",
+		// confirmed after retries, flag ledger_drift — do NOT mark completed —
+		// so the order is never confirmed against an unsettled ledger entry.
+		// The status is left untouched (still "initiated") rather than forced
+		// to a fabricated value; reconciliation finds it via the metadata flag.
+		if err := h.commitLedgerWithRetry(c.Request.Context(), intent.LedgerPendingID); err != nil {
+			h.logger.Error("ledger commit failed after retries; flagging ledger_drift",
 				zap.String("intent_id", intent.ID.String()), zap.Error(err))
-			h.setStatus(c, intent.ID, StatusLedgerDrift, "commit failed: "+err.Error())
+			if flagErr := h.db.SetLedgerDriftFlag(c.Request.Context(), intent.ID, "commit failed: "+err.Error()); flagErr != nil {
+				h.logger.Error("failed to persist ledger_drift flag", zap.Error(flagErr))
+			}
 			c.JSON(http.StatusOK, gin.H{"status": "processed", "ledger": "drift"})
 			return
 		}
@@ -430,10 +436,12 @@ func (h *Handler) HandleMojaloopCallback(c *gin.Context) {
 		h.notifyOrderPaid(c.Request.Context(), intent)
 		h.logger.Info("payment completed", zap.String("intent_id", intent.ID.String()), zap.String("transfer_id", transferID))
 	case "ABORTED", "EXPIRED":
-		if err := h.voidLedgerWithRetry(c.Request.Context(), intent.TigerBeetlePendingID); err != nil {
-			h.logger.Error("ledger void failed after retries; marking ledger_drift",
+		if err := h.voidLedgerWithRetry(c.Request.Context(), intent.LedgerPendingID); err != nil {
+			h.logger.Error("ledger void failed after retries; flagging ledger_drift",
 				zap.String("intent_id", intent.ID.String()), zap.Error(err))
-			h.setStatus(c, intent.ID, StatusLedgerDrift, transferState+"; void failed: "+err.Error())
+			if flagErr := h.db.SetLedgerDriftFlag(c.Request.Context(), intent.ID, transferState+"; void failed: "+err.Error()); flagErr != nil {
+				h.logger.Error("failed to persist ledger_drift flag", zap.Error(flagErr))
+			}
 			c.JSON(http.StatusOK, gin.H{"status": "processed", "ledger": "drift"})
 			return
 		}
@@ -664,8 +672,8 @@ func (h *Handler) initiateStripe(ctx context.Context, intent store.PaymentIntent
 
 // providerReference returns the provider-side reference for an intent.
 func providerReference(intent *store.PaymentIntentRow) string {
-	if intent.MojaloopTransferID != "" {
-		return intent.MojaloopTransferID
+	if intent.ProviderPaymentID != "" {
+		return intent.ProviderPaymentID
 	}
 	return intent.ID.String()
 }

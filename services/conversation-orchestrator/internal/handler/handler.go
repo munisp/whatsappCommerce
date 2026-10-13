@@ -75,19 +75,6 @@ func (h *Handler) GetConversation(c *gin.Context) {
 	c.JSON(http.StatusOK, conv)
 }
 
-func (h *Handler) GetMessages(c *gin.Context) {
-	tenantID := mustUUID(c.GetHeader("X-Tenant-ID"))
-	convID := mustUUID(c.Param("id"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-
-	msgs, err := h.db.GetMessages(c.Request.Context(), tenantID, convID, limit)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"messages": msgs, "count": len(msgs)})
-}
-
 func (h *Handler) RequestHandoff(c *gin.Context) {
 	tenantID := mustUUID(c.GetHeader("X-Tenant-ID"))
 	convID := mustUUID(c.Param("id"))
@@ -98,7 +85,9 @@ func (h *Handler) RequestHandoff(c *gin.Context) {
 	}
 	c.ShouldBindJSON(&req)
 
-	if err := h.db.UpdateConversationState(c.Request.Context(), convID, "handed_off"); err != nil {
+	// "handed_off" was never a valid status enum member in the real schema —
+	// human_active is the real equivalent.
+	if err := h.db.UpdateConversationState(c.Request.Context(), convID, "human_active"); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -108,7 +97,7 @@ func (h *Handler) RequestHandoff(c *gin.Context) {
 		zap.String("conv_id", convID.String()),
 		zap.String("reason", req.Reason),
 	)
-	c.JSON(http.StatusOK, gin.H{"status": "handed_off", "conversation_id": convID, "at": time.Now()})
+	c.JSON(http.StatusOK, gin.H{"status": "human_active", "conversation_id": convID, "at": time.Now()})
 }
 
 // === W45 go-rust-services (MSG-17) ===

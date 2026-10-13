@@ -33,8 +33,17 @@ export const journey: Journey = {
     assert(!intent.ledgerPendingId, "precondition: a top-up has no two-phase reservation");
 
     const before = ledger.transfers.length;
+    // === W48 PERF-API-1/INT-1: the webhook now acks 200 FIRST (before any confirm/hook work runs) so the
+    // PSP never retry-storms — {received:true} is the whole body, no {ok:true} (that was the OLD synchronous
+    // handler's shape). The real outcome is verified below by polling the actual DB state, not the HTTP
+    // response, since confirm/hook processing now genuinely continues after the response is sent.
     const res = await paystackChargeSuccess(world, { reference: intent.providerPaymentId!, amountMajor: 5_000 });
-    assert(res.status === 200 && res.json?.ok, `webhook confirmed the top-up (got ${res.status} ${JSON.stringify(res.json)})`);
+    assert(res.status === 200 && res.json?.received, `webhook acked the top-up (got ${res.status} ${JSON.stringify(res.json)})`);
+
+    await world.waitFor(async () => {
+      const [row] = await world.db.select().from(schema.paymentIntents).where(eq(schema.paymentIntents.id, intent.id)).limit(1);
+      return row?.status === "completed";
+    }, 5000, "top-up intent settles to completed (post-ack processing)");
 
     const legs = ledger.transfers.slice(before).map((t) => t.body?.idempotency_key);
     assert(legs.includes(`settle-in:${intent.id}`) && legs.includes(`settle:${intent.id}`),

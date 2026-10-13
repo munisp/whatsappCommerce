@@ -55,6 +55,11 @@ func newRouter(cfg *config.Config, h *handler.Handler, logger *zap.Logger) *gin.
 	protected.POST("/internal/sync/product", h.SyncProduct)
 	protected.POST("/internal/sync/stock", h.SyncStockLevel)
 
+	// Internal: commerce.* events routed here by event-processor's
+	// EventRouter.resolve_route(). Previously missing entirely -- any
+	// commerce.* event would have 404'd once a real consumer called it.
+	protected.POST("/internal/process-event", h.ProcessEvent)
+
 	return r
 }
 

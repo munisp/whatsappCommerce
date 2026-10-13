@@ -133,6 +133,42 @@ export function escapeTelegramHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// === Merge fix 2026-09-27 (moved from telegramRender.ts, the legacy render path — see that file for why) ===
+/**
+ * WhatsApp text → Telegram HTML. The menu/session engine (useCases.ts) and the NLP assistant write WhatsApp
+ * formatting (*bold*, _italic_) straight into reply text; every LIVE Telegram send (sendTelegramText,
+ * sendTelegramKeyboard, and the media/album captions below) used to hand that text to the Bot API with
+ * parse_mode "HTML" completely unconverted and UNESCAPED — a reply's own asterisks showed up as literal
+ * asterisks instead of bold, and Telegram rejects the WHOLE message ("can't parse entities") the moment the
+ * text has a stray `<` or `&` (a product called "R&D Kit", or "under <5 minutes"), which a fail-open .catch()
+ * then swallows as a silent no-op send. Escapes first, then converts *bold*, _italic_, ~strike~, `code` and
+ * ```blocks```. Code is set aside while the other marks are converted, so `snake_case` in code and ids like
+ * menu_more_8 stay literal.
+ */
+const TG_MD_BEFORE = String.raw`(^|[\s(\[{>"'])`;
+const TG_MD_AFTER = String.raw`(?=$|[\s.,:;!?)\]}<"'])`;
+
+/** One WhatsApp inline mark → a Telegram tag. Marks must hug their text and sit on a word edge, as on WhatsApp. */
+function tgMdSpan(text: string, mark: string, tag: string): string {
+  const m = mark.replace(/[*_~]/g, "\\$&");
+  const re = new RegExp(`${TG_MD_BEFORE}${m}(?=\\S)([^\\n${m}]*?\\S)${m}${TG_MD_AFTER}`, "gm");
+  return text.replace(re, `$1<${tag}>$2</${tag}>`);
+}
+
+export function waMarkdownToTelegramHtml(text: string): string {
+  const stash: string[] = [];
+  const keep = (html: string) => `\u0000${stash.push(html) - 1}\u0000`;
+  let out = escapeTelegramHtml(String(text ?? "").replace(/\u0000/g, ""));
+  out = out
+    .replace(/```([\s\S]*?)```/g, (_m, c: string) => keep(`<pre>${c.replace(/^\n/, "")}</pre>`))
+    .replace(/`([^`\n]+)`/g, (_m, c: string) => keep(`<code>${c}</code>`));
+  out = tgMdSpan(out, "*", "b");
+  out = tgMdSpan(out, "_", "i");
+  out = tgMdSpan(out, "~", "s");
+  return out.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => stash[Number(i)] ?? "");
+}
+// === END merge fix ===
+
 /**
  * Build a Bot API inline_keyboard markup. Button ids are used VERBATIM as
  * callback_data (existing grammar preserved); url buttons use `url`. Throws
@@ -335,6 +371,10 @@ export async function sendTelegramText(
   text: string,
   opts?: { parseMode?: "HTML" | "MarkdownV2"; disablePreview?: boolean; notifType?: string },
 ): Promise<SendTelegramResult> {
+  // Chunk the RAW WA-markdown text (length-wise, so the split lines up with what the caller wrote) — each
+  // chunk is converted to Telegram HTML independently, right before it goes out. A span that happens to
+  // straddle a chunk boundary just stays literal (same as an unmatched mark today), never a broken tag.
+  const parseMode = opts?.parseMode ?? "HTML";
   const chunks = chunkWhatsAppText(text, TG_TEXT_LIMIT);
   const messageIds: number[] = [];
   let simulated = false;
@@ -344,8 +384,8 @@ export async function sendTelegramText(
       chatId,
       "sendMessage",
       {
-        text: chunk,
-        parse_mode: opts?.parseMode ?? "HTML",
+        text: parseMode === "HTML" ? waMarkdownToTelegramHtml(chunk) : chunk,
+        parse_mode: parseMode,
         disable_web_page_preview: opts?.disablePreview ?? true,
       },
       { notifType: opts?.notifType, kind: "text" },
@@ -373,7 +413,7 @@ export async function sendTelegramKeyboard(
     tenantId,
     chatId,
     "sendMessage",
-    { text: truncate(text, TG_TEXT_LIMIT), parse_mode: "HTML", disable_web_page_preview: true, reply_markup },
+    { text: waMarkdownToTelegramHtml(truncate(text, TG_TEXT_LIMIT)), parse_mode: "HTML", disable_web_page_preview: true, reply_markup },
     { notifType: opts?.notifType, kind: "keyboard" },
   );
   return { sent: r.sent, simulated: r.simulated, messageIds: r.messageId !== null ? [r.messageId] : [], chunks: 1 };
@@ -434,7 +474,9 @@ export async function sendTelegramMedia(
   const field = input.type; // Bot API field name == type
   const sources = [input.url?.trim(), input.fileId?.trim(), input.buffer ? "buffer" : undefined].filter(Boolean);
   if (sources.length !== 1) throw new Error("telegram media requires exactly one of url, fileId or buffer");
-  const caption = input.caption?.trim() ? truncate(input.caption.trim(), 1024) : undefined;
+  // Merge fix 2026-09-27: captions (product/promo names, order numbers) carry WA-style markdown and untrusted
+  // characters the same as any other reply text — convert+escape here too (see waMarkdownToTelegramHtml).
+  const caption = input.caption?.trim() ? waMarkdownToTelegramHtml(truncate(input.caption.trim(), 1024)) : undefined;
 
   const creds = await resolveTenantTelegramCredentials(tenantId);
   const logBase: TgLogBase = {
@@ -458,7 +500,10 @@ export async function sendTelegramMedia(
     const form = new FormData();
     form.append("chat_id", chatId);
     form.append(field, new Blob([new Uint8Array(input.buffer)]), input.filename ?? `file.${input.type === "voice" ? "ogg" : "bin"}`);
-    if (caption) form.append("caption", caption);
+    if (caption) {
+      form.append("caption", caption);
+      form.append("parse_mode", "HTML"); // was missing — caption above is now HTML, not plain text
+    }
     if (replyMarkup) form.append("reply_markup", JSON.stringify(replyMarkup));
     bodyInit = form;
   } else {
@@ -522,7 +567,7 @@ export async function sendTelegramMediaGroup(
     return {
       type: it.type,
       media: it.media.trim(),
-      ...(it.caption?.trim() ? { caption: truncate(it.caption.trim(), 1024), parse_mode: "HTML" } : {}),
+      ...(it.caption?.trim() ? { caption: waMarkdownToTelegramHtml(truncate(it.caption.trim(), 1024)), parse_mode: "HTML" } : {}),
     };
   });
   const r = await deliverTelegram(
@@ -550,7 +595,7 @@ export async function sendTelegramLocationRequest(
     tenantId,
     chatId,
     "sendMessage",
-    { text: truncate(text || "Please share your delivery location", TG_TEXT_LIMIT), reply_markup },
+    { text: waMarkdownToTelegramHtml(truncate(text || "Please share your delivery location", TG_TEXT_LIMIT)), parse_mode: "HTML", reply_markup },
     { notifType: opts?.notifType, kind: "location_request" },
   );
   return { sent: r.sent, simulated: r.simulated, messageIds: r.messageId !== null ? [r.messageId] : [], chunks: 1 };
@@ -574,7 +619,7 @@ export async function sendTelegramContactRequest(
     tenantId,
     chatId,
     "sendMessage",
-    { text: truncate(text || "Please share your phone number to link your account", TG_TEXT_LIMIT), reply_markup },
+    { text: waMarkdownToTelegramHtml(truncate(text || "Please share your phone number to link your account", TG_TEXT_LIMIT)), parse_mode: "HTML", reply_markup },
     { notifType: opts?.notifType, kind: "contact_request" },
   );
   return { sent: r.sent, simulated: r.simulated, messageIds: r.messageId !== null ? [r.messageId] : [], chunks: 1 };

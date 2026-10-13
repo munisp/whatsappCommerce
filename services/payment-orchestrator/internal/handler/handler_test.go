@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -58,7 +59,7 @@ func (f *fakeStore) GetPaymentIntentByIdempotencyKey(_ context.Context, tenantID
 }
 func (f *fakeStore) GetPaymentIntentByMojaloop(_ context.Context, transferID string) (*store.PaymentIntentRow, error) {
 	for _, i := range f.intents {
-		if i.MojaloopTransferID == transferID {
+		if i.ProviderPaymentID == transferID {
 			return &i, nil
 		}
 	}
@@ -66,13 +67,13 @@ func (f *fakeStore) GetPaymentIntentByMojaloop(_ context.Context, transferID str
 }
 func (f *fakeStore) SetLedgerPendingID(_ context.Context, id uuid.UUID, pendingID string) error {
 	i := f.intents[id]
-	i.TigerBeetlePendingID = pendingID
+	i.LedgerPendingID = pendingID
 	f.intents[id] = i
 	return nil
 }
 func (f *fakeStore) SetProviderReference(_ context.Context, id uuid.UUID, ref string) error {
 	i := f.intents[id]
-	i.MojaloopTransferID = ref
+	i.ProviderPaymentID = ref
 	f.intents[id] = i
 	return nil
 }
@@ -80,6 +81,18 @@ func (f *fakeStore) UpdatePaymentStatus(_ context.Context, id uuid.UUID, status,
 	i := f.intents[id]
 	i.Status = status
 	i.FailureReason = reason
+	f.intents[id] = i
+	return nil
+}
+func (f *fakeStore) SetLedgerDriftFlag(_ context.Context, id uuid.UUID, reason string) error {
+	i := f.intents[id]
+	i.Metadata = []byte(`{"ledger_drift":true,"drift_reason":` + strconv.Quote(reason) + `}`)
+	f.intents[id] = i
+	return nil
+}
+func (f *fakeStore) SetRefundPendingFlag(_ context.Context, id uuid.UUID, reason string) error {
+	i := f.intents[id]
+	i.Metadata = []byte(`{"refund_state":"pending","refund_pending_reason":` + strconv.Quote(reason) + `}`)
 	f.intents[id] = i
 	return nil
 }
@@ -210,7 +223,7 @@ func TestInitiatePayment_IdempotentReplay_NoSecondCharge(t *testing.T) {
 	existingID := uuid.New()
 	s.intents[existingID] = store.PaymentIntentRow{
 		ID: existingID, TenantID: tenantID, Status: "initiated", Provider: "mojaloop",
-		WorkflowID: "wf-1", IdempotencyKey: key,
+		IdempotencyKey: key,
 	}
 	s.byIdempotent[tenantID.String()+"|"+key] = existingID
 
@@ -341,7 +354,7 @@ func TestInitiatePayment_ProviderFailsAfterReserve_VoidsLedgerAndMarksFailed(t *
 // ─── RefundPayment: only a completed payment can ever be refunded ──────────
 
 func TestRefundPayment_RejectsNonCompletedStatus(t *testing.T) {
-	for _, status := range []string{"pending", "initiated", "failed", "voided"} {
+	for _, status := range []string{"pending", "initiated", "failed", "cancelled"} {
 		t.Run(status, func(t *testing.T) {
 			s := newFakeStore()
 			tenantID := uuid.New()

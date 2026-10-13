@@ -14,7 +14,6 @@ type Config struct {
 	// fail loudly (never silently log-only).
 	ChatwootAccountID       string
 	ChatwootAPIAccessToken  string
-	KafkaBrokers []string
 }
 
 func Load() *Config {
@@ -26,7 +25,6 @@ func Load() *Config {
 		ChatwootURL:  getEnv("CHATWOOT_URL", "http://localhost:3000"),
 		ChatwootAccountID:      getEnv("CHATWOOT_ACCOUNT_ID", "1"),
 		ChatwootAPIAccessToken: os.Getenv("CHATWOOT_API_ACCESS_TOKEN"), // no default — fail loud on use
-		KafkaBrokers: []string{getEnv("KAFKA_BROKERS", "localhost:9092")},
 	}
 }
 

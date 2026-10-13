@@ -135,7 +135,14 @@ export const conversationRouter = router({
       // (PERF-INT-4's direct waSender call could not) — keeping this channel-agnostic, not WhatsApp-only.
       try {
         const { sendChannelMessage } = await import("../services/channelSender");
-        const result = await sendChannelMessage(input.tenantId, input.channel, input.toPhone, { kind: "text", text: input.body });
+        const result = await sendChannelMessage(input.tenantId, input.channel, input.toPhone, { kind: "text", text: input.body }, {
+          // W48 (PERF-INT-4): keep this reply metered under its own notifType — sendChannelMessage forwards
+          // opts straight through to the underlying per-channel sender (waSender for WhatsApp), so this is
+          // still real metering, not lost by going through the channel-agnostic facade instead of calling
+          // waSender directly.
+          notifType: "portal_agent_reply",
+          userId: ctx.user?.id ?? null,
+        });
         if (!result.sent && !result.simulated) {
           return { sent: false, error: "Message could not be delivered — check the channel's credentials are configured for this tenant." };
         }

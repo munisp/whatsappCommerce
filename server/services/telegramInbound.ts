@@ -307,17 +307,19 @@ const telegramIntakeBlockedCooldown = new Map<string, number>();
 /**
  * W47 buyer (ONB-B-9): recordChannelOptIn throws ConsentRegrantRateLimited
  * when a withdrawn identity re-grants >3×/24h — send the explanation instead
- * of throwing into silence.
+ * of throwing into silence. Returns true when consent was actually granted
+ * (false when blocked by the rate limit — no menu should follow a block).
  */
-async function safeChannelOptIn(db: Db, cfg: TelegramTenantConfig, sessionKey: string, chatId: string, replyText: string = TG_OPT_IN_REPLY): Promise<void> {
+async function safeChannelOptIn(db: Db, cfg: TelegramTenantConfig, sessionKey: string, chatId: string, replyText: string = TG_OPT_IN_REPLY): Promise<boolean> {
   try {
     await recordChannelOptIn(db, { tenantId: cfg.tenantId, sessionKey, channel: CONSENT_CHANNEL_TELEGRAM });
     await sendTelegramTextReply(cfg.tenantId, chatId, replyText);
+    return true;
   } catch (e: any) {
     const { ConsentRegrantRateLimited } = await import("./consent");
     if (e instanceof ConsentRegrantRateLimited) {
       await sendTelegramTextReply(cfg.tenantId, chatId, e.message);
-      return;
+      return false;
     }
     throw e;
   }
@@ -567,13 +569,22 @@ export async function deliverTelegramRichAnnotations(
   const card = result.orderCard;
   if (card?.orderId && card?.orderNumber) {
     try {
+      // === W49 RICHMEDIA (RICH-7): cta_url pay button — mirrors the WA webhook (server/_core/index.ts,
+      // ~line 966-978): sent BEFORE the order action card so the card stays the LAST interactive (older
+      // journeys pin that). Found live via J547: the order-action card's OWN Pay button must stay
+      // callback-based (order_pay:<id>) — same as WhatsApp's buildOrderActionCard, which never varies it —
+      // giving the buyer a second, always-resolvable way to pay even after the CTA link goes stale;
+      // swapping it for a raw URL button here (as this used to) diverges from WA parity.
+      if (card.paymentUrl && /^https:\/\//.test(card.paymentUrl)) {
+        const { sendTelegramPaymentCta } = await import("./richMedia");
+        await sendTelegramPaymentCta(tenantId, chatId, { url: card.paymentUrl, orderNumber: card.orderNumber ?? null })
+          .catch((e: any) => console.error("[telegram-inbound] payment cta send error:", e?.message));
+      }
       const { orderActionReplyId } = await import("./useCases");
       const { sendTelegramKeyboard } = await import("./telegramSender");
       const buttons = [
         { id: orderActionReplyId("track", card.orderId), title: "📦 Track Order" },
-        ...(card.paymentUrl
-          ? [{ id: card.paymentUrl, title: "💳 Pay Now", url: card.paymentUrl }]
-          : [{ id: orderActionReplyId("pay", card.orderId), title: "💳 Pay Now" }]),
+        { id: orderActionReplyId("pay", card.orderId), title: "💳 Pay Now" },
         { id: orderActionReplyId("cancel", card.orderId), title: "❌ Cancel Order" },
       ];
       await sendTelegramKeyboard(
@@ -613,7 +624,7 @@ export async function deliverTelegramRichAnnotations(
 async function consentGate(
   db: Db,
   cfg: TelegramTenantConfig,
-  ev: { chatId: string },
+  ev: { chatId: string; name: string },
   text: string,
 ): Promise<boolean> {
   const sessionKey = sessionKeyFor(CHANNEL_TELEGRAM, ev.chatId);
@@ -622,8 +633,12 @@ async function consentGate(
   const decision = parseConsentReply(text);
   if (decision === true) {
     // W47 (B ONB-B-9 rate-limit guard + D ONB-I18N-1 localized reply).
-    await safeChannelOptIn(db, cfg, sessionKey, ev.chatId,
-      await tgConsentText(cfg.tenantId, sessionKey, text, "granted"));
+    // WA parity: a fresh grant bundles the welcome menu into the SAME turn (handleConversationalInbound returns
+    // "consentGranted\n\nmenu" together) — show it here too rather than leave the buyer with only a confirmation.
+    if (await safeChannelOptIn(db, cfg, sessionKey, ev.chatId,
+      await tgConsentText(cfg.tenantId, sessionKey, text, "granted"))) {
+      await runMenuEngine(db, cfg, ev, "menu").catch((e: any) => console.error("[telegram-inbound] post-consent menu error:", e?.message));
+    }
     return true;
   }
   if (decision === false) {
@@ -703,6 +718,55 @@ async function telegramLanguagePickerGate(
 // === END W46 platform-p2 (MSG-23) ===
 
 /**
+ * Run a typed message through the SAME conversational menu/session engine the WhatsApp webhook runs first
+ * (menu keywords, numeric choices, use-case flows, FAQ, finance Q&A, human handoff). Consent, STOP, erasure and
+ * the language picker were already handled by the Telegram gates above, so the engine only ever sees an
+ * opted-in chat. Returns true when the engine answered; false → the caller falls through to the NLP assistant,
+ * exactly as on WhatsApp. An engine error also falls through (logged), never dropping the message.
+ *
+ * Restored 2026-09-27 after a merge with origin/main's W48-W52 waves dropped it — origin/main's own text-case
+ * handling only special-cased the bare "menu" keyword and otherwise went straight to dispatchToNlp, silently
+ * skipping the SAME deterministic engine WhatsApp runs first for everything else (numeric picks, category
+ * replies, FAQ, use-case flows, human handoff, and the post-opt-in welcome menu — see the 4 call sites below).
+ */
+async function runMenuEngine(db: Db, cfg: TelegramTenantConfig, ev: { chatId: string; name: string }, text: string): Promise<boolean> {
+  let outcome: Awaited<ReturnType<typeof import("./useCases").handleConversationalInbound>>;
+  try {
+    const { handleConversationalInbound } = await import("./useCases");
+    const [tenantRow] = await db
+      .select({ id: tenants.id, name: tenants.name, settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, cfg.tenantId))
+      .limit(1)
+      .catch(() => [] as any[]);
+    outcome = await handleConversationalInbound({
+      db,
+      tenant: tenantRow ?? null,
+      tenantId: cfg.tenantId,
+      phone: sessionKeyFor(CHANNEL_TELEGRAM, ev.chatId),
+      text,
+      customerName: ev.name || undefined,
+      channel: CHANNEL_TELEGRAM,
+    });
+  } catch (e: any) {
+    console.error("[telegram-inbound] menu engine error — falling back to NLP:", e?.message);
+    return false;
+  }
+  if (!outcome.handled) return false;
+  // A delivery failure must not send the message on to NLP as well (the engine already changed session state).
+  try {
+    if (outcome.interactive) {
+      await sendTelegramInteractive(cfg.tenantId, ev.chatId, outcome.interactive);
+    } else if (outcome.reply) {
+      await sendTelegramTextReply(cfg.tenantId, ev.chatId, outcome.reply);
+    }
+  } catch (e: any) {
+    console.error("[telegram-inbound] menu reply send error:", e?.message);
+  }
+  return true;
+}
+
+/**
  * Process one normalized update AFTER the 200 ack. Never throws — every
  * branch fail-softs with a log (Telegram has already been acked).
  */
@@ -719,7 +783,11 @@ export async function processTelegramUpdate(
     switch (ev.kind) {
       case "command": {
         if (ev.command === "start") {
-          await safeChannelOptIn(db, cfg, sessionKey, ev.chatId);
+          // WhatsApp's equivalent (a fresh YES reply) shows the welcome menu in the SAME breath as the opt-in
+          // confirmation — /start must do the same, or a buyer who just tapped "Start" has no idea what to do next.
+          if (await safeChannelOptIn(db, cfg, sessionKey, ev.chatId)) {
+            await runMenuEngine(db, cfg, ev, "menu").catch((e: any) => console.error("[telegram-inbound] post-/start menu error:", e?.message));
+          }
         } else if (ev.command === "menu") {
           // === W50 CHANNELS (A2) === /menu renders the tenant menu engine
           // config as an inline-keyboard list (mirrors the WA "menu"
@@ -823,6 +891,12 @@ export async function processTelegramUpdate(
               replyId: ev.interactive.id,
               replyTitle: ev.interactive.title,
               customerName: ev.name || undefined,
+              // Found live via J541: without this, a numeric menu-entry tap (e.g. "menu_2") falls into
+              // handleInteractiveInbound's "resolve through the text path" branch, which calls
+              // handleConversationalInbound with channel defaulting to "whatsapp" — checking the WRONG
+              // channel's consent for a Telegram-only buyer and re-showing the (WhatsApp-worded) consent
+              // prompt to someone who already granted consent on Telegram.
+              channel: CHANNEL_TELEGRAM,
             });
             if (outcome.handled) {
               if (outcome.interactive) {
@@ -938,7 +1012,10 @@ export async function processTelegramUpdate(
         const tgConsent = await getChannelConsent(db, cfg.tenantId, sessionKey, CONSENT_CHANNEL_TELEGRAM);
         if (wasRevoked(tgConsent)) {
           if (parseConsentReply(ev.text) === true) {
-            await safeChannelOptIn(db, cfg, sessionKey, ev.chatId); // W47 ONB-B-9
+            // WA parity: re-granting from a revoked state ALSO bundles the menu into the same turn.
+            if (await safeChannelOptIn(db, cfg, sessionKey, ev.chatId)) { // W47 ONB-B-9
+              await runMenuEngine(db, cfg, ev, "menu").catch((e: any) => console.error("[telegram-inbound] post-regrant menu error:", e?.message));
+            }
           }
           return; // bot silent — no NLP dispatch, no reply
         }
@@ -970,6 +1047,10 @@ export async function processTelegramUpdate(
           }
         }
         // === END W50 CHANNELS ===
+        // Restored 2026-09-27 (see runMenuEngine's own comment): everything else a typed message could be —
+        // numeric menu picks, category replies, use-case flow continuations, FAQ, finance Q&A, human handoff —
+        // runs through the SAME deterministic engine WhatsApp tries first, before falling through to NLP.
+        if (await runMenuEngine(db, cfg, ev, ev.text)) return;
         await dispatchToNlp(db, cfg, ev, ev.text);
         return;
       }

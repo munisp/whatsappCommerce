@@ -9,35 +9,15 @@
  * a stray `<` or `&`, so a product called "R&D Kit" or a reply containing "under <5 minutes" would never arrive.
  */
 import type { SendInteractiveInput } from "./waSender";
-import { escapeTelegramHtml, TG_BUTTON_TITLE_LIMIT, TG_CALLBACK_DATA_BYTES, type TelegramInlineButton, type TelegramListRow } from "./telegramSender";
+import { escapeTelegramHtml, waMarkdownToTelegramHtml, TG_BUTTON_TITLE_LIMIT, TG_CALLBACK_DATA_BYTES, type TelegramInlineButton, type TelegramListRow } from "./telegramSender";
 
-/** Characters that may sit directly BEFORE / AFTER a formatting mark. `<` `>` are only ever our own tags (user text is escaped first). */
-const BEFORE = String.raw`(^|[\s(\[{>"'])`;
-const AFTER = String.raw`(?=$|[\s.,:;!?)\]}<"'])`;
-
-/** One WhatsApp inline mark → a Telegram tag. Marks must hug their text and sit on a word edge, as on WhatsApp. */
-function span(text: string, mark: string, tag: string): string {
-  const m = mark.replace(/[*_~]/g, "\\$&");
-  const re = new RegExp(`${BEFORE}${m}(?=\\S)([^\\n${m}]*?\\S)${m}${AFTER}`, "gm");
-  return text.replace(re, `$1<${tag}>$2</${tag}>`);
-}
-
-/**
- * WhatsApp text → Telegram HTML. Escapes first, then converts *bold*, _italic_, ~strike~, `code` and ```blocks```.
- * Code is set aside while the other marks are converted, so `snake_case` in code and ids like menu_more_8 stay literal.
- */
-export function waMarkdownToTelegramHtml(text: string): string {
-  const stash: string[] = [];
-  const keep = (html: string) => `\u0000${stash.push(html) - 1}\u0000`;
-  let out = escapeTelegramHtml(String(text ?? "").replace(/\u0000/g, ""));
-  out = out
-    .replace(/```([\s\S]*?)```/g, (_m, c: string) => keep(`<pre>${c.replace(/^\n/, "")}</pre>`))
-    .replace(/`([^`\n]+)`/g, (_m, c: string) => keep(`<code>${c}</code>`));
-  out = span(out, "*", "b");
-  out = span(out, "_", "i");
-  out = span(out, "~", "s");
-  return out.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => stash[Number(i)] ?? "");
-}
+// Merge fix 2026-09-27: waMarkdownToTelegramHtml used to live here, but this module's own renderer
+// (renderInteractiveForTelegram, below) had been superseded as the live send path — telegramInbound.ts calls
+// sendTelegramInteractive/sendTelegramKeyboard directly instead — which meant the ONE place that escaped and
+// converted WA markdown correctly was dead code, and every REAL Telegram send skipped both. Moved the
+// implementation to telegramSender.ts (the actual chokepoint every send funnels through) and re-exported here
+// so this file's own tests/callers don't need to change.
+export { waMarkdownToTelegramHtml };
 
 export type TelegramRendered =
   | { kind: "keyboard"; text: string; buttons: TelegramInlineButton[] }

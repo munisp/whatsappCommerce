@@ -58,7 +58,11 @@ export const journey: Journey = {
     assert(sendMsg.length === 1, `exactly 1 sendMessage call (got ${sendMsg.length})`);
     const body = sendMsg[0].body as any;
     assert(String(body.chat_id) === CHAT, "chat_id passed through");
-    assert(body.text.includes("Order *confirmed*"), "text body intact");
+    // Merge fix 2026-09-27: sendTelegramText now runs every outgoing chunk through waMarkdownToTelegramHtml
+    // before it goes out — declaring parse_mode HTML while leaving WhatsApp's own *bold* markdown asterisks
+    // untouched (the old, asserted-here behavior) meant the buyer just saw literal asterisks on Telegram
+    // instead of bold text. The body sent to the Bot API must carry the CONVERTED tag, not the raw markdown.
+    assert(body.text === "Order <b>confirmed</b> — track below", `WA *bold* converted to Telegram <b> (got ${body.text})`);
     assert(body.parse_mode === "HTML", "parseMode HTML default");
     assert(body.disable_web_page_preview === true, "preview disabled default");
 

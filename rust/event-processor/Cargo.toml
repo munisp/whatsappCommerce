@@ -26,6 +26,11 @@ redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 axum = { version = "0.7", features = ["json"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
+# Real Kafka consumer (replaces the former heartbeat-only loop). Dynamically
+# links against a system/apt-installed librdkafka via pkg-config -- see
+# services/message-processor/Cargo.toml for the alternative cmake-build
+# (vendored) approach if the deploy environment doesn't have librdkafka-dev.
+rdkafka = { version = "0.37", features = ["cmake-build"] }
 
 # === W35 otel ===
 opentelemetry = "0.30"

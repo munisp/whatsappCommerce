@@ -8,82 +8,82 @@
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348012518699",
-      "sessionId": "ussd-1790457263221",
+      "phone": "2348014410175",
+      "sessionId": "ussd-1790534816069",
       "text": "(dial)",
-      "at": 1790457263532
+      "at": 1790534816384
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348012518699",
-      "sessionId": "ussd-1790457263221",
+      "phone": "2348014410175",
+      "sessionId": "ussd-1790534816069",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1790457263533
+      "at": 1790534816385
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348012518699",
-      "sessionId": "ussd-1790457263221",
+      "phone": "2348014410175",
+      "sessionId": "ussd-1790534816069",
       "text": "menu",
-      "at": 1790457263847
+      "at": 1790534816694
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348012518699",
-      "sessionId": "ussd-1790457263221",
+      "phone": "2348014410175",
+      "sessionId": "ussd-1790534816069",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1790457263848
+      "at": 1790534816695
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348012518699",
-      "sessionId": "ussd-1790457263221",
+      "phone": "2348014410175",
+      "sessionId": "ussd-1790534816069",
       "text": "1",
-      "at": 1790457264208
+      "at": 1790534817050
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348012518699",
-      "sessionId": "ussd-1790457263221",
-      "text": "END DEAL: Promo SIM10 — 10% off. Use code SIM10\nForward: 🔥 Promo SIM10 — 10% off at our store! Use code SIM10. https://wa.me/2347000000000?text=DEAL%20SIM10\nWhat would you like? We have Jollof Rice and more.",
-      "at": 1790457264209
+      "phone": "2348014410175",
+      "sessionId": "ussd-1790534816069",
+      "text": "END DEAL: Promo SIM10 — 10% off. Use code SIM10\nForward: 🔥 Promo SIM10 — 10% off at our store! Use code SIM10. https://wa.me/2347000000000?text=DEAL%20SIM10\nSure! Here's what we have:\n\n1. Jollof Rice — NGN 2500.00\n2. Grilled Chicken — NGN 3000.00\n3. Last Unit Special — NGN 1000.00\n4. Sold Out Sneakers — NGN 15000.00 (out of stock)\n5. Ankara Fabric — NGN 5000.00\n6. Restock Widget — NGN 750.00 (out of stock)\n\nReply with a number or an item's name to add it.",
+      "at": 1790534817051
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348012518699",
-      "sessionId": "ussd-1790457263221-2",
+      "phone": "2348014410175",
+      "sessionId": "ussd-1790534816069-2",
       "text": "2",
-      "at": 1790457264516
+      "at": 1790534817420
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348012518699",
-      "sessionId": "ussd-1790457263221-2",
+      "phone": "2348014410175",
+      "sessionId": "ussd-1790534816069-2",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1790457264517
+      "at": 1790534817421
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348012518699",
-      "sessionId": "ussd-1790457263221",
+      "phone": "2348014410175",
+      "sessionId": "ussd-1790534816069",
       "text": "1*xyz-nonsense",
-      "at": 1790457264824
+      "at": 1790534817740
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348012518699",
-      "sessionId": "ussd-1790457263221",
+      "phone": "2348014410175",
+      "sessionId": "ussd-1790534816069",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1790457264825
+      "at": 1790534817741
     }
   ]
 }

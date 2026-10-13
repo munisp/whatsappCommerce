@@ -9,40 +9,41 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// Column names and shapes below match the real schema (drizzle/schema.ts).
+// customers has no phone_number/display_name/is_verified columns — the real
+// columns are whatsappPhone/name/chatIdentityVerifiedAt (a verification
+// timestamp, not a bool). conversations has a single status enum
+// (open|resolved|pending|snoozed|bot_active|human_active), not separate
+// state+mode columns, no workflow_id or cart_id this service uses, and
+// chatwootConversationId is a varchar, not an integer. There is no messages
+// table at all in the real schema — message persistence has been removed
+// rather than inventing a table the schema owner (the TS app) doesn't have.
+
 type CustomerRow struct {
-	ID          uuid.UUID `db:"id"`
-	TenantID    uuid.UUID `db:"tenant_id"`
-	PhoneNumber string    `db:"phone_number"`
-	DisplayName string    `db:"display_name"`
-	IsVerified  bool      `db:"is_verified"`
+	ID            uuid.UUID `db:"id" json:"id"`
+	TenantID      uuid.UUID `db:"tenantId" json:"tenant_id"`
+	WhatsappPhone string    `db:"whatsappPhone" json:"whatsapp_phone"`
+	Name          string    `db:"name" json:"name"`
 }
 
+// ConversationRow matches the real conversations columns this service needs.
+// Several real columns (channel, assignedAgentId, lastIntent, cartId,
+// aiHandled, escalatedAt, resolvedAt, firstResponseAt, metadata) are
+// intentionally left to their schema defaults — this service's state
+// machine has no basis to set them.
 type ConversationRow struct {
-	ID              uuid.UUID `db:"id"`
-	TenantID        uuid.UUID `db:"tenant_id"`
-	CustomerID      uuid.UUID `db:"customer_id"`
-	ChatwootConvID  int64     `db:"chatwoot_conv_id"`
-	State           string    `db:"state"`
-	Mode            string    `db:"mode"`
-	CurrentFlowStep string    `db:"current_flow_step"`
-	CartID          *uuid.UUID `db:"cart_id"`
-	WorkflowID      string    `db:"workflow_id"`
-	LastMessageAt   time.Time `db:"last_message_at"`
-	CreatedAt       time.Time `db:"created_at"`
-	UpdatedAt       time.Time `db:"updated_at"`
-}
-
-type MessageRow struct {
-	ID             uuid.UUID  `db:"id"`
-	TenantID       uuid.UUID  `db:"tenant_id"`
-	ConversationID uuid.UUID  `db:"conversation_id"`
-	Direction      string     `db:"direction"`
-	Content        string     `db:"content"`
-	ContentType    string     `db:"content_type"`
-	IdempotencyKey string     `db:"idempotency_key"`
-	ExternalMsgID  string     `db:"external_msg_id"`
-	ProcessedAt    *time.Time `db:"processed_at"`
-	CreatedAt      time.Time  `db:"created_at"`
+	ID                     uuid.UUID `db:"id" json:"id"`
+	TenantID               uuid.UUID `db:"tenantId" json:"tenant_id"`
+	CustomerID             uuid.UUID `db:"customerId" json:"customer_id"`
+	ChatwootConversationID string    `db:"chatwootConversationId" json:"chatwoot_conversation_id"`
+	// Status is the real enum column. "open" is the schema default for a new
+	// conversation; "human_active"/"bot_active" replace this service's old
+	// "handed_off"/"bot_active" state values — "handed_off" was never a
+	// valid enum member, so that transition could never actually persist.
+	Status          string    `db:"status" json:"status"`
+	CurrentFlowStep string    `db:"currentFlowStep" json:"current_flow_step"`
+	CreatedAt       time.Time `db:"createdAt" json:"created_at"`
+	UpdatedAt       time.Time `db:"updatedAt" json:"updated_at"`
 }
 
 type DB struct{ db *sqlx.DB }
@@ -61,67 +62,63 @@ func NewPostgres(dsn string) (*DB, error) {
 func (d *DB) UpsertCustomer(ctx context.Context, tenantID uuid.UUID, phone, name string) (*CustomerRow, error) {
 	var c CustomerRow
 	err := d.db.GetContext(ctx, &c, `
-		INSERT INTO customers (id, tenant_id, phone_number, display_name, is_verified, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, false, NOW(), NOW())
-		ON CONFLICT (tenant_id, phone_number) DO UPDATE
-		  SET display_name = EXCLUDED.display_name, updated_at = NOW()
-		RETURNING id, tenant_id, phone_number, display_name, is_verified`,
+		INSERT INTO customers (id, "tenantId", "whatsappPhone", name, "createdAt", "updatedAt")
+		VALUES ($1, $2, $3, $4, NOW(), NOW())
+		ON CONFLICT ("tenantId", "whatsappPhone") DO UPDATE
+		  SET name = EXCLUDED.name, "updatedAt" = NOW()
+		RETURNING id, "tenantId", "whatsappPhone", name`,
 		uuid.New(), tenantID, phone, name,
 	)
 	return &c, err
 }
 
-func (d *DB) GetOrCreateConversation(ctx context.Context, tenantID, customerID uuid.UUID, chatwootConvID int64) (*ConversationRow, error) {
+// GetOrCreateConversation takes chatwootConvID as a string — the real column
+// is a varchar, not an integer (Chatwoot IDs are numeric but this schema
+// never constrained them to a numeric type).
+func (d *DB) GetOrCreateConversation(ctx context.Context, tenantID, customerID uuid.UUID, chatwootConvID string) (*ConversationRow, error) {
 	var c ConversationRow
 	err := d.db.GetContext(ctx, &c, `
-		SELECT id, tenant_id, customer_id, chatwoot_conv_id, state, mode, current_flow_step, cart_id, workflow_id, last_message_at, created_at, updated_at
+		SELECT id, "tenantId", "customerId", "chatwootConversationId", status, "currentFlowStep", "createdAt", "updatedAt"
 		FROM conversations
-		WHERE tenant_id=$1 AND customer_id=$2 AND chatwoot_conv_id=$3 AND state NOT IN ('resolved','expired')
-		ORDER BY created_at DESC LIMIT 1`, tenantID, customerID, chatwootConvID)
+		WHERE "tenantId"=$1 AND "customerId"=$2 AND "chatwootConversationId"=$3 AND status NOT IN ('resolved')
+		ORDER BY "createdAt" DESC LIMIT 1`, tenantID, customerID, chatwootConvID)
 	if err != nil {
-		// Create new conversation
 		c = ConversationRow{
-			ID:             uuid.New(),
-			TenantID:       tenantID,
-			CustomerID:     customerID,
-			ChatwootConvID: chatwootConvID,
-			State:          "active",
-			Mode:           "menu",
-			LastMessageAt:  time.Now(),
-			CreatedAt:      time.Now(),
-			UpdatedAt:      time.Now(),
+			ID:                     uuid.New(),
+			TenantID:               tenantID,
+			CustomerID:             customerID,
+			ChatwootConversationID: chatwootConvID,
+			Status:                 "open",
+			CurrentFlowStep:        "greeting",
+			CreatedAt:              time.Now(),
+			UpdatedAt:              time.Now(),
 		}
 		_, err = d.db.ExecContext(ctx, `
-			INSERT INTO conversations (id, tenant_id, customer_id, chatwoot_conv_id, state, mode, current_flow_step, last_message_at, created_at, updated_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-			c.ID, c.TenantID, c.CustomerID, c.ChatwootConvID, c.State, c.Mode, "", c.LastMessageAt, c.CreatedAt, c.UpdatedAt)
+			INSERT INTO conversations (id, "tenantId", "customerId", "chatwootConversationId", status, "currentFlowStep", "createdAt", "updatedAt")
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+			c.ID, c.TenantID, c.CustomerID, c.ChatwootConversationID, c.Status, c.CurrentFlowStep, c.CreatedAt, c.UpdatedAt)
 	}
 	return &c, err
 }
 
-func (d *DB) SaveMessage(ctx context.Context, m MessageRow) error {
-	_, err := d.db.ExecContext(ctx, `
-		INSERT INTO messages (id, tenant_id, conversation_id, direction, content, content_type, idempotency_key, external_msg_id, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-		ON CONFLICT (idempotency_key) DO NOTHING`,
-		m.ID, m.TenantID, m.ConversationID, m.Direction, m.Content, m.ContentType, m.IdempotencyKey, m.ExternalMsgID, m.CreatedAt)
+func (d *DB) UpdateConversationState(ctx context.Context, id uuid.UUID, status string) error {
+	_, err := d.db.ExecContext(ctx, `UPDATE conversations SET status=$1, "updatedAt"=NOW() WHERE id=$2`, status, id)
 	return err
 }
 
-func (d *DB) UpdateConversationState(ctx context.Context, id uuid.UUID, state string) error {
-	_, err := d.db.ExecContext(ctx, `UPDATE conversations SET state=$1, updated_at=NOW() WHERE id=$2`, state, id)
-	return err
-}
-
-func (d *DB) UpdateConversationLastMessage(ctx context.Context, id uuid.UUID, t time.Time) {
-	d.db.ExecContext(ctx, `UPDATE conversations SET last_message_at=$1, updated_at=NOW() WHERE id=$2`, t, id)
+// UpdateConversationLastMessage bumps the conversation's activity. There is
+// no last_message_at column in the real schema — messageCount is the real
+// column this schema uses to track conversation activity, so this
+// increments it instead of writing a timestamp nothing reads.
+func (d *DB) UpdateConversationLastMessage(ctx context.Context, id uuid.UUID) {
+	d.db.ExecContext(ctx, `UPDATE conversations SET "messageCount" = "messageCount" + 1, "updatedAt"=NOW() WHERE id=$1`, id)
 }
 
 func (d *DB) ListConversations(ctx context.Context, tenantID uuid.UUID, limit, offset int) ([]ConversationRow, error) {
 	var rows []ConversationRow
 	err := d.db.SelectContext(ctx, &rows, `
-		SELECT id, tenant_id, customer_id, chatwoot_conv_id, state, mode, current_flow_step, cart_id, workflow_id, last_message_at, created_at, updated_at
-		FROM conversations WHERE tenant_id=$1 ORDER BY last_message_at DESC LIMIT $2 OFFSET $3`,
+		SELECT id, "tenantId", "customerId", "chatwootConversationId", status, "currentFlowStep", "createdAt", "updatedAt"
+		FROM conversations WHERE "tenantId"=$1 ORDER BY "updatedAt" DESC LIMIT $2 OFFSET $3`,
 		tenantID, limit, offset)
 	return rows, err
 }
@@ -132,7 +129,7 @@ func (d *DB) ListConversations(ctx context.Context, tenantID uuid.UUID, limit, o
 func (d *DB) GetConversationByID(ctx context.Context, id uuid.UUID) (*ConversationRow, error) {
 	var c ConversationRow
 	err := d.db.GetContext(ctx, &c, `
-		SELECT id, tenant_id, customer_id, chatwoot_conv_id, state, mode, current_flow_step, cart_id, workflow_id, last_message_at, created_at, updated_at
+		SELECT id, "tenantId", "customerId", "chatwootConversationId", status, "currentFlowStep", "createdAt", "updatedAt"
 		FROM conversations WHERE id=$1`, id)
 	return &c, err
 }
@@ -140,17 +137,7 @@ func (d *DB) GetConversationByID(ctx context.Context, id uuid.UUID) (*Conversati
 func (d *DB) GetConversation(ctx context.Context, tenantID, id uuid.UUID) (*ConversationRow, error) {
 	var c ConversationRow
 	err := d.db.GetContext(ctx, &c, `
-		SELECT id, tenant_id, customer_id, chatwoot_conv_id, state, mode, current_flow_step, cart_id, workflow_id, last_message_at, created_at, updated_at
-		FROM conversations WHERE tenant_id=$1 AND id=$2`, tenantID, id)
+		SELECT id, "tenantId", "customerId", "chatwootConversationId", status, "currentFlowStep", "createdAt", "updatedAt"
+		FROM conversations WHERE "tenantId"=$1 AND id=$2`, tenantID, id)
 	return &c, err
 }
-
-func (d *DB) GetMessages(ctx context.Context, tenantID, convID uuid.UUID, limit int) ([]MessageRow, error) {
-	var rows []MessageRow
-	err := d.db.SelectContext(ctx, &rows, `
-		SELECT id, tenant_id, conversation_id, direction, content, content_type, idempotency_key, external_msg_id, processed_at, created_at
-		FROM messages WHERE tenant_id=$1 AND conversation_id=$2 ORDER BY created_at DESC LIMIT $3`,
-		tenantID, convID, limit)
-	return rows, err
-}
-

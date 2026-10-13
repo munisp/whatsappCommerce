@@ -70,12 +70,17 @@ export const journey: Journey = {
     assert(world.llm.calls.length === callsBeforeStock, "stock question must not call the LLM");
 
     // 3. Product detail — resolves AND actually sends the catalog image through the real delivery layer.
+    // Merged 2026-09-27 with origin/main's W49 RICHMEDIA (RICH-1/RICH-12): the product image is no longer a
+    // bare WA image message — it's now ONE interactive message (image header + name/price body + [Add to
+    // cart][Buy now] buttons) via sendWhatsAppProductCard/sendWhatsAppInteractive, so the sim records it under
+    // waType "interactive", not "image". The image itself is still genuinely sent (as the interactive header),
+    // just delivered as part of the richer card instead of a standalone photo message.
     const callsBeforeDetail = world.llm.calls.length;
-    const beforeImg = world.outbound.ofType("image", phone).length;
+    const beforeImg = world.outbound.ofType("interactive", phone).length;
     await world.text(phone, "show me the grilled chicken");
-    await world.waitFor(() => world.outbound.ofType("image", phone).length > beforeImg, 8000, "product image sent");
-    const card = world.outbound.lastOfType("image", phone);
-    assertIncludes(JSON.stringify(card?.body ?? {}), "cdn.sim.local", "product detail sends the real catalog image, not just a text description");
+    await world.waitFor(() => world.outbound.ofType("interactive", phone).length > beforeImg, 8000, "product image sent");
+    const card = world.outbound.lastOfType("interactive", phone);
+    assertIncludes(JSON.stringify(card?.body ?? {}), "cdn.sim.local", "product detail sends the real catalog image (as the product card's header image), not just a text description");
     assert(world.llm.calls.length === callsBeforeDetail, "product detail lookup must not call the LLM");
 
     // 4. Cheaper options — cheapest-first ordering. Found live 2026-09-26 running the FULL suite (not solo):
@@ -136,10 +141,12 @@ export const journey: Journey = {
     try {
       const callsBeforeRelImg = world.llm.calls.length;
       const beforeRelImgTxt = world.outbound.ofType("text", phone).length;
-      const beforeRelImg = world.outbound.ofType("image", phone).length;
+      // Merged 2026-09-27 (see scenario 3 above): the product image now ships as the header of an interactive
+      // product-card message, waType "interactive", not a bare "image" message.
+      const beforeRelImg = world.outbound.ofType("interactive", phone).length;
       await world.text(phone, "show me the jollof rice");
-      await world.waitFor(() => world.outbound.ofType("image", phone).length > beforeRelImg, 8000, "relative-path product image sent");
-      const relImgCard = world.outbound.lastOfType("image", phone);
+      await world.waitFor(() => world.outbound.ofType("interactive", phone).length > beforeRelImg, 8000, "relative-path product image sent");
+      const relImgCard = world.outbound.lastOfType("interactive", phone);
       const relImgCardStr = JSON.stringify(relImgCard?.body ?? {});
       assert(/https?:\/\//i.test(relImgCardStr) && !relImgCardStr.includes('"/api/storage'), `a relative imageUrl must be resolved to an absolute URL before being sent to the channel (got: ${relImgCardStr.slice(0, 200)})`);
       await world.waitFor(() => world.outbound.ofType("text", phone).length > beforeRelImgTxt, 8000, "relative-path product text reply");

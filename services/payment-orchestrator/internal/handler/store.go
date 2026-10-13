@@ -19,6 +19,8 @@ type Store interface {
 	SetLedgerPendingID(ctx context.Context, id uuid.UUID, pendingID string) error
 	SetProviderReference(ctx context.Context, id uuid.UUID, providerRef string) error
 	UpdatePaymentStatus(ctx context.Context, id uuid.UUID, status, reason string) error
+	SetLedgerDriftFlag(ctx context.Context, id uuid.UUID, reason string) error
+	SetRefundPendingFlag(ctx context.Context, id uuid.UUID, reason string) error
 }
 
 var _ Store = (*store.DB)(nil)

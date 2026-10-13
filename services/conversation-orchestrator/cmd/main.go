@@ -47,7 +47,6 @@ func main() {
 	r.GET("/conversations/:id", h.GetConversation)
 	r.POST("/conversations/:id/handoff", h.RequestHandoff)
 	r.POST("/conversations/:id/resolve", h.ResolveConversation)
-	r.GET("/conversations/:id/messages", h.GetMessages)
 
 	// Internal event processing (called by Kafka consumer)
 	r.POST("/internal/process-message", h.ProcessInboundMessage)

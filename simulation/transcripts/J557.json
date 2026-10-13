@@ -1,0 +1,87 @@
+{
+  "id": "J557",
+  "title": "QA-065 a typed place name after the location prompt never reaches the hallucinating LLM",
+  "feature": "server/routers/nlp.ts geo discovery: no-pin follow-up stays deterministic",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348017182075",
+      "profileName": "Sim User 2075",
+      "inboundId": "wamid.sim.in.text.00657",
+      "at": 1790535536816,
+      "kind": "text",
+      "text": "What fast food restaurant is around me?"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00657",
+      "at": 1790535536822
+    },
+    {
+      "dir": "out",
+      "phone": "2348017182075",
+      "wamid": "wamid.sim.001300",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790535536843,
+      "kind": "text",
+      "body": "To see businesses near you, tap 📎 → Location and share your current location."
+    },
+    {
+      "dir": "in",
+      "phone": "2348017182075",
+      "profileName": "Sim User 2075",
+      "inboundId": "wamid.sim.in.text.00658",
+      "at": 1790535537371,
+      "kind": "text",
+      "text": "I'm currently at yaba"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00658",
+      "at": 1790535537378
+    },
+    {
+      "dir": "out",
+      "phone": "2348017182075",
+      "wamid": "wamid.sim.001301",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790535537396,
+      "kind": "text",
+      "body": "I can only find nearby businesses from a shared location pin, not typed text — tap 📎 → Location to share your current location, and I'll show you real businesses on the platform near you."
+    },
+    {
+      "dir": "in",
+      "phone": "2348017182075",
+      "profileName": "Sim User 2075",
+      "inboundId": "wamid.sim.in.text.00659",
+      "at": 1790535537928,
+      "kind": "text",
+      "text": "never mind, show me the menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00659",
+      "at": 1790535537934
+    },
+    {
+      "dir": "out",
+      "phone": "2348017182075",
+      "wamid": "wamid.sim.001302",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790535537953,
+      "kind": "text",
+      "body": "Sorry, I didn't quite get that — type 'menu' to see options."
+    }
+  ]
+}

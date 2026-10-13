@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348011992316",
-      "profileName": "Sim User 2316",
-      "inboundId": "wamid.sim.in.text.00066",
-      "at": 1790457897815,
+      "phone": "2348017499010",
+      "profileName": "Sim User 9010",
+      "inboundId": "wamid.sim.in.text.00377",
+      "at": 1790535089350,
       "kind": "text",
-      "text": "deal d386fffe"
+      "text": "deal 02397a38"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00066",
-      "at": 1790457897823
+      "wamid": "wamid.sim.in.text.00377",
+      "at": 1790535089356
     },
     {
       "dir": "out",
-      "phone": "2348011992316",
-      "wamid": "wamid.sim.000125",
+      "phone": "2348017499010",
+      "wamid": "wamid.sim.000650",
       "statuses": [
         "sent"
       ],
-      "at": 1790457897860,
+      "at": 1790535089384,
       "kind": "text",
       "body": "*Sugar 50kg — group price* — group deal @ NGN 45,000/unit\n██░░░░░░░░ 16% (8/50 units, 0 joined)\n⌛ Deal expired — holds refunded or voided; any refund that could not be completed is flagged for follow-up."
     }

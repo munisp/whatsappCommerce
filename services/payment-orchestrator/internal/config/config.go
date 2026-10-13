@@ -25,7 +25,6 @@ type Config struct {
 	InternalToken string
 	// Environment: "development" | "staging" | "production"
 	Environment string
-	KafkaBrokers []string
 }
 
 func Load() *Config {
@@ -48,7 +47,6 @@ func Load() *Config {
 		InternalAPIKey:    getEnv("INTERNAL_API_KEY", ""),
 		InternalToken:     getEnv("PAYMENT_ORCHESTRATOR_INTERNAL_TOKEN", ""),
 		Environment:       env,
-		KafkaBrokers:      []string{getEnv("KAFKA_BROKERS", "localhost:9092")},
 	}
 }
 

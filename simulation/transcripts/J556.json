@@ -1,0 +1,8 @@
+{
+  "id": "J556",
+  "title": "platform driver pool: signup, location, nearest-driver assignment, cross-tenant guards",
+  "feature": "server/routers/drivers.ts",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

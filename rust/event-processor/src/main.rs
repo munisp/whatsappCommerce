@@ -1,5 +1,11 @@
-//! Event Processor — High-throughput Kafka consumer with exactly-once semantics.
-//! Routes events to downstream Go services via HTTP with idempotency guarantees.
+//! Event Processor — Kafka consumer routing events to downstream Go services
+//! via HTTP. At-least-once delivery: offsets commit after routing completes
+//! (success or failure), so a crash between receive and commit re-delivers
+//! the message. There is no DLQ/retry queue here (unlike
+//! services/message-processor) -- a routing failure is logged and counted
+//! (see /metrics) rather than retried, so one bad event can never wedge the
+//! partition for every other tenant/event type behind it. Downstream
+//! services are expected to be idempotent on `idempotency_key`.
 
 use anyhow::Result;
 use axum::{extract::State, response::Json, routing::get, Router};
@@ -8,7 +14,7 @@ use dashmap::DashMap;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc, time::Duration};
-use tokio::{signal, sync::Semaphore, time};
+use tokio::{signal, sync::Semaphore};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -17,6 +23,7 @@ struct Config {
     port: u16,
     kafka_brokers: String,
     kafka_group_id: String,
+    kafka_topics: Vec<String>,
     conversation_orchestrator_url: String,
     commerce_engine_url: String,
     payment_orchestrator_url: String,
@@ -34,6 +41,19 @@ impl Config {
             port: std::env::var("PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(8091),
             kafka_brokers: std::env::var("KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".into()),
             kafka_group_id: std::env::var("KAFKA_GROUP_ID").unwrap_or_else(|_| "event-processor-v1".into()),
+            // The 4 real topics webhook-ingestor publishes to today (see
+            // services/webhook-ingestor/internal/handler/chatwoot.go) --
+            // "commerce.*" has no producer yet, so it is not subscribed by
+            // default (EventRouter still routes it correctly if a future
+            // producer starts emitting it on a topic added here).
+            kafka_topics: std::env::var("EVENT_PROCESSOR_KAFKA_TOPICS")
+                .unwrap_or_else(|_| {
+                    "chat.message.received.v1,payment.mojaloop.callback.received.v1,crm.twenty.event.received.v1,erp.odoo.event.received.v1".into()
+                })
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
             conversation_orchestrator_url: std::env::var("CONVERSATION_ORCHESTRATOR_URL").unwrap_or_else(|_| "http://localhost:8082".into()),
             commerce_engine_url: std::env::var("COMMERCE_ENGINE_URL").unwrap_or_else(|_| "http://localhost:8083".into()),
             payment_orchestrator_url: std::env::var("PAYMENT_ORCHESTRATOR_URL").unwrap_or_else(|_| "http://localhost:8084".into()),
@@ -54,7 +74,12 @@ struct EventEnvelope {
     event_version: String,
     occurred_at: String,
     producer: String,
-    idempotency_key: String,
+    // webhook-ingestor's crm.twenty.event.received and erp.odoo.event.received
+    // envelopes never set this field at all (only chat.* and payment.mojaloop.*
+    // do) -- Option, not String, or every real crm./erp. message would fail to
+    // deserialize.
+    #[serde(default)]
+    idempotency_key: Option<String>,
     payload: serde_json::Value,
 }
 
@@ -156,6 +181,79 @@ impl EventRouter {
         if event_type.starts_with("erp.") { return Ok((self.config.erp_adapter_url.clone(), "/internal/process-event".into())); }
 
         Err(anyhow::anyhow!("no route for event type: {}", event_type))
+    }
+}
+
+use rdkafka::config::ClientConfig;
+use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
+use rdkafka::message::Message as _;
+
+/// Subscribes to `config.kafka_topics` and calls `router.route()` for every
+/// message. At-least-once: the offset commits only AFTER routing completes
+/// (success or failure) -- never before. A message that fails to parse as
+/// JSON, or whose event_type has no route, is logged and its offset is still
+/// committed: there is no DLQ here, so refusing to commit would wedge the
+/// whole partition (every tenant, every other event type behind it) on one
+/// bad message forever.
+async fn run_consumer(config: Arc<Config>, router: Arc<EventRouter>) {
+    let consumer: StreamConsumer = match ClientConfig::new()
+        .set("bootstrap.servers", &config.kafka_brokers)
+        .set("group.id", &config.kafka_group_id)
+        .set("enable.auto.commit", "false")
+        .set("auto.offset.reset", "earliest")
+        .set("session.timeout.ms", "30000")
+        .create()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            error!(error = %e, "failed to create kafka consumer -- event processing is DOWN");
+            return;
+        }
+    };
+
+    let topic_refs: Vec<&str> = config.kafka_topics.iter().map(String::as_str).collect();
+    if let Err(e) = consumer.subscribe(&topic_refs) {
+        error!(error = %e, topics = ?config.kafka_topics, "failed to subscribe to kafka topics -- event processing is DOWN");
+        return;
+    }
+    info!(brokers = %config.kafka_brokers, group = %config.kafka_group_id, topics = ?config.kafka_topics, "event-processor kafka consumer subscribed");
+
+    loop {
+        match consumer.recv().await {
+            Err(e) => {
+                error!(error = %e, "kafka consumer recv error");
+            }
+            Ok(msg) => {
+                let raw = match msg.payload_view::<str>() {
+                    Some(Ok(s)) => s,
+                    Some(Err(e)) => {
+                        warn!(error = %e, "kafka message payload is not valid UTF-8 -- skipping");
+                        let _ = consumer.commit_message(&msg, CommitMode::Async);
+                        continue;
+                    }
+                    None => {
+                        warn!("kafka message had no payload -- skipping");
+                        let _ = consumer.commit_message(&msg, CommitMode::Async);
+                        continue;
+                    }
+                };
+
+                match serde_json::from_str::<EventEnvelope>(raw) {
+                    Ok(envelope) => {
+                        if let Err(e) = router.route(&envelope).await {
+                            error!(error = %e, event_type = %envelope.event_type, tenant_id = %envelope.tenant_id, "event routing failed");
+                        }
+                    }
+                    Err(e) => {
+                        warn!(error = %e, topic = %msg.topic(), "failed to parse kafka message as EventEnvelope -- skipping");
+                    }
+                }
+
+                if let Err(e) = consumer.commit_message(&msg, CommitMode::Async) {
+                    error!(error = %e, "kafka offset commit failed");
+                }
+            }
+        }
     }
 }
 
@@ -289,23 +387,20 @@ async fn main() -> Result<()> {
     let route_stats = Arc::new(DashMap::new());
     let semaphore = Arc::new(Semaphore::new(config.max_concurrency));
 
-    let _router = Arc::new(EventRouter::new(
+    let router = Arc::new(EventRouter::new(
         config.clone(), http.clone(), semaphore,
         processed_count.clone(), error_count.clone(), route_stats.clone(),
     ));
 
     let app_state = AppState { config: config.clone(), processed_count, error_count, route_stats };
 
-    // Consumer heartbeat loop
-    let hb_brokers = config.kafka_brokers.clone();
-    let hb_group = config.kafka_group_id.clone();
-    let hb_port = config.port;
+    // Real Kafka consumer (QA-038: this used to be a heartbeat-only log loop
+    // that never touched Kafka -- EventRouter::route() was built, tested,
+    // and never called in production).
+    let consumer_config = config.clone();
+    let consumer_router = router.clone();
     tokio::spawn(async move {
-        let mut interval = time::interval(Duration::from_secs(10));
-        loop {
-            interval.tick().await;
-            info!(brokers = %hb_brokers, group = %hb_group, "consumer heartbeat");
-        }
+        run_consumer(consumer_config, consumer_router).await;
     });
 
     let app = Router::new()
@@ -313,7 +408,7 @@ async fn main() -> Result<()> {
         .route("/metrics", get(metrics_handler))
         .with_state(app_state);
 
-    let addr = format!("0.0.0.0:{}", hb_port);
+    let addr = format!("0.0.0.0:{}", config.port);
     info!(addr = %addr, "Event Processor starting");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app)
@@ -329,15 +424,15 @@ fn app_state_port(config: &Config) -> u16 { config.port }
 mod tests {
     use super::*;
 
-    // QA-038 — note for whoever reads this: as of this commit EventRouter::route() is never called (main() builds
-    // `_router` and drops it; the "consumer" is a heartbeat log loop). These pin the behaviour so the secret is
-    // already scoped correctly the day a consumer is wired up — they do not describe traffic that exists today.
+    // QA-038 — these pin the secret-scoping behaviour of route()/build_request(), which run_consumer() now
+    // actually calls for real Kafka traffic (the fake heartbeat-only loop this comment used to describe is gone).
 
     fn router(key: &str) -> EventRouter {
         let config = Arc::new(Config {
             port: 8091,
             kafka_brokers: "kafka:9092".into(),
             kafka_group_id: "g".into(),
+            kafka_topics: vec!["chat.message.received.v1".into()],
             conversation_orchestrator_url: "http://conversation-orchestrator:8082".into(),
             commerce_engine_url: "http://commerce-engine:8083".into(),
             payment_orchestrator_url: "http://payment-orchestrator:8084".into(),
@@ -356,7 +451,7 @@ mod tests {
         EventEnvelope {
             id: Uuid::new_v4(), tenant_id: Uuid::new_v4(), trace_id: Some("trace-1".into()),
             event_type: event_type.into(), event_version: "1".into(), occurred_at: "2026-01-01T00:00:00Z".into(),
-            producer: "test".into(), idempotency_key: "k".into(), payload: serde_json::json!({}),
+            producer: "test".into(), idempotency_key: Some("k".into()), payload: serde_json::json!({}),
         }
     }
 
@@ -422,6 +517,47 @@ mod tests {
             .await
             .expect("shutdown_signal did not resolve after SIGTERM")
             .unwrap();
+    }
+
+    // ── real envelope shapes from webhook-ingestor (see internal/handler/chatwoot.go) ──
+
+    #[test]
+    fn crm_and_erp_envelopes_parse_without_an_idempotency_key() {
+        // HandleTwentyWebhook / HandleOdooWebhook never set idempotency_key at
+        // all (only chat.message.received and payment.mojaloop.callback.received
+        // do) — this must deserialize, not fail with "missing field".
+        let raw = serde_json::json!({
+            "id": Uuid::new_v4(),
+            "tenant_id": Uuid::new_v4(),
+            "event_type": "crm.twenty.event.received",
+            "event_version": "v1",
+            "occurred_at": "2026-01-01T00:00:00Z",
+            "producer": "webhook-ingestor",
+            "payload": {},
+        })
+        .to_string();
+        let envelope: EventEnvelope = serde_json::from_str(&raw).expect("must parse without idempotency_key");
+        assert_eq!(envelope.idempotency_key, None);
+        assert_eq!(envelope.trace_id, None);
+    }
+
+    #[test]
+    fn chat_and_payment_envelopes_parse_with_an_idempotency_key() {
+        let raw = serde_json::json!({
+            "id": Uuid::new_v4(),
+            "tenant_id": Uuid::new_v4(),
+            "trace_id": "req-1",
+            "event_type": "payment.mojaloop.callback.received",
+            "event_version": "v1",
+            "occurred_at": "2026-01-01T00:00:00Z",
+            "producer": "webhook-ingestor",
+            "subject": "transfer:abc", // extra field real envelopes send; must be ignored, not rejected
+            "idempotency_key": "mojaloop:tenant:abc",
+            "payload": {},
+        })
+        .to_string();
+        let envelope: EventEnvelope = serde_json::from_str(&raw).expect("must parse");
+        assert_eq!(envelope.idempotency_key.as_deref(), Some("mojaloop:tenant:abc"));
     }
 
     #[test]

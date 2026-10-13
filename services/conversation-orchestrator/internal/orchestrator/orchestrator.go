@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -70,40 +71,30 @@ func (o *Orchestrator) ProcessMessage(ctx context.Context, msg InboundMessage) e
 	}
 
 	// 2. Resolve or create conversation
-	conv, err := o.db.GetOrCreateConversation(ctx, msg.TenantID, customer.ID, msg.ChatwootConvID)
+	conv, err := o.db.GetOrCreateConversation(ctx, msg.TenantID, customer.ID, strconv.FormatInt(msg.ChatwootConvID, 10))
 	if err != nil {
 		return fmt.Errorf("get/create conversation: %w", err)
 	}
 
-	// 3. Persist inbound message
-	if err := o.db.SaveMessage(ctx, store.MessageRow{
-		ID:             uuid.New(),
-		TenantID:       msg.TenantID,
-		ConversationID: conv.ID,
-		Direction:      "inbound",
-		Content:        msg.Content,
-		ContentType:    msg.ContentType,
-		IdempotencyKey: msg.IdempotencyKey,
-		ExternalMsgID:  fmt.Sprintf("%d", msg.ChatwootMsgID),
-		CreatedAt:      msg.ReceivedAt,
-	}); err != nil {
-		o.logger.Warn("failed to save message", zap.Error(err))
-	}
+	// 3. There is no messages table in the real schema (see store/postgres.go)
+	// — inbound content is routed below but not persisted as a row.
 
-	// 4. If conversation is handed off to a human agent, skip AI/menu processing
+	// 4. If conversation is handed off to a human agent, skip AI/menu processing.
 	// === W45 go-rust-services (MSG-17) ===
-	// "bot_active" is the path BACK from handed_off (agent resolved the
-	// Chatwoot conversation) — it is processed like "active".
-	if conv.State == "handed_off" {
+	// "bot_active" is the path BACK from human_active (agent resolved the
+	// Chatwoot conversation) — it is processed like "open".
+	if conv.Status == "human_active" {
 		o.logger.Info("conversation is handed off, skipping AI", zap.String("conv_id", conv.ID.String()))
 		return nil
 	}
 
-	// 5. Route to AI agent for intent classification
+	// 5. Route to AI agent for intent classification. There is no separate
+	// "mode" column in the real schema — CurrentFlowStep (default "greeting")
+	// is the real column standing in for "still in the menu flow".
 	var reply string
 	var escalate bool
 
-	if conv.Mode == "menu" || conv.Mode == "" {
+	if conv.CurrentFlowStep == "greeting" || conv.CurrentFlowStep == "" {
 		reply, escalate, err = o.routeToMenuOrAI(ctx, conv, customer, msg)
 	} else {
 		reply, escalate, err = o.routeToAI(ctx, conv, customer, msg)
@@ -137,7 +128,7 @@ func (o *Orchestrator) ProcessMessage(ctx context.Context, msg InboundMessage) e
 	}()
 	go func() {
 		defer wg.Done()
-		o.db.UpdateConversationLastMessage(ctx, conv.ID, time.Now())
+		o.db.UpdateConversationLastMessage(ctx, conv.ID)
 	}()
 	wg.Wait()
 
@@ -203,8 +194,9 @@ Reply with a number or type your question.`
 }
 
 func (o *Orchestrator) initiateHandoff(ctx context.Context, conv *store.ConversationRow, customer *store.CustomerRow, reason string) error {
-	// Update conversation state to handed_off
-	if err := o.db.UpdateConversationState(ctx, conv.ID, "handed_off"); err != nil {
+	// Update conversation status to human_active ("handed_off" was never a
+	// valid status enum member in the real schema).
+	if err := o.db.UpdateConversationState(ctx, conv.ID, "human_active"); err != nil {
 		return err
 	}
 
@@ -212,9 +204,10 @@ func (o *Orchestrator) initiateHandoff(ctx context.Context, conv *store.Conversa
 	// Notify Chatwoot to open the conversation for human agents. Checked:
 	// a failure is logged AND returned so callers can surface it — never an
 	// unchecked fire-and-forget.
-	if err := o.setChatwootStatus(ctx, conv.ChatwootConvID, "open"); err != nil {
+	chatwootID, _ := strconv.ParseInt(conv.ChatwootConversationID, 10, 64)
+	if err := o.setChatwootStatus(ctx, chatwootID, "open"); err != nil {
 		o.logger.Error("chatwoot handoff status update failed",
-			zap.Int64("chatwoot_conv_id", conv.ChatwootConvID),
+			zap.String("chatwoot_conv_id", conv.ChatwootConversationID),
 			zap.Error(err),
 		)
 		return fmt.Errorf("chatwoot handoff: %w", err)
@@ -237,7 +230,8 @@ func (o *Orchestrator) ResolveToBot(ctx context.Context, convID uuid.UUID) error
 	if err != nil {
 		return fmt.Errorf("load conversation: %w", err)
 	}
-	if err := o.setChatwootStatus(ctx, conv.ChatwootConvID, "resolved"); err != nil {
+	chatwootID, _ := strconv.ParseInt(conv.ChatwootConversationID, 10, 64)
+	if err := o.setChatwootStatus(ctx, chatwootID, "resolved"); err != nil {
 		return fmt.Errorf("chatwoot resolve: %w", err)
 	}
 	if err := o.db.UpdateConversationState(ctx, conv.ID, "bot_active"); err != nil {
@@ -245,7 +239,7 @@ func (o *Orchestrator) ResolveToBot(ctx context.Context, convID uuid.UUID) error
 	}
 	o.logger.Info("conversation resolved — bot reactivated",
 		zap.String("conv_id", conv.ID.String()),
-		zap.Int64("chatwoot_conv_id", conv.ChatwootConvID),
+		zap.String("chatwoot_conv_id", conv.ChatwootConversationID),
 	)
 	return nil
 }

@@ -39,12 +39,14 @@ func (errStore) GetProduct(context.Context, uuid.UUID, uuid.UUID) (*store.Produc
 func (errStore) SearchProducts(context.Context, uuid.UUID, string, int) ([]store.ProductRow, error) {
 	return nil, errNotImplemented
 }
-func (errStore) GetStockLevel(context.Context, uuid.UUID, string) (*store.StockRow, error) {
+func (errStore) GetStockLevel(context.Context, uuid.UUID, string) (*store.ProductRow, error) {
 	return nil, errNotImplemented
 }
-func (errStore) UpsertProduct(context.Context, store.ProductRow) error  { return errNotImplemented }
-func (errStore) UpsertStockLevel(context.Context, store.StockRow) error { return errNotImplemented }
-func (errStore) CreateCart(context.Context, store.CartRow) error        { return errNotImplemented }
+func (errStore) UpsertProduct(context.Context, store.ProductRow) error { return errNotImplemented }
+func (errStore) UpsertStockLevel(context.Context, uuid.UUID, string, int) error {
+	return errNotImplemented
+}
+func (errStore) CreateCart(context.Context, store.CartRow) error { return errNotImplemented }
 func (errStore) GetCart(context.Context, uuid.UUID, uuid.UUID) (*store.CartRow, error) {
 	return nil, errNotImplemented
 }
@@ -55,8 +57,7 @@ func (errStore) AddCartItem(context.Context, store.CartItemRow) error { return e
 func (errStore) RemoveCartItem(context.Context, uuid.UUID, uuid.UUID) error {
 	return errNotImplemented
 }
-func (errStore) UpdateCartStatus(context.Context, uuid.UUID, string) error { return errNotImplemented }
-func (errStore) CreateOrder(context.Context, store.OrderRow) error         { return errNotImplemented }
+func (errStore) CreateOrder(context.Context, store.OrderRow) error { return errNotImplemented }
 func (errStore) GetOrder(context.Context, uuid.UUID, uuid.UUID) (*store.OrderRow, error) {
 	return nil, errNotImplemented
 }

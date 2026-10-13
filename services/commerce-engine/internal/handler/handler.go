@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -62,34 +64,27 @@ func (h *Handler) SearchProducts(c *gin.Context) {
 func (h *Handler) GetStockLevel(c *gin.Context) {
 	tenantID := mustUUID(c.GetHeader("X-Tenant-ID"))
 	sku := c.Param("sku")
-	stock, err := h.db.GetStockLevel(c.Request.Context(), tenantID, sku)
+	product, err := h.db.GetStockLevel(c.Request.Context(), tenantID, sku)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "stock level not found"})
 		return
 	}
-	c.JSON(http.StatusOK, stock)
+	c.JSON(http.StatusOK, gin.H{"sku": product.SKU, "available": product.StockQuantity, "updated_at": product.UpdatedAt})
 }
 
 func (h *Handler) CreateCart(c *gin.Context) {
 	tenantID := mustUUID(c.GetHeader("X-Tenant-ID"))
 	var req struct {
 		CustomerID string `json:"customer_id" binding:"required"`
-		Currency   string `json:"currency"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	currency := req.Currency
-	if currency == "" {
-		currency = "USD"
-	}
 	cart := store.CartRow{
 		ID:         uuid.New(),
 		TenantID:   tenantID,
 		CustomerID: mustUUID(req.CustomerID),
-		Status:     "active",
-		Currency:   currency,
 		ExpiresAt:  time.Now().Add(24 * time.Hour),
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -110,7 +105,7 @@ func (h *Handler) GetCart(c *gin.Context) {
 		return
 	}
 	items, _ := h.db.GetCartItems(c.Request.Context(), id)
-	c.JSON(http.StatusOK, gin.H{"cart": cart, "items": items})
+	c.JSON(http.StatusOK, gin.H{"cart": cart, "items": items, "total": cartTotal(items)})
 }
 
 func (h *Handler) AddCartItem(c *gin.Context) {
@@ -126,10 +121,12 @@ func (h *Handler) AddCartItem(c *gin.Context) {
 		return
 	}
 
-	// Validate cart belongs to tenant
-	cart, err := h.db.GetCart(c.Request.Context(), tenantID, cartID)
-	if err != nil || cart.Status != "active" {
-		c.JSON(http.StatusNotFound, gin.H{"error": "cart not found or not active"})
+	// Validate the cart belongs to this tenant. cart_sessions has no status
+	// column (it is a shared chat-wizard session object, not an exclusively
+	// commerce-engine-owned cart) — existence + tenant match is the only
+	// guard this service can correctly express.
+	if _, err := h.db.GetCart(c.Request.Context(), tenantID, cartID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "cart not found"})
 		return
 	}
 
@@ -140,21 +137,25 @@ func (h *Handler) AddCartItem(c *gin.Context) {
 	}
 
 	item := store.CartItemRow{
-		ID:          uuid.New(),
-		CartID:      cartID,
-		ProductID:   product.ID,
-		SKU:         product.SKU,
-		ProductName: product.Name,
-		Quantity:    req.Quantity,
-		UnitPrice:   product.Price,
-		TotalPrice:  product.Price * float64(req.Quantity),
+		ID:            uuid.New(),
+		CartSessionID: cartID,
+		ProductID:     product.ID,
+		ProductName:   product.Name,
+		Quantity:      req.Quantity,
+		UnitPrice:     product.Price,
+		Currency:      product.Currency,
+		CreatedAt:     time.Now(),
 	}
 
 	if err := h.db.AddCartItem(c.Request.Context(), item); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, item)
+	c.JSON(http.StatusCreated, gin.H{
+		"id": item.ID, "cart_session_id": item.CartSessionID, "product_id": item.ProductID,
+		"product_name": item.ProductName, "quantity": item.Quantity, "unit_price": item.UnitPrice,
+		"currency": item.Currency, "total_price": item.TotalPrice(), "created_at": item.CreatedAt,
+	})
 }
 
 func (h *Handler) RemoveCartItem(c *gin.Context) {
@@ -178,8 +179,8 @@ func (h *Handler) InitiateCheckout(c *gin.Context) {
 	cartID := mustUUID(c.Param("id"))
 
 	cart, err := h.db.GetCart(c.Request.Context(), tenantID, cartID)
-	if err != nil || cart.Status != "active" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cart not found or not active"})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cart not found"})
 		return
 	}
 
@@ -189,24 +190,34 @@ func (h *Handler) InitiateCheckout(c *gin.Context) {
 		return
 	}
 
-	// Calculate total
-	var total float64
-	for _, item := range items {
-		total += item.TotalPrice
+	total := cartTotal(items)
+	currency := items[0].Currency
+	itemsJSON, err := json.Marshal(items)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
-	// Create order (pending payment)
+	// orderNumber matches the real server-side convention (server/routers/orderCrud.ts):
+	// "ORD-" + base36 millisecond timestamp, uppercased.
+	orderNumber := "ORD-" + strings.ToUpper(strconv.FormatInt(time.Now().UnixMilli(), 36))
+
 	order := store.OrderRow{
-		ID:         uuid.New(),
-		TenantID:   tenantID,
-		CustomerID: cart.CustomerID,
-		CartID:     cartID,
-		Status:     "pending",
-		Currency:   cart.Currency,
-		TotalAmount: total,
-		WorkflowID: uuid.New().String(), // Temporal workflow ID placeholder
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+		ID:          uuid.New(),
+		TenantID:    tenantID,
+		CustomerID:  cart.CustomerID,
+		OrderNumber: orderNumber,
+		// status/paymentStatus: left as the schema's own defaults convey
+		// ("pending"/"unpaid") by setting them explicitly here rather than
+		// relying on implicit DB defaults, so the returned row is accurate
+		// immediately without a round-trip re-read.
+		Status:        "pending",
+		TotalAmount:   total,
+		Currency:      currency,
+		PaymentStatus: "unpaid",
+		Items:         itemsJSON,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
 	}
 
 	if err := h.db.CreateOrder(c.Request.Context(), order); err != nil {
@@ -214,19 +225,17 @@ func (h *Handler) InitiateCheckout(c *gin.Context) {
 		return
 	}
 
-	// Update cart status
-	h.db.UpdateCartStatus(c.Request.Context(), cartID, "checkout")
-
 	h.logger.Info("checkout initiated",
 		zap.String("tenant_id", tenantID.String()),
 		zap.String("order_id", order.ID.String()),
+		zap.String("order_number", orderNumber),
 		zap.Float64("total", total),
 	)
 
 	c.JSON(http.StatusCreated, gin.H{
-		"order":      order,
-		"items":      items,
-		"next_step":  "payment",
+		"order":       order,
+		"items":       items,
+		"next_step":   "payment",
 		"payment_url": "/api/v1/payments/initiate",
 	})
 }
@@ -262,7 +271,11 @@ func (h *Handler) CancelOrder(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "order not found"})
 		return
 	}
-	if order.Status == "paid" || order.Status == "shipped" || order.Status == "delivered" {
+	// "paid" was never a valid order status (payment is tracked separately
+	// via paymentStatus) — this previously could never trip. Checking
+	// paymentStatus directly is the real equivalent of the original intent:
+	// don't let an order that has actually been paid for be cancelled.
+	if order.PaymentStatus == "completed" || order.Status == "shipped" || order.Status == "delivered" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot cancel order in status: " + order.Status})
 		return
 	}
@@ -290,6 +303,9 @@ func (h *Handler) SyncProduct(c *gin.Context) {
 	if p.ID == uuid.Nil {
 		p.ID = uuid.New()
 	}
+	if p.Status == "" {
+		p.Status = "active"
+	}
 	p.UpdatedAt = time.Now()
 	if p.CreatedAt.IsZero() {
 		p.CreatedAt = time.Now()
@@ -302,21 +318,60 @@ func (h *Handler) SyncProduct(c *gin.Context) {
 }
 
 func (h *Handler) SyncStockLevel(c *gin.Context) {
-	var s store.StockRow
-	if err := c.ShouldBindJSON(&s); err != nil {
+	var req struct {
+		TenantID  string `json:"tenant_id" binding:"required"`
+		SKU       string `json:"sku" binding:"required"`
+		Available int    `json:"available" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	s.UpdatedAt = time.Now()
-	if err := h.db.UpsertStockLevel(c.Request.Context(), s); err != nil {
+	if err := h.db.UpsertStockLevel(c.Request.Context(), mustUUID(req.TenantID), req.SKU, req.Available); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "synced", "sku": s.SKU})
+	c.JSON(http.StatusOK, gin.H{"status": "synced", "sku": req.SKU})
+}
+
+// EventEnvelope mirrors the Kafka event shape event-processor sends
+// (rust/event-processor/src/main.rs's EventEnvelope). Only the QA-038
+// internal-key-gated caller (event-processor) reaches this route.
+type EventEnvelope struct {
+	ID             string          `json:"id"`
+	TenantID       string          `json:"tenant_id"`
+	EventType      string          `json:"event_type"`
+	IdempotencyKey string          `json:"idempotency_key"`
+	Payload        json.RawMessage `json:"payload"`
+}
+
+// ProcessEvent handles commerce.* events routed here by event-processor.
+// Unrecognized event types are acknowledged (200), not rejected, so a new
+// event type added to the routing table upstream doesn't start failing
+// deliveries here before this handler is updated to understand it.
+func (h *Handler) ProcessEvent(c *gin.Context) {
+	var env EventEnvelope
+	if err := c.ShouldBindJSON(&env); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	h.logger.Info("commerce event received",
+		zap.String("event_type", env.EventType),
+		zap.String("tenant_id", env.TenantID),
+		zap.String("idempotency_key", env.IdempotencyKey),
+	)
+	c.JSON(http.StatusOK, gin.H{"status": "accepted", "event_type": env.EventType})
+}
+
+func cartTotal(items []store.CartItemRow) float64 {
+	var total float64
+	for _, item := range items {
+		total += item.TotalPrice()
+	}
+	return total
 }
 
 func mustUUID(s string) uuid.UUID {
 	id, _ := uuid.Parse(s)
 	return id
 }
-
