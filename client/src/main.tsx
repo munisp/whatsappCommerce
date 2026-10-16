@@ -53,8 +53,6 @@ window.addEventListener("vite:preloadError", () => {
 });
 setTimeout(() => sessionStorage.removeItem("vitePreloadReloaded"), 10_000);
 
-// createAppQueryClient (client/src/lib/appQueryClient.ts) carries both the shared empty-tenant-id guard and the
-// W48 perf (PERF-FE-3) staleTime/refetchOnWindowFocus defaults — see its own doc comment.
 const queryClient = createAppQueryClient();
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {

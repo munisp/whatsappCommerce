@@ -73,6 +73,24 @@ const IntegrationsSettings = lazy(() => import("@/pages/IntegrationsSettings"));
 const TenantSettings = lazy(() => import("@/pages/TenantSettings"));
 const DiscoverNearby = lazy(() => import("@/pages/DiscoverNearby"));
 const MerchantGeoSettings = lazy(() => import("@/pages/MerchantGeoSettings"));
+// === W55 ui-c ===
+const ScheduledPayments = lazy(() => import("@/pages/ScheduledPayments"));
+const RecurringRules = lazy(() => import("@/pages/RecurringRules"));
+const ApprovalsInbox = lazy(() => import("@/pages/ApprovalsInbox"));
+const EscalationInbox = lazy(() => import("@/pages/EscalationInbox"));
+// Riders not wired in - see client/src/App.tsx's Riders comment (calls a
+// retired per-tenant trpc.riders.* API that no longer exists server-side).
+const InventoryDepth = lazy(() => import("@/pages/InventoryDepth"));
+const BuyerCredit = lazy(() => import("@/pages/BuyerCredit"));
+// === W57 risk-shield ===
+const CreditInsurance = lazy(() => import("@/pages/CreditInsurance"));
+// === END W57 risk-shield ===
+// === W56 credit ===
+const CreditScores = lazy(() => import("@/pages/CreditScores"));
+const Bureau = lazy(() => import("@/pages/Bureau"));
+// === END W56 credit ===
+const ReturnsExchanges = lazy(() => import("@/pages/ReturnsExchanges"));
+// === END W55 ui-c ===
 // === W27 storefront-i18n ===
 const Shop = lazy(() => import("@/pages/Shop"));
 const StorefrontSettings = lazy(() => import("@/pages/StorefrontSettings"));
@@ -89,6 +107,19 @@ const WholesaleMarketplace = lazy(() => import("@/pages/WholesaleMarketplace"));
 const MedusaStorefrontSettings = lazy(() => import("@/pages/MedusaStorefrontSettings"));
 const PortalBookkeeping = lazy(() => import("@/pages/portal/PortalBookkeeping"));
 const PortalOdooSettings = lazy(() => import("@/pages/portal/PortalOdooSettings"));
+// === W55 ui-a ===
+const EventsHub = lazy(() => import("@/pages/EventsHub"));
+const MembershipPlans = lazy(() => import("@/pages/MembershipPlans"));
+const GiftCards = lazy(() => import("@/pages/GiftCards"));
+const SubscriptionPlans = lazy(() => import("@/pages/SubscriptionPlans"));
+// === W55 ui-b === finance-document pages (ucDocs / vendorBills / arInvoices / taxStatements / fxPayouts / cashflow)
+const DocumentsHub = lazy(() => import("@/pages/DocumentsHub"));
+const VendorBills = lazy(() => import("@/pages/VendorBills"));
+const ArInvoices = lazy(() => import("@/pages/ArInvoices"));
+const TaxStatements = lazy(() => import("@/pages/TaxStatements"));
+const FxPayouts = lazy(() => import("@/pages/FxPayouts"));
+const Cashflow = lazy(() => import("@/pages/Cashflow"));
+// === END W55 ui-b ===
 
 function RouteFallback() {
   return (
@@ -170,6 +201,22 @@ function Router() {
         <Route path="/template-versions" component={TemplateVersions} />
         <Route path="/whatsapp-media" component={WhatsAppMediaPortal} />
         <Route path="/orders" component={Orders} />
+        {/* === W55 ui-c === */}
+        <Route path="/scheduled-payments" component={ScheduledPayments} />
+        <Route path="/recurring-rules" component={RecurringRules} />
+        <Route path="/approvals" component={ApprovalsInbox} />
+        <Route path="/escalations" component={EscalationInbox} />
+        {/* /riders intentionally not routed - see the Riders import comment above */}
+        <Route path="/inventory-depth" component={InventoryDepth} />
+        <Route path="/buyer-credit" component={BuyerCredit} />
+        {/* === W57 risk-shield === */}
+        <Route path="/credit-insurance" component={CreditInsurance} />
+        {/* === W56 credit === */}
+        <Route path="/credit-scores" component={CreditScores} />
+        <Route path="/bureau" component={Bureau} />
+        {/* === END W56 credit === */}
+        <Route path="/returns" component={ReturnsExchanges} />
+        {/* === END W55 ui-c === */}
         <Route path="/orders/:orderNumber" component={OrderTimeline} />
         <Route path="/disputes" component={DisputeManagement} />
         <Route path="/payments" component={Payments} />
@@ -204,6 +251,19 @@ function Router() {
         <Route path="/settings/medusa-storefront" component={MedusaStorefrontSettings} />
         <Route path="/portal/bookkeeping" component={PortalBookkeeping} />
         <Route path="/portal/odoo" component={PortalOdooSettings} />
+        {/* === W55 ui-a === */}
+        <Route path="/events" component={EventsHub} />
+        <Route path="/membership-plans" component={MembershipPlans} />
+        <Route path="/gift-cards" component={GiftCards} />
+        <Route path="/subscription-plans" component={SubscriptionPlans} />
+        {/* === W55 ui-b === */}
+        <Route path="/finance/documents" component={DocumentsHub} />
+        <Route path="/finance/vendor-bills" component={VendorBills} />
+        <Route path="/finance/ar-invoices" component={ArInvoices} />
+        <Route path="/finance/tax-statements" component={TaxStatements} />
+        <Route path="/finance/fx-payouts" component={FxPayouts} />
+        <Route path="/finance/cashflow" component={Cashflow} />
+        {/* === END W55 ui-b === */}
 
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />

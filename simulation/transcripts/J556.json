@@ -1,8 +1,122 @@
 {
   "id": "J556",
-  "title": "platform driver pool: signup, location, nearest-driver assignment, cross-tenant guards",
-  "feature": "server/routers/drivers.ts",
+  "title": "paid membership: join → link → webhook → active (period end) → roster",
+  "feature": "W54 capabilities: paid membership tiers on the existing payment rail",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
-  "messages": []
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348016755801",
+      "profileName": "Sim User 5801",
+      "inboundId": "wamid.sim.in.text.00625",
+      "at": 1790607840859,
+      "kind": "text",
+      "text": "membership"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00625",
+      "at": 1790607840896
+    },
+    {
+      "dir": "out",
+      "phone": "2348016755801",
+      "wamid": "wamid.sim.001288",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607841011,
+      "kind": "text",
+      "body": "💎 Membership plans:\n1. J556 Gold — NGN 1,000.00/month (10% off orders)\nReply JOIN MEMBERSHIP <number> to join, or MY MEMBERSHIP to check your status."
+    },
+    {
+      "dir": "in",
+      "phone": "2348016755801",
+      "profileName": "Sim User 5801",
+      "inboundId": "wamid.sim.in.text.00626",
+      "at": 1790607841415,
+      "kind": "text",
+      "text": "join membership 1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00626",
+      "at": 1790607841451
+    },
+    {
+      "dir": "out",
+      "phone": "2348016755801",
+      "wamid": "wamid.sim.001289",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607841621,
+      "kind": "text",
+      "body": "💎 J556 Gold membership — total NGN 1,000.00 (order MBR-MULDOD2G).\nPay: https://checkout.paystack.com/sim/MBR-1790607841576-44E953D8"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016755801",
+      "wamid": "wamid.sim.001290",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607842128,
+      "kind": "text",
+      "body": "🧾 *Sim Store (j471) — Payment Receipt*\nOrder: MBR-MULDOD2G\n\n1 × J556 Gold membership (month) — ₦1,000.00\n\n*Total paid: ₦1,000.00*\nPayment ref: MBR-1790607841576-44E953D8\n\n🔎 Track your order: http://localhost:4173/track/4a4c82b5-3e0a-4d2e-ad30-f00fbb671fb1.WDJ2tRXzCR2-JUzLucCbT3Jm"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016755801",
+      "wamid": "wamid.sim.001291",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607842158,
+      "kind": "text",
+      "body": "🎉 Your membership is now ACTIVE — member discounts and bonus points apply from your next order. Reply \"my membership\" anytime to check it."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016755801",
+      "wamid": "wamid.sim.001292",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607842196,
+      "kind": "document",
+      "mediaKind": "document",
+      "caption": "🧾 Receipt for order MBR-MULDOD2G",
+      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-MBR-MULDOD2G.pdf"
+    },
+    {
+      "dir": "in",
+      "phone": "2348016755801",
+      "profileName": "Sim User 5801",
+      "inboundId": "wamid.sim.in.text.00627",
+      "at": 1790607842553,
+      "kind": "text",
+      "text": "my membership"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00627",
+      "at": 1790607842580
+    },
+    {
+      "dir": "out",
+      "phone": "2348016755801",
+      "wamid": "wamid.sim.001293",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607842662,
+      "kind": "text",
+      "body": "💎 Your membership: J556 Gold — 10% off orders. Active until 2026-10-28."
+    }
+  ]
 }

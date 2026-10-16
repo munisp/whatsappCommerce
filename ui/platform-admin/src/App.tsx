@@ -51,6 +51,13 @@ const HermesDashboard = lazy(() => import("@/pages/HermesDashboard"));
 const CogsDisputes = lazy(() => import("@/pages/CogsDisputes"));
 const RevenueDashboard = lazy(() => import("@/pages/RevenueDashboard"));
 const EscrowDashboard = lazy(() => import("@/pages/EscrowDashboard"));
+// === W55 ui-c ===
+const CreditFacilities = lazy(() => import("@/pages/CreditFacilities"));
+// === W57 risk-shield ===
+const CreditInsurance = lazy(() => import("@/pages/CreditInsurance"));
+// === END W57 risk-shield ===
+const EmbeddedClients = lazy(() => import("@/pages/EmbeddedClients"));
+// === END W55 ui-c ===
 
 // UnifiedOnboarding (generic multi-service provisioning wizard) and
 // TenantOnboarding/"/onboarding" (KYC-driven admin onboarding) were two
@@ -110,6 +117,12 @@ function Router() {
         <Route path="/scan-stats" component={ScanStatsDashboard} />
         <Route path="/hermes" component={HermesDashboard} />
         <Route path="/cogs-disputes" component={CogsDisputes} />
+        {/* === W55 ui-c === */}
+        <Route path="/credit-facilities" component={CreditFacilities} />
+        {/* === W57 risk-shield === */}
+        <Route path="/credit-insurance" component={CreditInsurance} />
+        <Route path="/embedded-clients" component={EmbeddedClients} />
+        {/* === END W55 ui-c === */}
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

@@ -1,0 +1,570 @@
+# === W54 CILIUM ===
+# Zero-trust CiliumNetworkPolicies for the whatsapp-commerce namespace.
+#
+# AUDIT-MODE GUIDANCE: do NOT enforce these on a live cluster until Hubble
+# shows no unexpected drops. Rollout:
+#   1. Apply with `kubectl annotate` overwrite of each policy:
+#        io.cilium.network-policy-mode=audit  (Cilium >= 1.18)
+#      — verdicts are logged as would-deny flows in Hubble, nothing dropped.
+#   2. Watch `hubble observe --verdict AUDIT` for a full traffic cycle
+#      (≥24h incl. cron/scheduler ticks) and patch gaps.
+#   3. Remove the annotation to flip to enforce mode.
+# (Annotate under metadata.annotations on each policy; left out of this file
+#  so `kubectl apply` of this artifact is enforce-ready by default.)
+#
+# Path facts verified against server/_core/index.ts:
+#   - webhooks live under /api/webhooks/* (whatsapp, telegram/:tenantId,
+#     paystack, flutterwave, shipbubble, payments/:provider, escrow-bank,
+#     shopify) and /integrations/* (Medusa/Twenty/Odoo + OAuth callbacks).
+#   - /api/wa and /api/tg do NOT exist in the Express routes — the L7 policy
+#     below therefore allows the real prefixes, not guessed ones.
+---
+# 1. Default-deny ALL ingress+egress in the namespace (baseline zero-trust).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: whatsapp-commerce
+spec:
+  description: "Zero-trust baseline: deny everything not explicitly allowed below"
+  endpointSelector: {}
+  ingress: []
+  egress: []
+  # Empty LISTS (not empty rule bodies!) = enforce policy, allow nothing.
+  # NB: `ingress: [{}]` would be allow-ALL — a documented Cilium footgun.
+---
+# 2. DNS egress to kube-dns for every pod (nothing resolves without this).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: whatsapp-commerce
+spec:
+  description: "Allow all pods DNS lookups against kube-dns"
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - {port: "53", protocol: UDP}
+            - {port: "53", protocol: TCP}
+          rules:
+            dns:
+              - matchPattern: "*"
+---
+# 3. Server (Express platform) egress: postgres/redis/kafka/temporal/otel +
+#    internal sidecars it calls per compose env (kyc-verifier, ml-inference,
+#    hermes-bridge, recon-worker) + Keycloak OIDC.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: server-egress
+  namespace: whatsapp-commerce
+spec:
+  description: "Express server may reach its datastores, temporal, and named sidecars only"
+  endpointSelector:
+    matchLabels: {app: server}
+  egress:
+    - toEndpoints:
+        - matchLabels: {app: postgres}
+      toPorts:
+        - ports: [{port: "5432", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: redis}
+        - matchLabels: {app: redis-durable}
+      toPorts:
+        - ports: [{port: "6379", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: kafka}
+      toPorts:
+        - ports: [{port: "9092", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: temporal}
+      toPorts:
+        - ports: [{port: "7233", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: keycloak}
+      toPorts:
+        - ports: [{port: "8080", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: kyc-verifier}
+      toPorts:
+        - ports: [{port: "8001", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: ml-inference}
+      toPorts:
+        - ports: [{port: "8099", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: hermes-bridge}
+      toPorts:
+        - ports: [{port: "8096", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: recon-worker}
+      toPorts:
+        - ports: [{port: "8096", protocol: TCP}]
+---
+# 4. Server ingress: (a) webhook traffic from OUTSIDE the cluster, L7-restricted
+#    to the real webhook prefixes; (b) full in-cluster callers that compose
+#    wires to platform:3000 (scheduler, ml-inference, hermes-bridge, skills,
+#    alertmanager-wa-bridge, OTel health).
+#    `fromEntities: world` = any source outside the cluster (via ingress/LB).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: server-webhook-ingress
+  namespace: whatsapp-commerce
+spec:
+  description: "Internet ingress ONLY to webhook paths on the server (L7); PSP/provider webhooks land here"
+  endpointSelector:
+    matchLabels: {app: server}
+  ingress:
+    - fromEntities:
+        - world
+      toPorts:
+        - ports:
+            - {port: "3000", protocol: TCP}
+          rules:
+            http:
+              - method: "POST"
+                path: "^/api/webhooks/.*"
+              - method: "GET"
+                path: "^/api/webhooks/whatsapp$" # Meta verification handshake
+              - method: "POST"
+                path: "^/integrations/.*"
+              - method: "GET"
+                path: "^/integrations/.*" # OAuth redirect callbacks
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: server-internal-ingress
+  namespace: whatsapp-commerce
+spec:
+  description: "In-cluster callers of platform:3000 (exactly the compose-wired set)"
+  endpointSelector:
+    matchLabels: {app: server}
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {app: scheduler}
+        - matchLabels: {app: ml-inference}
+        - matchLabels: {app: hermes-bridge}
+        - matchLabels: {app: hermes-skills}
+        - matchLabels: {app: alertmanager-wa-bridge}
+        # UI/API consumers (api-gateway / ui portals) — keep or trim to taste:
+        - matchLabels: {app: api-gateway}
+      toPorts:
+        - ports: [{port: "3000", protocol: TCP}]
+    # kubelet HTTP probes (/health, /health/ready)
+    - fromEntities:
+        - host
+      toPorts:
+        - ports: [{port: "3000", protocol: TCP}]
+---
+# 5. Money-rails isolation: payment-orchestrator + ledger-bridge.
+#    Nothing reaches them except the server (if ever wired) — compose wires
+#    NO inbound callers, so ingress is health-probe-only; and they egress
+#    only to their own backends. Sidecars are explicitly NOT granted access
+#    to money endpoints (default-deny already covers; these policies keep
+#    the allowed set minimal so audit diffs are obvious).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: payment-orchestrator-isolation
+  namespace: whatsapp-commerce
+spec:
+  description: "Money rails: payment-orchestrator egress-only to its backends; inbound = probes only"
+  endpointSelector:
+    matchLabels: {app: payment-orchestrator}
+  ingress:
+    - fromEntities:
+        - host # kubelet /health probes
+      toPorts:
+        - ports: [{port: "8084", protocol: TCP}]
+  egress:
+    - toEndpoints:
+        - matchLabels: {app: postgres}
+      toPorts:
+        - ports: [{port: "5432", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: redis}
+      toPorts:
+        - ports: [{port: "6379", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: kafka}
+      toPorts:
+        - ports: [{port: "9092", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: tigerbeetle}
+      toPorts:
+        - ports: [{port: "3000", protocol: TCP}]
+    # Stripe API (external) — FQDN egress, TLS only.
+    - toFQDNs:
+        - matchName: api.stripe.com
+      toPorts:
+        - ports: [{port: "443", protocol: TCP}]
+    # Mojaloop switch (dev: in-cluster simulator; prod: external FQDN)
+    - toEndpoints:
+        - matchLabels: {app: mojaloop-simulator}
+      toPorts:
+        - ports: [{port: "3000", protocol: TCP}]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ledger-bridge-isolation
+  namespace: whatsapp-commerce
+spec:
+  description: "Money rails: ledger-bridge reaches TigerBeetle + postgres; only recon-worker may call it"
+  endpointSelector:
+    matchLabels: {app: ledger-bridge}
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {app: recon-worker}
+    - fromEntities:
+        - host
+      toPorts:
+        - ports: [{port: "8095", protocol: TCP}]
+  egress:
+    - toEndpoints:
+        - matchLabels: {app: tigerbeetle}
+      toPorts:
+        - ports: [{port: "3000", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: postgres}
+      toPorts:
+        - ports: [{port: "5432", protocol: TCP}]
+---
+# 6. Sidecars → only their brokers/DB (compose depends_on mirror).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: kyc-verifier-egress
+  namespace: whatsapp-commerce
+spec:
+  description: "kyc-verifier: redis, redis-durable, kafka, Ollama (external) only"
+  endpointSelector:
+    matchLabels: {app: kyc-verifier}
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {app: server}
+    - fromEntities:
+        - host
+      toPorts:
+        - ports: [{port: "8001", protocol: TCP}]
+  egress:
+    - toEndpoints:
+        - matchLabels: {app: redis}
+        - matchLabels: {app: redis-durable}
+      toPorts:
+        - ports: [{port: "6379", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: kafka}
+      toPorts:
+        - ports: [{port: "9092", protocol: TCP}]
+    # Ollama VLM backend on an external GPU host (compose OLLAMA_URL, 11434).
+    - toFQDNs:
+        - matchPattern: "ollama.*"
+      toPorts:
+        - ports: [{port: "11434", protocol: TCP}]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: scheduler-egress
+  namespace: whatsapp-commerce
+spec:
+  description: "scheduler: only platform /api/scheduled/* on :3000"
+  endpointSelector:
+    matchLabels: {app: scheduler}
+  egress:
+    - toEndpoints:
+        - matchLabels: {app: server}
+      toPorts:
+        - ports: [{port: "3000", protocol: TCP}]
+          rules:
+            http:
+              - method: "POST"
+                path: "^/api/scheduled/.*"
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ml-inference-policy
+  namespace: whatsapp-commerce
+spec:
+  description: "ml-inference: postgres + platform callback only"
+  endpointSelector:
+    matchLabels: {app: ml-inference}
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {app: server}
+    - fromEntities:
+        - host
+      toPorts:
+        - ports: [{port: "8099", protocol: TCP}]
+  egress:
+    - toEndpoints:
+        - matchLabels: {app: postgres}
+      toPorts:
+        - ports: [{port: "5432", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: server}
+      toPorts:
+        - ports: [{port: "3000", protocol: TCP}]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ai-agent-policy
+  namespace: whatsapp-commerce
+spec:
+  description: "ai-agent: redis + commerce-engine + LLM provider APIs (TLS) only"
+  endpointSelector:
+    matchLabels: {app: ai-agent}
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {app: conversation-orchestrator}
+    - fromEntities:
+        - host
+      toPorts:
+        - ports: [{port: "8090", protocol: TCP}]
+  egress:
+    - toEndpoints:
+        - matchLabels: {app: redis}
+      toPorts:
+        - ports: [{port: "6379", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: commerce-engine}
+      toPorts:
+        - ports: [{port: "8083", protocol: TCP}]
+    - toFQDNs:
+        - matchName: api.openai.com
+        - matchName: api.anthropic.com
+      toPorts:
+        - ports: [{port: "443", protocol: TCP}]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: conversation-orchestrator-egress
+  namespace: whatsapp-commerce
+spec:
+  description: "conversation-orchestrator: postgres, kafka, redis, ai-agent only"
+  endpointSelector:
+    matchLabels: {app: conversation-orchestrator}
+  ingress:
+    - fromEntities:
+        - host
+      toPorts:
+        - ports: [{port: "8082", protocol: TCP}]
+  egress:
+    - toEndpoints:
+        - matchLabels: {app: postgres}
+      toPorts:
+        - ports: [{port: "5432", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: kafka}
+      toPorts:
+        - ports: [{port: "9092", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: redis}
+      toPorts:
+        - ports: [{port: "6379", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: ai-agent}
+      toPorts:
+        - ports: [{port: "8090", protocol: TCP}]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: commerce-engine-policy
+  namespace: whatsapp-commerce
+spec:
+  description: "commerce-engine: postgres, redis, temporal only"
+  endpointSelector:
+    matchLabels: {app: commerce-engine}
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {app: ai-agent}
+    - fromEntities:
+        - host
+      toPorts:
+        - ports: [{port: "8083", protocol: TCP}]
+  egress:
+    - toEndpoints:
+        - matchLabels: {app: postgres}
+      toPorts:
+        - ports: [{port: "5432", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: redis}
+      toPorts:
+        - ports: [{port: "6379", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: temporal}
+      toPorts:
+        - ports: [{port: "7233", protocol: TCP}]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hermes-bridge-policy
+  namespace: whatsapp-commerce
+spec:
+  description: "hermes-bridge: kafka, redis(x2), hermes-skills, platform, Hermes Cloud API"
+  endpointSelector:
+    matchLabels: {app: hermes-bridge}
+  ingress:
+    - fromEndpoints:
+        - matchLabels: {app: server}
+        - matchLabels: {app: hermes-router}
+    # Hermes Agent public callbacks → /hermes/callback (L7 restricted)
+    - fromEntities:
+        - world
+      toPorts:
+        - ports: [{port: "8096", protocol: TCP}]
+          rules:
+            http:
+              - method: "POST"
+                path: "^/hermes/callback.*"
+    - fromEntities:
+        - host
+      toPorts:
+        - ports: [{port: "8096", protocol: TCP}]
+  egress:
+    - toEndpoints:
+        - matchLabels: {app: kafka}
+      toPorts:
+        - ports: [{port: "9092", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: redis}
+        - matchLabels: {app: redis-durable}
+      toPorts:
+        - ports: [{port: "6379", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: hermes-skills}
+      toPorts:
+        - ports: [{port: "8097", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: server}
+      toPorts:
+        - ports: [{port: "3000", protocol: TCP}]
+    - toFQDNs:
+        - matchName: api.hermes-agent.com
+      toPorts:
+        - ports: [{port: "443", protocol: TCP}]
+---
+# 7. OTel observability: ALL pods may ship OTLP to the collector; collector
+#    fans out to the composed backends (prometheus remote/scrape is inbound;
+#    jaeger OTLP + alertmanager egress modeled from deploy/otel). Loki/Tempo
+#    are only present if added to the stack — policies included, harmless if
+#    their endpoints don't exist yet.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: otlp-egress-allow-all
+  namespace: whatsapp-commerce
+spec:
+  description: "Any pod may export OTLP gRPC/HTTP to the otel-collector"
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels: {app: otel-collector}
+      toPorts:
+        - ports:
+            - {port: "4317", protocol: TCP}
+            - {port: "4318", protocol: TCP}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: otel-collector-policy
+  namespace: whatsapp-commerce
+spec:
+  description: "Collector: ingest from all, export to jaeger/alertmanager/loki/tempo, scraped by prometheus"
+  endpointSelector:
+    matchLabels: {app: otel-collector}
+  ingress:
+    - fromEndpoints:
+        - {} # OTLP from any pod in-namespace
+      toPorts:
+        - ports:
+            - {port: "4317", protocol: TCP}
+            - {port: "4318", protocol: TCP}
+    - fromEndpoints:
+        - matchLabels: {app: prometheus}
+      toPorts:
+        - ports: [{port: "9464", protocol: TCP}] # spanmetrics RED exporter scrape
+    - fromEntities:
+        - host
+      toPorts:
+        - ports: [{port: "13133", protocol: TCP}] # health_check extension
+  egress:
+    - toEndpoints:
+        - matchLabels: {app: jaeger}
+      toPorts:
+        - ports: [{port: "4317", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: loki}
+      toPorts:
+        - ports: [{port: "3100", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: tempo}
+      toPorts:
+        - ports: [{port: "4317", protocol: TCP}]
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: grafana-policy
+  namespace: whatsapp-commerce
+spec:
+  description: "Grafana: datasources only (prometheus, jaeger, loki, tempo)"
+  endpointSelector:
+    matchLabels: {app: grafana}
+  egress:
+    - toEndpoints:
+        - matchLabels: {app: prometheus}
+      toPorts:
+        - ports: [{port: "9090", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: jaeger}
+      toPorts:
+        - ports: [{port: "16686", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: loki}
+      toPorts:
+        - ports: [{port: "3100", protocol: TCP}]
+    - toEndpoints:
+        - matchLabels: {app: tempo}
+      toPorts:
+        - ports: [{port: "3100", protocol: TCP}]
+---
+# 8. Fluvio: consumers/producers (fluvio-consumer sidecar, event-gateway)
+#    reach the SC endpoint; when Fluvio runs in-cluster the operator pods are
+#    labelled app=fluvio-sc / app=spu — both covered here.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: fluvio-access
+  namespace: whatsapp-commerce
+spec:
+  description: "Fluvio clients → SC 9003 (in-cluster pods or ExternalName egress)"
+  endpointSelector:
+    matchExpressions:
+      - {key: app, operator: In, values: [fluvio-consumer, event-gateway]}
+  egress:
+    - toEndpoints:
+        - matchLabels: {app: fluvio-sc}
+        - matchLabels: {app: spu}
+      toPorts:
+        - ports: [{port: "9003", protocol: TCP}]
+    # External (InfinyOn Cloud) path — TLS:
+    - toPorts:
+        - ports: [{port: "9003", protocol: TCP}]
+          # broad port allow is required for ExternalName (no endpoint labels);
+          # tighten with toCIDR once the cloud egress IPs are known.
+# === END W54 CILIUM ===

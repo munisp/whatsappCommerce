@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018137676",
-      "profileName": "Sim User 7676",
+      "phone": "2348015514947",
+      "profileName": "Sim User 4947",
       "inboundId": "wamid.sim.in.text.00471",
-      "at": 1790535262177,
+      "at": 1790607532442,
       "kind": "text",
       "text": "return arrived damaged"
     },
@@ -18,138 +18,138 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00471",
-      "at": 1790535262183
+      "at": 1790607532465
     },
     {
       "dir": "out",
-      "phone": "2348018137676",
-      "wamid": "wamid.sim.000828",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790535262223,
-      "kind": "text",
-      "body": "📦 Return requested for order W41-j301-181D (reason: arrived damaged). The merchant will review it shortly."
-    },
-    {
-      "dir": "out",
-      "phone": "2348099900000",
+      "phone": "2348015514947",
       "wamid": "wamid.sim.000829",
       "statuses": [
         "sent"
       ],
-      "at": 1790535262226,
+      "at": 1790607532575,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j301-181D (reason: arrived damaged). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j301-0FC5 (reason: arrived damaged). The merchant will review it shortly."
     },
     {
       "dir": "out",
-      "phone": "2348018137676",
+      "phone": "2348099900000",
       "wamid": "wamid.sim.000830",
       "statuses": [
         "sent"
       ],
-      "at": 1790535262228,
+      "at": 1790607532585,
       "kind": "text",
-      "body": "📦 Got it — your return request for order W41-j301-181D is in (ref e79ce75f). The merchant will review it and we'll message you here as soon as it's approved or rejected."
+      "body": "📦 Return requested for order W41-j301-0FC5 (reason: arrived damaged). The merchant will review it shortly."
+    },
+    {
+      "dir": "out",
+      "phone": "2348015514947",
+      "wamid": "wamid.sim.000831",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607532595,
+      "kind": "text",
+      "body": "📦 Got it — your return request for order W41-j301-0FC5 is in (ref 804f4af6). The merchant will review it and we'll message you here as soon as it's approved or rejected."
     },
     {
       "dir": "in",
-      "phone": "2348018137676",
-      "profileName": "Sim User 7676",
+      "phone": "2348015514947",
+      "profileName": "Sim User 4947",
       "inboundId": "wamid.sim.in.text.00472",
-      "at": 1790535262728,
+      "at": 1790607532994,
       "kind": "text",
-      "text": "RMA APPROVE e79ce75f-b498-49d1-a2cb-b6be9941cc24"
+      "text": "RMA APPROVE 804f4af6-dd40-4e0e-8cc9-645a77e5ef1f"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00472",
-      "at": 1790535262735
+      "at": 1790607533012
     },
     {
       "dir": "out",
-      "phone": "2348018137676",
-      "wamid": "wamid.sim.000831",
+      "phone": "2348015514947",
+      "wamid": "wamid.sim.000832",
       "statuses": [
         "sent"
       ],
-      "at": 1790535262755,
+      "at": 1790607533077,
       "kind": "text",
       "body": "Sorry, only store staff can approve or reject returns."
     },
     {
       "dir": "in",
-      "phone": "2348019648653",
-      "profileName": "Sim User 8653",
+      "phone": "2348014634030",
+      "profileName": "Sim User 4030",
       "inboundId": "wamid.sim.in.text.00473",
-      "at": 1790535263281,
+      "at": 1790607533550,
       "kind": "text",
-      "text": "RMA APPROVE e79ce75f-b498-49d1-a2cb-b6be9941cc24"
+      "text": "RMA APPROVE 804f4af6-dd40-4e0e-8cc9-645a77e5ef1f"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00473",
-      "at": 1790535263288
+      "at": 1790607533567
     },
     {
       "dir": "out",
-      "phone": "2348018137676",
-      "wamid": "wamid.sim.000832",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790535263311,
-      "kind": "text",
-      "body": "✅ Your return for order W41-j301-181D was approved. Please drop off or ship the item(s) back to the store and keep your receipt — we'll confirm once received and process your refund."
-    },
-    {
-      "dir": "out",
-      "phone": "2348099900000",
+      "phone": "2348015514947",
       "wamid": "wamid.sim.000833",
       "statuses": [
         "sent"
       ],
-      "at": 1790535263314,
+      "at": 1790607533626,
       "kind": "text",
-      "body": "✅ Your return for order W41-j301-181D was approved. Please drop off or ship the item(s) back to the store and keep your receipt — we'll confirm once received and process your refund."
+      "body": "✅ Your return for order W41-j301-0FC5 was approved. Please drop off or ship the item(s) back to the store and keep your receipt — we'll confirm once received and process your refund."
     },
     {
       "dir": "out",
-      "phone": "2348019648653",
+      "phone": "2348099900000",
       "wamid": "wamid.sim.000834",
       "statuses": [
         "sent"
       ],
-      "at": 1790535263316,
+      "at": 1790607533634,
       "kind": "text",
-      "body": "RMA e79ce75f approved — the buyer has been notified."
+      "body": "✅ Your return for order W41-j301-0FC5 was approved. Please drop off or ship the item(s) back to the store and keep your receipt — we'll confirm once received and process your refund."
+    },
+    {
+      "dir": "out",
+      "phone": "2348014634030",
+      "wamid": "wamid.sim.000835",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607533644,
+      "kind": "text",
+      "body": "RMA 804f4af6 approved — the buyer has been notified."
     },
     {
       "dir": "in",
-      "phone": "2348019648653",
-      "profileName": "Sim User 8653",
+      "phone": "2348014634030",
+      "profileName": "Sim User 4030",
       "inboundId": "wamid.sim.in.text.00474",
-      "at": 1790535263832,
+      "at": 1790607534097,
       "kind": "text",
-      "text": "RMA REJECT e79ce75f-b498-49d1-a2cb-b6be9941cc24 changed my mind"
+      "text": "RMA REJECT 804f4af6-dd40-4e0e-8cc9-645a77e5ef1f changed my mind"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00474",
-      "at": 1790535263839
+      "at": 1790607534111
     },
     {
       "dir": "out",
-      "phone": "2348019648653",
-      "wamid": "wamid.sim.000835",
+      "phone": "2348014634030",
+      "wamid": "wamid.sim.000836",
       "statuses": [
         "sent"
       ],
-      "at": 1790535263859,
+      "at": 1790607534157,
       "kind": "text",
       "body": "Could not update that return: RMA already decided or not found"
     }

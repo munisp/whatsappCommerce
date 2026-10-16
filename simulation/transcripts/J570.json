@@ -1,0 +1,8 @@
+{
+  "id": "J570",
+  "title": "bureau pull requires consent (no consent → blocked)",
+  "feature": "W56 bureau: consent-gated pulls, fail-closed on consent",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

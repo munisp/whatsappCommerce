@@ -66,9 +66,13 @@ export const journey: Journey = {
       "alert says the product is back in stock",
     );
 
-    const [entry] = await world.db.select().from(schema.waitlistEntries)
-      .where(and(eq(schema.waitlistEntries.tenantId, TENANT_ID), eq(schema.waitlistEntries.phone, phone)));
-    assert(entry.notifiedAt != null, "waitlist entry stamped notifiedAt");
+    // The fan-out stamps notifiedAt right after the send resolves — poll so we
+    // don't race the (fire-and-forget) stamp write.
+    await world.waitFor(async () => {
+      const [e] = await world.db.select().from(schema.waitlistEntries)
+        .where(and(eq(schema.waitlistEntries.tenantId, TENANT_ID), eq(schema.waitlistEntries.phone, phone)));
+      return e?.notifiedAt != null;
+    }, 10000, "waitlist entry stamped notifiedAt");
 
     // A no-op restock (5 → 5) must not re-alert.
     const count = world.outbound.toPhone(phone).length;

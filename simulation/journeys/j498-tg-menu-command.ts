@@ -29,6 +29,9 @@ export const journey: Journey = {
     const kb = sent.body?.reply_markup?.inline_keyboard ?? [];
     assert(kb.length >= 2, "menu renders as an inline keyboard");
     assert(kb[0][0]?.callback_data === "menu_1", `first row id menu_1 (got ${kb[0][0]?.callback_data})`);
-    assertIncludes(String(sent.body?.text ?? ""), "Shop", "menu text lists the shop use case");
+    // The shared menu engine (merged from development) puts the options on the keyboard rather than repeating them
+    // in the body text — the shop use case must be one of the tappable rows.
+    const labels = kb.flat().map((b: any) => String(b?.text ?? "")).join("\n");
+    assertIncludes(labels, "Shop", "menu keyboard lists the shop use case");
   },
 };

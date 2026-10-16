@@ -1,0 +1,8 @@
+{
+  "id": "J566",
+  "title": "credit score computed from seeded history deterministically",
+  "feature": "W56 creditScoring: deterministic integer model + credit_scores cache",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

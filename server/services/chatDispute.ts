@@ -14,7 +14,7 @@
 
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../db";
-import { customers, escrowTransactions, orders, tenants } from "../../drizzle/schema";
+import { customers, escrowTransactions, orders } from "../../drizzle/schema";
 import { raiseEscrowDispute, DISPUTABLE_ESCROW_STATES, type DisputeReason } from "./disputes";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
@@ -106,15 +106,10 @@ export async function raiseChatDispute(deps: RaiseChatDisputeDeps): Promise<Chat
   const notifyAdmin = async (body: string) => {
     let adminPhone = deps.adminPhone;
     if (adminPhone === undefined) {
-      const [tenant] = await db
-        .select({ settings: tenants.settings })
-        .from(tenants)
-        .where(eq(tenants.id, tenantId))
-        .limit(1)
-        .catch(() => [] as any[]);
-      const s = (tenant?.settings ?? null) as any;
-      const cand = s?.adminPhone ?? s?.whatsapp?.adminPhone ?? s?.notifications?.adminPhone;
-      adminPhone = typeof cand === "string" && cand.trim() ? cand.trim() : null;
+      // === W54 disputes (DISP-8): settings.adminPhone first, then the
+      // tenant OWNER membership's users.phone before giving up. ===
+      const { resolveAdminAlertPhone } = await import("./disputeNotify");
+      adminPhone = await resolveAdminAlertPhone(db, tenantId);
     }
     if (!adminPhone) return;
     const send = deps.notifyAdminImpl ?? (async (t: string, p: string, b: string) => {

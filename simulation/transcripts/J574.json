@@ -1,0 +1,8 @@
+{
+  "id": "J574",
+  "title": "adjustFeeBps applies to future accruals only — settled rows untouched",
+  "feature": "W56 credit servicing: fee re-point, append-only audit, idempotent no-op",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

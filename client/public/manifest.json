@@ -61,6 +61,13 @@
       "description": "Onboard a new tenant",
       "url": "/onboarding",
       "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Discover Nearby",
+      "short_name": "Discover",
+      "description": "Find nearby shops and deals",
+      "url": "/discover",
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
     }
   ]
 }

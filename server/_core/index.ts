@@ -37,7 +37,6 @@ import { publishConversationEvent } from "../kafka";
 import { daprSaveState, daprGetState } from "../dapr";
 import { redisSet, redisGet } from "../redis";
 import { runSlaScan } from "../routers/sla";
-import { confirmProviderPayment } from "../services/paymentConfirm";
 import { finalizeWalletWithdrawal } from "../routers/escrow";
 import { sendWhatsAppInteractive, sendWhatsAppMedia, sendWhatsAppText, applyWaDeliveryStatus, markMessageRead } from "../services/waSender";
 import { isOnboardingIntakeNumber } from "../services/waOnboarding";
@@ -851,6 +850,34 @@ async function processWaWebhookValue(
               console.error("[whatsapp-webhook] credit command error:", e?.message);
             }
           }
+          // === W56 credit: merchant credit-intelligence commands ────────
+          // "BUREAU CHECK <customer>" (consent-first — never auto-pulls) and
+          // "BUREAU CONFIRM <customer>" (records the consent artefact, then
+          // pulls) from the tenant's admin phone. "CREDIT SCORE <customer>"
+          // with a non-numeric ref also lands here (numeric refs are
+          // delegated inside creditWhatsApp). Non-admins fall through.
+          if (/^\s*(?:BUREAU\s+(?:CHECK|CONFIRM)\s+\S+|CREDIT\s+(?:SCORE|RISK)\s+\S+)\s*$/i.test(textBody)) {
+            try {
+              const { handleCreditIntelCommand } = await import("../services/creditIntelligenceChat");
+              const intelOutcome = await handleCreditIntelCommand({
+                db,
+                tenantId,
+                fromPhone: waPhoneNumber,
+                text: textBody,
+                channel: "whatsapp",
+              });
+              if (intelOutcome.handled) {
+                if (intelOutcome.reply) {
+                  await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, intelOutcome.reply)
+                    .catch((e: any) => console.error("[whatsapp-webhook] credit-intel reply send error:", e?.message));
+                }
+                continue; // Skip NLP processing for credit-intel commands
+              }
+            } catch (e: any) {
+              console.error("[whatsapp-webhook] credit-intel command error:", e?.message);
+            }
+          }
+          // === END W56 credit ===
           // === W28 odoo-sync (Coder A): tenant-admin Odoo commands ────────
           // "ODOO STATUS" / "ODOO SYNC NOW" from the tenant's admin phone
           // (settings.adminPhone). Non-admins / other texts fall through to
@@ -1961,6 +1988,25 @@ async function startServer() {
   });
   // === END W28 odoo-sync ===
 
+  // ── Scheduled: PSP charge confirm retry sweep (every ~5 min) ──
+  // Replays paystack/flutterwave charge.success events whose post-ack processing failed (see
+  // services/payments/pspChargeWebhook.ts) — the durable half of the retry, surviving restarts. Idempotent.
+  // After deploy: manus-heartbeat create --name psp-confirm-retry --cron "0 */5 * * * *" --path /api/scheduled/psp-confirm-retry
+  app.post("/api/scheduled/psp-confirm-retry", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { sweepPspConfirmRetries } = await import("../services/payments/pspChargeWebhook");
+      const run = await sweepPspConfirmRetries(db);
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[psp-confirm-retry] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "psp-confirm-retry failed" });
+    }
+  });
+
   // ── Scheduled: W27 credit — micro-loan auto-repayment sweep (every ~10 min) ──
   // Deducts each active loan's repaymentPct from newly settled wallet sales
   // (escrow_release credits) and marks overdue loans defaulted. Idempotent.
@@ -1977,6 +2023,49 @@ async function startServer() {
       return res.status(500).json({ error: e?.message ?? "credit-loan-repayment failed" });
     }
   });
+
+  // === W56 credit ===
+  // ── Scheduled: credit-score refresh sweep (stale rows > 24h, bounded) ──
+  // Recomputes stale credit_scores rows deterministically (integer math).
+  // On the services/scheduler/scheduler.mjs allowlist (J178 contract).
+  // After deploy: manus-heartbeat create --name credit-score-refresh --cron "0 0 */6 * * *" --path /api/scheduled/credit-score-refresh
+  app.post("/api/scheduled/credit-score-refresh", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runCreditScoreRefreshSweep } = await import("../services/creditScoring");
+      const limit = Number(req.body?.limit) > 0 ? Number(req.body.limit) : undefined;
+      const run = await runCreditScoreRefreshSweep(db as any, { limit });
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[credit-score-refresh] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "credit-score-refresh failed" });
+    }
+  });
+
+  // ── Scheduled: bureau repayment report-back outbox sweep ──────────────
+  // Drains due bureau_report_outbox rows claim-first with bounded backoff
+  // (J69 bureau-retry semantics extended to subject-level performance).
+  // Fail-open: provider outages leave rows retryable, never break checkout.
+  // After deploy: manus-heartbeat create --name bureau-report --cron "0 */15 * * * *" --path /api/scheduled/bureau-report
+  app.post("/api/scheduled/bureau-report", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runBureauReportSweep } = await import("../services/bureau");
+      const limit = Number(req.body?.limit) > 0 ? Number(req.body.limit) : undefined;
+      const run = await runBureauReportSweep(db as any, { limit });
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[bureau-report] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "bureau-report failed" });
+    }
+  });
+  // === END W56 credit ===
 
   // ── Scheduled: WhatsApp failed-send retry + dead-letter (every ~5 min) ────
   // Retries due retriable sends (5xx/429/network) with exponential backoff
@@ -2400,97 +2489,17 @@ async function startServer() {
           // confirmProviderPayment is claim-first/idempotent, so a PSP retry
           // (or concurrent duplicate) still cannot double-confirm. ===
           res.status(200).json({ received: true });
-          try {
-            const result = await confirmProviderPayment(db, {
-              provider: "paystack",
-              reference: ref,
-              amountMajor: Number.isFinite(amountKobo) ? amountKobo / 100 : null, // Paystack amounts are in kobo
-              currency,
-              rawPayload: payload.data,
-            });
-            if (!result.ok) {
-              console.warn(`[paystack-webhook] ref=${ref} → ${result.action}${result.detail ? `: ${result.detail}` : ""}`);
-            }
-            // === W45 money-intents seam (PAY-13) — paymentConfirm.ts PINNED ===
-            // Adjacent seam ONLY: quarantine + ops alert + auto-refund when the
-            // pinned confirm rejected a PSP mismatch with money in hand.
-            // Never throws. (HOOK CONTRACT for merger: keep immediately after
-            // the confirmProviderPayment call.)
-            {
-              const { runPaymentMismatchQuarantineHook } = await import("../services/payments/paymentMismatchQuarantine");
-              await runPaymentMismatchQuarantineHook(db, {
-                provider: "paystack",
-                reference: ref,
-                result,
-                amountMajor: Number.isFinite(amountKobo) ? amountKobo / 100 : null,
-                currency,
-                rawPayload: payload.data,
-              });
-            }
-            // === END W45 money-intents seam ===
-            // === W48 PERF-API-1: the independent post-confirm hooks (W31 AR,
-            // W41 buyer-credit, W44 giftcards/referrals, W44
-            // deposits-subs-digital) run in PARALLEL via Promise.allSettled
-            // instead of serially. Each is exactly-once + never-throws. ===
-            if (result.ok) {
-              const hookJobs: Array<Promise<unknown>> = [];
-              // === W31 AR webhook hook ===
-              // After the PINNED confirmProviderPayment verified + completed the
-              // intent, record any AR-invoice payment keyed by this reference
-              // (= ar_invoices.payment_link_ref). Exactly-once, never throws.
-              hookJobs.push((async () => {
-                const { runArInvoiceWebhookHook } = await import("../services/arInvoices");
-                await runArInvoiceWebhookHook(db, { provider: "paystack", reference: ref });
-              })());
-              // === END W31 AR webhook hook ===
-              // === W41 buyer-credit hook (adjacent seam — paymentConfirm.ts untouched) ===
-              // Activates buyer installment plans whose down payment this charge
-              // settled, and saves a consented reusable authorization as a
-              // customer payment token. Exactly-once, never throws.
-              hookJobs.push((async () => {
-                const { runBuyerCreditWebhookHook } = await import("../services/buyerInstallments");
-                await runBuyerCreditWebhookHook(db, { provider: "paystack", reference: ref, rawPayload: payload.data });
-              })());
-              // === END W41 buyer-credit hook ===
-              // === W44 giftcards-referrals hook (adjacent seam — paymentConfirm.ts untouched) ===
-              // Activates gift cards whose purchase intent this charge settled
-              // (metadata.kind='gift_card_purchase') and rewards referrers when a
-              // referee's first order goes PAID. Exactly-once, never throws.
-              hookJobs.push((async () => {
-                const { runGiftCardPurchaseWebhookHook } = await import("../services/giftCards");
-                await runGiftCardPurchaseWebhookHook(db, { provider: "paystack", reference: ref });
-              })());
-              hookJobs.push((async () => {
-                const { runReferralRewardWebhookHook } = await import("../services/referrals");
-                await runReferralRewardWebhookHook(db, { provider: "paystack", reference: ref });
-              })());
-              // === END W44 giftcards-referrals hook ===
-              // === W44 deposits-subs-digital hook (adjacent seam — paymentConfirm.ts PINNED/untouched) ===
-              // Appointment deposit/remainder confirmation (appt-deposit:<id> /
-              // appt-remainder:<id> references) + claim-first digital PIN
-              // allocation on the paid order. Exactly-once, never throws.
-              hookJobs.push((async () => {
-                const { runAppointmentWebhookHook } = await import("../services/appointments");
-                await runAppointmentWebhookHook(db, { provider: "paystack", reference: ref });
-              })());
-              hookJobs.push((async () => {
-                const { runDigitalPinWebhookHook } = await import("../services/digitalPins");
-                await runDigitalPinWebhookHook(db, { provider: "paystack", reference: ref });
-              })());
-              // === END W44 deposits-subs-digital hook ===
-              const settled = await Promise.allSettled(hookJobs);
-              for (const s of settled) {
-                if (s.status === "rejected") {
-                  console.error(`[paystack-webhook] post-confirm hook failed for ref=${ref}:`, (s.reason as any)?.message ?? s.reason);
-                }
-              }
-            }
-          } catch (postAckErr: any) {
-            // Post-ack failure: the 200 is already sent. Log loud for ops;
-            // the PSP event is safely replayable because the confirm path is
-            // claim-first/idempotent.
-            console.error(`[paystack-webhook] post-ack processing failed for ref=${ref}:`, postAckErr?.message);
-          }
+          // Confirm + quarantine seam + post-confirm hooks (server/services/payments/pspChargeWebhook.ts). A failure
+          // is retried there — in-process with backoff, and durably via /api/scheduled/psp-confirm-retry — since
+          // the PSP itself will not redeliver an event we already acked (AF-06 escrow-hold heal). Never throws.
+          const { processPspChargeSuccessWithRetry } = await import("../services/payments/pspChargeWebhook");
+          await processPspChargeSuccessWithRetry(db, {
+            provider: "paystack",
+            reference: ref,
+            amountMajor: Number.isFinite(amountKobo) ? amountKobo / 100 : null, // Paystack amounts are in kobo
+            currency,
+            rawPayload: payload.data,
+          });
           return;
         }
       }
@@ -2588,79 +2597,15 @@ async function startServer() {
           // webhook + paystack handler above); confirm + hooks run POST-ACK.
           // Dedupe intact: confirmProviderPayment is claim-first/idempotent. ===
           res.status(200).json({ received: true });
-          try {
-            const result = await confirmProviderPayment(db, {
-              provider: "flutterwave",
-              reference: txRef,
-              amountMajor: Number.isFinite(amount) ? amount : null,
-              currency,
-              rawPayload: payload.data,
-            });
-            if (!result.ok) {
-              console.warn(`[flutterwave-webhook] tx_ref=${txRef} → ${result.action}${result.detail ? `: ${result.detail}` : ""}`);
-            }
-            // === W45 money-intents seam (PAY-13) — paymentConfirm.ts PINNED ===
-            {
-              const { runPaymentMismatchQuarantineHook } = await import("../services/payments/paymentMismatchQuarantine");
-              await runPaymentMismatchQuarantineHook(db, {
-                provider: "flutterwave",
-                reference: txRef,
-                result,
-                amountMajor: Number.isFinite(amount) ? amount : null,
-                currency,
-                rawPayload: payload.data,
-              });
-            }
-            // === END W45 money-intents seam ===
-            // === W48 PERF-API-1: independent post-confirm hooks in PARALLEL
-            // (Promise.allSettled; each exactly-once + never-throws). ===
-            if (result.ok) {
-              const hookJobs: Array<Promise<unknown>> = [];
-              // === W31 AR webhook hook === (see paystack handler above)
-              hookJobs.push((async () => {
-                const { runArInvoiceWebhookHook } = await import("../services/arInvoices");
-                await runArInvoiceWebhookHook(db, { provider: "flutterwave", reference: txRef });
-              })());
-              // === END W31 AR webhook hook ===
-              // === W41 buyer-credit hook (adjacent seam — see paystack above) ===
-              hookJobs.push((async () => {
-                const { runBuyerCreditWebhookHook } = await import("../services/buyerInstallments");
-                await runBuyerCreditWebhookHook(db, { provider: "flutterwave", reference: txRef, rawPayload: payload.data });
-              })());
-              // === END W41 buyer-credit hook ===
-              // === W44 giftcards-referrals hook (adjacent seam — see paystack above) ===
-              hookJobs.push((async () => {
-                const { runGiftCardPurchaseWebhookHook } = await import("../services/giftCards");
-                await runGiftCardPurchaseWebhookHook(db, { provider: "flutterwave", reference: txRef });
-              })());
-              hookJobs.push((async () => {
-                const { runReferralRewardWebhookHook } = await import("../services/referrals");
-                await runReferralRewardWebhookHook(db, { provider: "flutterwave", reference: txRef });
-              })());
-              // === END W44 giftcards-referrals hook ===
-              // === W44 deposits-subs-digital hook (adjacent seam — paymentConfirm.ts PINNED/untouched) ===
-              // Appointment deposit/remainder confirmation (appt-deposit:<id> /
-              // appt-remainder:<id> references) + claim-first digital PIN
-              // allocation on the paid order. Exactly-once, never throws.
-              hookJobs.push((async () => {
-                const { runAppointmentWebhookHook } = await import("../services/appointments");
-                await runAppointmentWebhookHook(db, { provider: "flutterwave", reference: txRef });
-              })());
-              hookJobs.push((async () => {
-                const { runDigitalPinWebhookHook } = await import("../services/digitalPins");
-                await runDigitalPinWebhookHook(db, { provider: "flutterwave", reference: txRef });
-              })());
-              // === END W44 deposits-subs-digital hook ===
-              const settled = await Promise.allSettled(hookJobs);
-              for (const s of settled) {
-                if (s.status === "rejected") {
-                  console.error(`[flutterwave-webhook] post-confirm hook failed for tx_ref=${txRef}:`, (s.reason as any)?.message ?? s.reason);
-                }
-              }
-            }
-          } catch (postAckErr: any) {
-            console.error(`[flutterwave-webhook] post-ack processing failed for tx_ref=${txRef}:`, postAckErr?.message);
-          }
+          // Same post-ack processing + retry as the paystack handler above.
+          const { processPspChargeSuccessWithRetry } = await import("../services/payments/pspChargeWebhook");
+          await processPspChargeSuccessWithRetry(db, {
+            provider: "flutterwave",
+            reference: txRef,
+            amountMajor: Number.isFinite(amount) ? amount : null, // major currency units
+            currency,
+            rawPayload: payload.data,
+          });
           return;
         }
       }
@@ -4249,6 +4194,29 @@ async function startServer() {
     }
   });
   // === END W44 deposits-subs-digital ===
+
+  // === W54 capabilities (CAP-1) ===
+  // ── POST /api/scheduled/membership-expiry (hourly) ─────────────────────
+  // Consumer membership expiry tick: flips active customer_memberships whose
+  // currentPeriodEnd has passed → expired (claim-first per row; the read
+  // paths already treat a past period end as inactive, so this is the
+  // persistence catch-up). Auth: same W42 cronAuth scope+jti fast-path.
+  // After deploy: manus-heartbeat create --name membership-expiry --cron "0 15 * * * *" --path /api/scheduled/membership-expiry
+  app.post("/api/scheduled/membership-expiry", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runMembershipExpirySweep } = await import("../services/membershipPlans");
+      const summary = await runMembershipExpirySweep(db);
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[membership-expiry]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W54 capabilities ===
 
 
   // === W32 recurring ===

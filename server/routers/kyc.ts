@@ -492,6 +492,43 @@ export const kycRouter = router({
         }
       }
       // === END W47 merchant ===
+      // === W57 risk-shield === identity-graph populate hook at KYC
+      // verification: phone/email (+BVN/NIN from verified document
+      // extraction when present — hashed, NEVER raw) then the multi-account
+      // default check. FAIL-OPEN: never blocks the KYC decision.
+      if (input.decision === "approved" && beforeApp?.tenantId) {
+        try {
+          const { kycDocuments } = await import("../../drizzle/schema");
+          const docs = await db.select({ extractedData: kycDocuments.extractedData })
+            .from(kycDocuments)
+            .where(eq(kycDocuments.applicationId, input.applicationId))
+            .limit(10);
+          let bvn: string | null = null;
+          let nin: string | null = null;
+          for (const d of docs) {
+            const x = (d.extractedData ?? {}) as any;
+            if (!bvn && typeof x.bvn === "string") bvn = x.bvn;
+            if (!nin && typeof x.nin === "string") nin = x.nin;
+          }
+          const ig = await import("../services/identityGraph");
+          const subjectType = beforeApp.type === "kyc" ? "buyer" : "merchant";
+          const subjectId = beforeApp.type === "kyc"
+            ? (beforeApp.applicantPhone ?? beforeApp.applicantEmail ?? input.applicationId)
+            : beforeApp.tenantId;
+          await ig.recordSignupIdentity(db as any, {
+            tenantId: beforeApp.tenantId,
+            subjectType: subjectType as any,
+            subjectId,
+            phone: beforeApp.applicantPhone,
+            email: beforeApp.applicantEmail,
+            bvn,
+            nin,
+          });
+        } catch (e: any) {
+          console.warn("[kyc.review] identity-graph populate failed (fail-open):", e?.message);
+        }
+      }
+      // === END W57 risk-shield ===
       return { ok: true };
     }),
 

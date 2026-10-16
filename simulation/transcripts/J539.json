@@ -1,7 +1,7 @@
 {
   "id": "J539",
-  "title": "telegram is off unless TELEGRAM_ENABLED is exactly true; suspended tenant leaks nothing",
-  "feature": "W37 telegram: global kill switch + closed-tenant fail-closed",
+  "title": "events router: create/publish/ticket-types/list/sales + authz",
+  "feature": "W53 events: merchant CRUD via tRPC",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
   "messages": []

@@ -41,6 +41,14 @@ jobs:
       - name: Production dependency audit (blocking at high)
         run: npm audit --omit=dev --audit-level=high
 
+      # W55 pwa (MOB-8): SPEC_W48 250KB gzip initial-JS budget. NON-BLOCKING
+      # for one soak cycle, then flip continue-on-error to false to make it
+      # blocking. The verify job installs with --ignore-scripts, so esbuild's
+      # postinstall (platform binary) must be re-run before vite can build.
+      - name: Client bundle size budget (250KB gzip, advisory)
+        continue-on-error: true
+        run: npm rebuild esbuild && npm run check:bundle-size
+
       # SOC2 controls self-check (CC4.4) — REQUIRED (W30, V3#19): control
       # drift now blocks the pipeline instead of passing silently.
       - name: SOC2 controls self-check

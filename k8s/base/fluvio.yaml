@@ -1,0 +1,22 @@
+# === W54 CILIUM ===
+# Fluvio is intentionally NOT containerized in docker-compose.yml (see the
+# commented-out fluvio-sc block): run a real cluster instead —
+#   in-cluster:  fluvio cluster start   (installs Fluvio into this namespace,
+#                SC service becomes fluvio-sc:9003 natively)
+#   cloud:       InfinyOn Cloud — then point FLUVIO_ENDPOINT below at it.
+# This ExternalName service is the cloud/external path; when Fluvio runs
+# in-cluster, DELETE this Service so the operator-owned fluvio-sc wins.
+apiVersion: v1
+kind: Service
+metadata:
+  name: fluvio-sc
+  namespace: whatsapp-commerce
+  labels: {app: fluvio, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+  annotations:
+    w54.cilium.io/note: "External cluster (InfinyOn Cloud); replace with in-cluster Fluvio via fluvio CLI for full eBPF policy coverage"
+spec:
+  type: ExternalName
+  externalName: REPLACE_WITH_INFINYON_CLOUD_ENDPOINT # e.g. <cluster>.infinyon.cloud
+  ports:
+    - {name: sc, port: 9003, targetPort: 9003}
+# === END W54 CILIUM ===

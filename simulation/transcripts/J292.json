@@ -8,26 +8,13 @@
     {
       "dir": "out",
       "phone": "2348000000292",
-      "wamid": "wamid.sim.000817",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790535258682,
-      "kind": "text",
-      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J292-1790535258649\n\n\n*Total paid: ₦400.00*\nPayment ref: bipcap:f26e9ecf-0a3e-4948-a1e1-18306f65c088:2\n\n🔎 Track your order: http://localhost:4173/track/j292-order-1790535258647.unyhUd1yiO6rdFG4Si5b7RVG"
-    },
-    {
-      "dir": "out",
-      "phone": "2348000000292",
       "wamid": "wamid.sim.000818",
       "statuses": [
         "sent"
       ],
-      "at": 1790535258689,
-      "kind": "document",
-      "mediaKind": "document",
-      "caption": "🧾 Receipt for order J292-1790535258649",
-      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-J292-1790535258649.pdf"
+      "at": 1790607526931,
+      "kind": "text",
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J292-1790607526788\n\n\n*Total paid: ₦400.00*\nPayment ref: bipcap:13adb492-a143-4a97-844c-2f4fb6ab0b97:2\n\n🔎 Track your order: http://localhost:4173/track/j292-order-1790607526776.FPxx0s_Otka5CrumV50yqb4f"
     },
     {
       "dir": "out",
@@ -36,7 +23,20 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790535258690,
+      "at": 1790607527017,
+      "kind": "document",
+      "mediaKind": "document",
+      "caption": "🧾 Receipt for order J292-1790607526788",
+      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-J292-1790607526788.pdf"
+    },
+    {
+      "dir": "out",
+      "phone": "2348000000292",
+      "wamid": "wamid.sim.000820",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607527023,
       "kind": "text",
       "body": "🎉 Final installment received — your order is fully paid! The shop has been notified to prepare your order."
     }

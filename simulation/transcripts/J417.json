@@ -7,36 +7,36 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348011434819",
-      "wamid": "wamid.sim.001104",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790535380654,
-      "kind": "text",
-      "body": "✅ PO-W46-J417-MUK6J9UO approved! Complete payment (₦1,000.00):\nhttps://checkout.paystack.com/sim/PAY-1790535380646-C66C4672"
-    },
-    {
-      "dir": "out",
-      "phone": "2348011434819",
+      "phone": "2348016231700",
       "wamid": "wamid.sim.001105",
       "statuses": [
         "sent"
       ],
-      "at": 1790535380661,
+      "at": 1790607682739,
       "kind": "text",
-      "body": "⚠️ PO-W46-J417-MUK6J9UO is past its promised delivery date (Fri Sep 25 2026 — 3d overdue). The supplier has been notified; reply here if you'd like an update or to cancel."
+      "body": "✅ PO-W46-J417-MULDKYGR approved! Complete payment (₦1,000.00):\nhttps://checkout.paystack.com/sim/PAY-1790607682706-C54C2FA9"
     },
     {
       "dir": "out",
-      "phone": "2348099911111",
+      "phone": "2348016231700",
       "wamid": "wamid.sim.001106",
       "statuses": [
         "sent"
       ],
-      "at": 1790535380664,
+      "at": 1790607682769,
       "kind": "text",
-      "body": "⚠️ Promise breached: PO-W46-J417-MUK6J9UO was promised by Fri Sep 25 2026 and is still unfulfilled. Fulfil it or message the buyer today to protect your supplier rating."
+      "body": "⚠️ PO-W46-J417-MULDKYGR is past its promised delivery date (Sat Sep 26 2026 — 3d overdue). The supplier has been notified; reply here if you'd like an update or to cancel."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099911111",
+      "wamid": "wamid.sim.001107",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607682783,
+      "kind": "text",
+      "body": "⚠️ Promise breached: PO-W46-J417-MULDKYGR was promised by Sat Sep 26 2026 and is still unfulfilled. Fulfil it or message the buyer today to protect your supplier rating."
     }
   ]
 }

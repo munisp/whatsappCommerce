@@ -41,6 +41,12 @@ import { orderCrudRouter } from "./routers/orderCrud";
 import { ucMoneyRouter } from "./routers/ucMoney";
 // === END W46 uc-money ===
 import { buyerCreditRouter } from "./routers/buyerCredit";
+// === W56 credit ===
+import { creditScoringRouter } from "./routers/creditScoring";
+import { bureauRouter } from "./routers/bureau";
+import { creditServicingRouter } from "./routers/creditServicing";
+import { creditInsuranceRouter } from "./routers/creditInsurance";
+// === END W56 credit ===
 import { rmaRouter } from "./routers/rma";
 import { exchangesRouter } from "./routers/exchanges"; // === W43 exchanges (Coder B) ===
 // === W44 giftcards-referrals (Coder A) ===
@@ -222,6 +228,12 @@ export const appRouter = router({
   ucMoney: ucMoneyRouter,
   // === END W46 uc-money ===
   buyerCredit: buyerCreditRouter,
+  // === W56 credit ===
+  creditScoring: creditScoringRouter,
+  bureau: bureauRouter,
+  creditInsurance: creditInsuranceRouter,
+  creditServicing: creditServicingRouter,
+  // === END W56 credit ===
   // === W41 rma-fx (Coder C): returns lifecycle + display-FX config ===
   rma: rmaRouter,
   // === END W41 rma-fx ===
@@ -366,6 +378,12 @@ export const appRouter = router({
   // === W46 uc-docs (Coder D): statements/proformas/agents/tier-pricing ===
   ucDocs: ucDocsRouter,
   // === END W46 uc-docs ===
+  // === W53 EVENTS === merchant event/ticket mgmt + public storefront ===
+  events: eventsRouter,
+  // === END W53 EVENTS ===
+  // === W54 capabilities (CAP-1) === consumer membership tiers admin ===
+  membershipPlans: membershipPlansRouter,
+  // === END W54 capabilities ===
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
@@ -388,6 +406,12 @@ import { reviewsRouter } from "./routers/reviews";
 // === W27 Coder F ===
 import { wholesaleRouter } from "./routers/wholesale";
 import { groupBuyRouter } from "./routers/groupBuy";
+// === W53 EVENTS ===
+import { eventsRouter } from "./routers/events";
+// === END W53 EVENTS ===
+// === W54 capabilities (CAP-1) ===
+import { membershipPlansRouter } from "./routers/membershipPlans";
+// === END W54 capabilities ===
 // === END W27 Coder F ===
 // === W28 odoo-sync (Coder A) ===
 import { odooSyncRouter } from "./routers/odooSync";

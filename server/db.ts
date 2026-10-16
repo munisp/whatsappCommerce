@@ -479,13 +479,14 @@ export async function getOrders(tenantId: string, status?: string, limit = 50, o
 export async function getOrderStats(tenantId: string) {
   const db = await getDb();
   if (!db) return { total: 0, pending: 0, confirmed: 0, delivered: 0, revenue: 0, revenueByCurrency: [] as Array<{ currency: string; amount: number }> };
-  // === W48 PERF-API-4/18 (api-db): one conditional-aggregate scan instead of 5 filtered count(*) scans for the
-  // status counts. Revenue stays a SEPARATE query — GROUP BY currency below is 2026-09-26's fix for a real bug
-  // (found live, aggressive dashboard QA sweep): a single COALESCE(SUM(...)) across every completed order
-  // regardless of currency was adding e.g. ₦10,000 + $9,500 into one meaningless number, and the UI slapped a
-  // hardcoded "$" on it (see order-currency memory) — a conditional aggregate produces one row and can't express
-  // a GROUP BY, so this can't be folded into the query above without reintroducing that bug. Still 2 queries
-  // total instead of the original 5.
+  // === W48 PERF-API-4/18 (api-db): one conditional-aggregate scan instead of
+  // 4 filtered count(*) scans. ===
+  // Revenue is grouped by currency (found live 2026-09-26, aggressive dashboard QA sweep): this used to be a single
+  // COALESCE(SUM(...)) across every completed order regardless of currency. This tenant has a real mix of NGN and USD
+  // orders (from before the currency/location bug was fixed — see order-currency memory), so that sum was adding e.g.
+  // ₦10,000 + $9,500 into one meaningless number and the UI slapped a hardcoded "$" on it. `revenue` below is kept only
+  // for legacy callers that don't yet render per-currency and is itself still a cross-currency sum (documented, not
+  // fixed) — new UI should read `revenueByCurrency`.
   const [[row], revenueRows] = await Promise.all([
     db.select({
       total: sql<number>`count(*)::int`,

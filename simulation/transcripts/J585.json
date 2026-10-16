@@ -1,0 +1,20 @@
+{
+  "id": "J585",
+  "title": "WA+TG parity of 'credit risk <customer>' keyword",
+  "feature": "W57 risk-shield F1: credit risk keyword parity",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348014392499",
+      "wamid": "wamid.sim.001307",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790841112110,
+      "kind": "text",
+      "body": "⚠️ Credit risk: buyer cust-j585-787342 is identity-linked to 1 defaulted credit account(s). Credit eligibility is FROZEN pending review (cash sales are unaffected)."
+    }
+  ]
+}

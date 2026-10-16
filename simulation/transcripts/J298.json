@@ -7,25 +7,25 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348012293955",
-      "wamid": "wamid.sim.000820",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790535260986,
-      "kind": "text",
-      "body": "You've been invited to split order j298-1790535260973: your share is ₦1000.00 of ₦3000.00. Reply PAY SPLIT f938fcff-e901-4c75-a408-773862f54234 to pay from your wallet, or ask for a payment link. Expires in 48h."
-    },
-    {
-      "dir": "out",
-      "phone": "2348015256840",
+      "phone": "2348014465477",
       "wamid": "wamid.sim.000821",
       "statuses": [
         "sent"
       ],
-      "at": 1790535260989,
+      "at": 1790607530536,
       "kind": "text",
-      "body": "You've been invited to split order j298-1790535260973: your share is ₦1000.00 of ₦3000.00. Reply PAY SPLIT f938fcff-e901-4c75-a408-773862f54234 to pay from your wallet, or ask for a payment link. Expires in 48h."
+      "body": "You've been invited to split order j298-1790607530491: your share is ₦1000.00 of ₦3000.00. Reply PAY SPLIT 7d31f61f-d79d-4e4f-8c47-5781953014ec to pay from your wallet, or ask for a payment link. Expires in 48h."
+    },
+    {
+      "dir": "out",
+      "phone": "2348012364506",
+      "wamid": "wamid.sim.000822",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607530545,
+      "kind": "text",
+      "body": "You've been invited to split order j298-1790607530491: your share is ₦1000.00 of ₦3000.00. Reply PAY SPLIT 7d31f61f-d79d-4e4f-8c47-5781953014ec to pay from your wallet, or ask for a payment link. Expires in 48h."
     }
   ]
 }

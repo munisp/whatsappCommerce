@@ -8,24 +8,13 @@
     {
       "dir": "out",
       "phone": "2349037600376",
-      "wamid": "wamid.sim.001081",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790535368211,
-      "kind": "text",
-      "body": "⚠️ Your payment mandate was revoked, so automatic collection for your pay-over-time plan is PAUSED — we won't keep retrying it. To resume auto-collection, link a new mandate from the dashboard. You can also settle the plan manually right now:\n\nPay here: https://checkout.paystack.com/sim/POTM-MUK6J097-6BEEB778"
-    },
-    {
-      "dir": "out",
-      "phone": "2349037600376",
       "wamid": "wamid.sim.001082",
       "statuses": [
         "sent"
       ],
-      "at": 1790535368280,
+      "at": 1790607660143,
       "kind": "text",
-      "body": "✅ Manual payment received — your pay-over-time plan is settled in full. Thank you!"
+      "body": "⚠️ Your payment mandate was revoked, so automatic collection for your pay-over-time plan is PAUSED — we won't keep retrying it. To resume auto-collection, link a new mandate from the dashboard. You can also settle the plan manually right now:\n\nPay here: https://checkout.paystack.com/sim/POTM-MULDKH1N-24D2CE8A"
     },
     {
       "dir": "out",
@@ -34,9 +23,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790535368352,
+      "at": 1790607660373,
       "kind": "text",
-      "body": "⚠️ Your payment mandate was revoked, so automatic collection for your pay-over-time plan is PAUSED — we won't keep retrying it. To resume auto-collection, link a new mandate from the dashboard. You can also settle the plan manually right now:\n\nPay here: https://checkout.paystack.com/sim/POTM-MUK6J0D3-2A7B021B"
+      "body": "✅ Manual payment received — your pay-over-time plan is settled in full. Thank you!"
     },
     {
       "dir": "out",
@@ -45,9 +34,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790535368363,
+      "at": 1790607660588,
       "kind": "text",
-      "body": "Your pay-over-time plan was restructured into 6 installments — link a payment mandate to resume automatic collection."
+      "body": "⚠️ Your payment mandate was revoked, so automatic collection for your pay-over-time plan is PAUSED — we won't keep retrying it. To resume auto-collection, link a new mandate from the dashboard. You can also settle the plan manually right now:\n\nPay here: https://checkout.paystack.com/sim/POTM-MULDKHE1-7736BC72"
     },
     {
       "dir": "out",
@@ -56,9 +45,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790535368369,
+      "at": 1790607660637,
       "kind": "text",
-      "body": "✅ New payment mandate linked — automatic collection has RESUMED for 1 pay-over-time plan(s)."
+      "body": "Your pay-over-time plan was restructured into 6 installments — link a payment mandate to resume automatic collection."
     },
     {
       "dir": "out",
@@ -67,7 +56,18 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790535368380,
+      "at": 1790607660664,
+      "kind": "text",
+      "body": "✅ New payment mandate linked — automatic collection has RESUMED for 1 pay-over-time plan(s)."
+    },
+    {
+      "dir": "out",
+      "phone": "2349037600376",
+      "wamid": "wamid.sim.001087",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607660708,
       "kind": "text",
       "body": "Your pay-over-time plan was cancelled by support (written off: ₦1,230.00). Reason: merchant hardship — facility absorbs. No further collection attempts will be made."
     }

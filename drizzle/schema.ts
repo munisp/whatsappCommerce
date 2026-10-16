@@ -1546,6 +1546,8 @@ export const disputeResolutionEnum = pgEnum("dispute_resolution", [
   "full_refund_to_buyer",
   "partial_refund",
   "no_action",
+  // === W54 disputes (DISP-7): replacement path — money untouched, RMA linked.
+  "replacement",
 ]);
 
 export const shipmentStatusEnum = pgEnum("shipment_status", [
@@ -1600,6 +1602,10 @@ export const escrowConfig = pgTable("escrow_config", {
   // cents, credited to the platform fee wallet (reference `schedfee:<id>`).
   instantPayoutFeeBps: integer("instant_payout_fee_bps").default(50).notNull(),
   // === END W32 recurring-tiers ===
+  // === W57 risk-shield === first-loss provision fund accrual rate (bps of
+  // each facility fee accrual diverted to provision_fund_ledger). 0 disables.
+  provisionFundBps: integer("provision_fund_bps").default(250).notNull(),
+  // === END W57 risk-shield ===
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
@@ -1771,6 +1777,9 @@ export const escrowDisputes = pgTable("escrow_disputes", {
   merchantResponseDeadline: timestamp("merchant_response_deadline"),
   resolvedAt: timestamp("resolved_at"),
   escalatedAt: timestamp("escalated_at"),
+  // === W54 disputes (DISP-3/DISP-7, mig 0175): additive metadata — merchant
+  // response bookkeeping (respondedAt/note/token) + replacement RMA link. ===
+  metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -5923,6 +5932,9 @@ export const rmaRequests = pgTable("rma_requests", {
   restockedAt: timestamp("restocked_at"),
   refundedAt: timestamp("refunded_at"),
   closedAt: timestamp("closed_at"),
+  // === W54 disputes (DISP-7, mig 0175): additive metadata — when the RMA was
+  // opened by a dispute replacement resolution this carries { disputeId }. ===
+  metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
@@ -7070,3 +7082,375 @@ export const waMediaIdCache = pgTable("wa_media_id_cache", {
 export type WaMediaIdCache = typeof waMediaIdCache.$inferSelect;
 export type NewWaMediaIdCache = typeof waMediaIdCache.$inferInsert;
 // === END W49 RICHMEDIA ===
+
+// === W53 EVENTS (ticketing) ===
+// Events + ticket types + issued tickets. Additive-only (mig 0174).
+// Money rides the existing orders/payments rail: a ticket purchase creates
+// a normal orders row (metadata.eventTicket marks it) + payment link; the
+// post-commit receipt seam issues the tickets on payment confirmation.
+export const events = pgTable("events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  title: varchar("title", { length: 200 }).notNull(),
+  description: text("description"),
+  venue: varchar("venue", { length: 300 }),
+  /** Optional { latitude, longitude } pair for map cards. */
+  venueCoords: jsonb("venueCoords"),
+  /** Optional header image for the storefront/chat card. */
+  imageUrl: text("imageUrl"),
+  startsAt: timestamp("startsAt").notNull(),
+  endsAt: timestamp("endsAt"),
+  /** draft | published | cancelled | completed */
+  status: varchar("status", { length: 16 }).notNull().default("draft"),
+  /** Optional whole-event capacity cap across all ticket types. */
+  capacity: integer("capacity"),
+  metadata: jsonb("metadata"),
+  createdBy: varchar("createdBy", { length: 64 }),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  index("events_tenant_idx").on(t.tenantId, t.createdAt),
+  index("events_tenant_status_idx").on(t.tenantId, t.status),
+]);
+export type Event = typeof events.$inferSelect;
+export type NewEvent = typeof events.$inferInsert;
+
+export const eventTicketTypes = pgTable("event_ticket_types", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  eventId: uuid("eventId").notNull(),
+  name: varchar("name", { length: 120 }).notNull(),
+  /** Integer minor units (kobo/cents) — never float money. */
+  priceCents: integer("priceCents").notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  /** Total inventory for this type. */
+  quantity: integer("quantity").notNull(),
+  /** Sold so far — claimed first (soldCount + qty <= quantity) at purchase. */
+  soldCount: integer("soldCount").notNull().default(0),
+  maxPerOrder: integer("maxPerOrder").notNull().default(10),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  index("event_ticket_types_event_idx").on(t.eventId),
+  index("event_ticket_types_tenant_idx").on(t.tenantId),
+]);
+export type EventTicketType = typeof eventTicketTypes.$inferSelect;
+export type NewEventTicketType = typeof eventTicketTypes.$inferInsert;
+
+export const eventTickets = pgTable("event_tickets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  eventId: uuid("eventId").notNull(),
+  ticketTypeId: uuid("ticketTypeId").notNull(),
+  /** Set once the buying order's payment is confirmed (issue time). */
+  orderId: varchar("orderId", { length: 36 }),
+  buyerCustomerId: varchar("buyerCustomerId", { length: 64 }).notNull(),
+  /** Human-readable door code, unique per tenant. */
+  code: varchar("code", { length: 24 }).notNull(),
+  /** issued | checked_in | cancelled | refunded */
+  status: varchar("status", { length: 16 }).notNull().default("issued"),
+  checkedInAt: timestamp("checkedInAt"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("event_tickets_tenant_code_uq").on(t.tenantId, t.code),
+  index("event_tickets_event_idx").on(t.eventId),
+  index("event_tickets_order_idx").on(t.orderId),
+  index("event_tickets_buyer_idx").on(t.tenantId, t.buyerCustomerId),
+]);
+export type EventTicket = typeof eventTickets.$inferSelect;
+export type NewEventTicket = typeof eventTickets.$inferInsert;
+// === END W53 EVENTS ===
+
+// === W54 capabilities (CAP-1 consumer membership tiers, mig 0175) ===
+/**
+ * membership_plans — tenant-configurable consumer membership tiers
+ * (e.g. Silver/Gold). priceCents = 0 is a free tier; period day|week|month
+ * drives the billing window (free tiers keep period 'month' but are never
+ * charged). Benefits: member discountPercent on checkout totals and a
+ * pointsMultiplier on loyalty earn — BOTH applied for live memberships.
+ */
+export const membershipPlans = pgTable("membership_plans", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  name: varchar("name", { length: 120 }).notNull(),
+  description: text("description"),
+  /** Integer cents; 0 = free tier (join activates immediately). */
+  priceCents: integer("priceCents").notNull().default(0),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  /** day | week | month — billing window length. */
+  period: varchar("period", { length: 8 }).notNull().default("month"),
+  /** Member checkout discount, whole percent 0-100 (integer). */
+  discountPercent: integer("discountPercent").notNull().default(0),
+  /** Loyalty earn multiplier, whole integer 1-10 (1 = no bonus). */
+  pointsMultiplier: integer("pointsMultiplier").notNull().default(1),
+  /** active | archived */
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  index("membership_plans_tenant_idx").on(t.tenantId, t.status),
+]);
+export type MembershipPlan = typeof membershipPlans.$inferSelect;
+export type NewMembershipPlan = typeof membershipPlans.$inferInsert;
+
+/**
+ * customer_memberships — a buyer's membership in a plan. At most ONE live
+ * (status='active') membership per (tenantId, customerId), enforced by the
+ * partial unique index customer_memberships_live_uidx (mig 0175).
+ * cancelAtPeriodEnd reuses subscription cancel semantics: benefits run to
+ * currentPeriodEnd, then the expiry sweep flips status → expired.
+ */
+export const customerMemberships = pgTable("customer_memberships", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  planId: uuid("planId").notNull(),
+  customerId: varchar("customerId", { length: 36 }).notNull(),
+  /** active | cancelled | expired */
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  startedAt: timestamp("startedAt").notNull().defaultNow(),
+  /** Benefits end here (period window); null = open-ended (free tiers). */
+  currentPeriodEnd: timestamp("currentPeriodEnd"),
+  cancelAtPeriodEnd: boolean("cancelAtPeriodEnd").notNull().default(false),
+  /** Join-payment order / PSP reference for paid tiers (audit trail). */
+  orderId: varchar("orderId", { length: 36 }),
+  paymentRef: varchar("paymentRef", { length: 128 }),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  index("customer_memberships_tenant_customer_idx").on(t.tenantId, t.customerId),
+  index("customer_memberships_plan_idx").on(t.tenantId, t.planId),
+]);
+export type CustomerMembership = typeof customerMemberships.$inferSelect;
+export type NewCustomerMembership = typeof customerMemberships.$inferInsert;
+// === END W54 capabilities ===
+
+// === W56 credit ===
+// Automated credit scoring cache (buyer|merchant) — additive. Scores are
+// deterministic integer points (0-1000) computed from on-platform signals
+// (server/services/creditScoring.ts); grade bands A/B/C/D/E. One row per
+// (tenant, subjectType, subjectId) — upserted on recompute.
+export const creditScores = pgTable("credit_scores", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  subjectType: varchar("subjectType", { length: 8 }).notNull(), // 'buyer' | 'merchant'
+  subjectId: varchar("subjectId", { length: 64 }).notNull(),
+  score: integer("score").notNull(),
+  grade: varchar("grade", { length: 1 }).notNull(),
+  factors: jsonb("factors").notNull(),
+  computedAt: timestamp("computedAt").notNull().defaultNow(),
+  version: varchar("version", { length: 32 }).notNull().default("w56-v1"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("credit_scores_subject_uniq").on(t.tenantId, t.subjectType, t.subjectId),
+  index("credit_scores_tenant_idx").on(t.tenantId, t.subjectType),
+]);
+export type CreditScore = typeof creditScores.$inferSelect;
+export type NewCreditScore = typeof creditScores.$inferInsert;
+
+// Bureau consent artefacts (NDPR): recorded BEFORE any bureau pull; a pull
+// without a live (non-revoked) consent row is blocked. consentText snapshots
+// the exact BUREAU_CONSENT_TEXT shown, with its i18n version + channel.
+export const bureauConsents = pgTable("bureau_consents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  subjectType: varchar("subjectType", { length: 8 }).notNull(), // 'buyer' | 'merchant'
+  subjectId: varchar("subjectId", { length: 64 }).notNull(),
+  consentTextVersion: varchar("consentTextVersion", { length: 32 }).notNull(),
+  consentText: text("consentText").notNull(),
+  channel: varchar("channel", { length: 16 }).notNull(), // 'whatsapp' | 'telegram' | 'portal' | 'api'
+  grantedAt: timestamp("grantedAt").notNull().defaultNow(),
+  revokedAt: timestamp("revokedAt"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+}, (t) => [
+  index("bureau_consents_subject_idx").on(t.tenantId, t.subjectType, t.subjectId),
+]);
+export type BureauConsent = typeof bureauConsents.$inferSelect;
+export type NewBureauConsent = typeof bureauConsents.$inferInsert;
+
+// Bureau pull history (CRC / FirstCentral via services/bureau.ts). One row
+// per pull attempt — report is NULL on error/blocked rows (fail-open).
+export const bureauPulls = pgTable("bureau_pulls", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  subjectType: varchar("subjectType", { length: 8 }).notNull(),
+  subjectId: varchar("subjectId", { length: 64 }).notNull(),
+  provider: varchar("provider", { length: 24 }).notNull(), // 'crc' | 'firstcentral' | 'sandbox' | 'disabled'
+  consentId: uuid("consentId").notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("ok"), // 'ok' | 'error'
+  report: jsonb("report"),
+  rawRef: varchar("rawRef", { length: 128 }),
+  error: text("error"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+}, (t) => [
+  index("bureau_pulls_subject_idx").on(t.tenantId, t.subjectType, t.subjectId),
+  index("bureau_pulls_tenant_idx").on(t.tenantId, t.createdAt),
+]);
+export type BureauPull = typeof bureauPulls.$inferSelect;
+export type NewBureauPull = typeof bureauPulls.$inferInsert;
+
+// Bureau repayment report-back outbox (extends J69/W14 bureau_report_log
+// semantics to buyer/merchant repayment performance): claim-first rows with
+// a unique idempotencyKey, retried with bounded backoff by the scheduled
+// /api/scheduled/bureau-report sweep; rows flip pending→sent|failed.
+export const bureauReportOutbox = pgTable("bureau_report_outbox", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  subjectType: varchar("subjectType", { length: 8 }).notNull(),
+  subjectId: varchar("subjectId", { length: 64 }).notNull(),
+  eventType: varchar("eventType", { length: 24 }).notNull(), // 'paid_on_time' | 'late' | 'default' | 'settled'
+  payload: jsonb("payload").notNull(),
+  idempotencyKey: varchar("idempotencyKey", { length: 160 }).notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("pending"), // 'pending' | 'sent' | 'failed'
+  attempts: integer("attempts").notNull().default(0),
+  nextRetryAt: timestamp("nextRetryAt"),
+  reportedAt: timestamp("reportedAt"),
+  lastError: text("lastError"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("bureau_report_outbox_key_uniq").on(t.idempotencyKey),
+  index("bureau_report_outbox_due_idx").on(t.status, t.nextRetryAt),
+  index("bureau_report_outbox_tenant_idx").on(t.tenantId),
+]);
+export type BureauReportOutboxRow = typeof bureauReportOutbox.$inferSelect;
+export type NewBureauReportOutboxRow = typeof bureauReportOutbox.$inferInsert;
+// === END W56 credit ===
+
+// === W57 risk-shield ===
+// Identity graph links (Feature 1): append-only hashed identity signals per
+// subject. linkHash is HMAC-SHA256(linkType + normalized value, server
+// secret) — raw BVN/NIN/bank-account values are NEVER stored. Populated at
+// KYC verification, signup (phone/email), bank/payout registration and
+// device-fingerprint capture (services/identityGraph.ts).
+export const identityLinks = pgTable("identity_links", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(), // registering tenant
+  subjectType: varchar("subjectType", { length: 8 }).notNull(), // 'buyer' | 'merchant'
+  subjectId: varchar("subjectId", { length: 64 }).notNull(),
+  linkType: varchar("linkType", { length: 16 }).notNull(), // 'bvn' | 'nin' | 'phone' | 'email' | 'bank_account' | 'device'
+  linkHash: varchar("linkHash", { length: 64 }).notNull(),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("identity_links_subject_link_uniq").on(t.subjectType, t.subjectId, t.linkType, t.linkHash),
+  index("identity_links_hash_idx").on(t.linkType, t.linkHash),
+  index("identity_links_subject_idx").on(t.subjectType, t.subjectId),
+]);
+export type IdentityLink = typeof identityLinks.$inferSelect;
+export type NewIdentityLink = typeof identityLinks.$inferInsert;
+
+// Identity risk flags (Feature 1): a subject linked (via shared hashes) to
+// an identity with defaulted credit gets a 'linked_default' flag — credit
+// eligibility frozen (cash commerce NEVER blocked). Due process: subject
+// disputes (status 'disputed'), admin review clears or confirms (audited).
+export const identityFlags = pgTable("identity_flags", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  subjectType: varchar("subjectType", { length: 8 }).notNull(),
+  subjectId: varchar("subjectId", { length: 64 }).notNull(),
+  kind: varchar("kind", { length: 32 }).notNull().default("linked_default"),
+  status: varchar("status", { length: 16 }).notNull().default("active"), // 'active' | 'disputed' | 'cleared' | 'confirmed'
+  evidence: jsonb("evidence"), // { linkType, linkedSubjects: [hashes], defaultRefs } — NO raw PII
+  disputeRef: varchar("disputeRef", { length: 64 }), // chat dispute id
+  resolvedBy: varchar("resolvedBy", { length: 255 }),
+  resolvedAt: timestamp("resolvedAt"),
+  resolutionNote: text("resolutionNote"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  index("identity_flags_subject_idx").on(t.tenantId, t.subjectType, t.subjectId, t.status),
+]);
+export type IdentityFlag = typeof identityFlags.$inferSelect;
+export type NewIdentityFlag = typeof identityFlags.$inferInsert;
+
+// Cross-tenant default registry (Feature 2): platform-wide record of credit
+// defaults keyed by identity hash. Written by the dunning/enforcement default
+// path, cured on full repayment. Cross-tenant reads expose ONLY the aggregate
+// (hasActiveDefault + count) — tenantId/amounts are never shared across
+// tenants. bureauRef is set only when report-back consent exists.
+export const creditDefaultRegistry = pgTable("credit_default_registry", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  identityHash: varchar("identityHash", { length: 64 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(), // ORIGIN tenant (never shared cross-tenant)
+  accountId: varchar("accountId", { length: 64 }).notNull(),
+  amountCents: integer("amountCents").notNull(), // integer cents
+  defaultedAt: timestamp("defaultedAt").notNull().defaultNow(),
+  status: varchar("status", { length: 16 }).notNull().default("active"), // 'active' | 'disputed' | 'cured' | 'cleared'
+  bureauRef: varchar("bureauRef", { length: 128 }), // nullable — set only with report-back consent
+  curedAt: timestamp("curedAt"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("credit_default_registry_account_uniq").on(t.tenantId, t.accountId),
+  index("credit_default_registry_hash_idx").on(t.identityHash, t.status),
+]);
+export type CreditDefaultRegistryRow = typeof creditDefaultRegistry.$inferSelect;
+export type NewCreditDefaultRegistryRow = typeof creditDefaultRegistry.$inferInsert;
+
+// Credit insurance policies (Feature 3): provider-agnostic credit-insurance
+// cover bound to a facility/account. Premium is a deterministic integer-cents
+// quote by grade band (services/creditInsurance.ts). idempotencyKey makes
+// bind replay-safe.
+export const creditInsurancePolicies = pgTable("credit_insurance_policies", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  facilityRef: varchar("facilityRef", { length: 64 }).notNull(), // credit account / facility id
+  principalCents: integer("principalCents").notNull(),
+  premiumCents: integer("premiumCents").notNull(),
+  grade: varchar("grade", { length: 1 }).notNull(), // A..E
+  provider: varchar("provider", { length: 24 }).notNull(), // 'sim' | http provider
+  providerRef: varchar("providerRef", { length: 128 }),
+  status: varchar("status", { length: 16 }).notNull().default("bound"), // 'bound' | 'claimed' | 'expired'
+  idempotencyKey: varchar("idempotencyKey", { length: 160 }).notNull(),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("credit_insurance_policies_key_uniq").on(t.idempotencyKey),
+  uniqueIndex("credit_insurance_policies_facility_uniq").on(t.tenantId, t.facilityRef),
+  index("credit_insurance_policies_tenant_idx").on(t.tenantId, t.createdAt),
+]);
+export type CreditInsurancePolicy = typeof creditInsurancePolicies.$inferSelect;
+export type NewCreditInsurancePolicy = typeof creditInsurancePolicies.$inferInsert;
+
+// Credit insurance claims: filed → under_review → paid | rejected. Evidence
+// references the ledger + dunning trail (no PII). Paid payouts credit the
+// tenant via the provision-fund shortfall seam.
+export const creditInsuranceClaims = pgTable("credit_insurance_claims", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  policyId: uuid("policyId").notNull(),
+  defaultRef: varchar("defaultRef", { length: 64 }).notNull(), // credit_default_registry / ledger ref
+  evidence: jsonb("evidence").notNull(), // { ledgerRefs: [], dunningMarkers: [] }
+  status: varchar("status", { length: 16 }).notNull().default("filed"), // 'filed' | 'under_review' | 'paid' | 'rejected'
+  payoutCents: integer("payoutCents"), // set on paid
+  idempotencyKey: varchar("idempotencyKey", { length: 160 }).notNull(),
+  resolvedAt: timestamp("resolvedAt"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("credit_insurance_claims_key_uniq").on(t.idempotencyKey),
+  index("credit_insurance_claims_policy_idx").on(t.policyId),
+  index("credit_insurance_claims_tenant_idx").on(t.tenantId, t.status),
+]);
+export type CreditInsuranceClaim = typeof creditInsuranceClaims.$inferSelect;
+export type NewCreditInsuranceClaim = typeof creditInsuranceClaims.$inferInsert;
+
+// First-loss provision fund ledger (Feature 4): tenant-scoped rows plus
+// platform-level rows (tenantId NULL). Accruals divert a configured % of
+// facility fee accruals; draws require admin approval; post-default
+// recoveries credit the fund. ref is unique ⇒ idempotent postings.
+export const provisionFundLedger = pgTable("provision_fund_ledger", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }), // NULL = platform-level
+  kind: varchar("kind", { length: 16 }).notNull(), // 'accrual' | 'draw' | 'recovery_credit'
+  amountCents: integer("amountCents").notNull(), // integer cents, always positive
+  ref: varchar("ref", { length: 128 }).notNull(), // unique idempotency key
+  note: text("note"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("provision_fund_ledger_ref_uniq").on(t.ref),
+  index("provision_fund_ledger_tenant_idx").on(t.tenantId, t.createdAt),
+]);
+export type ProvisionFundLedgerRow = typeof provisionFundLedger.$inferSelect;
+export type NewProvisionFundLedgerRow = typeof provisionFundLedger.$inferInsert;
+// === END W57 risk-shield ===

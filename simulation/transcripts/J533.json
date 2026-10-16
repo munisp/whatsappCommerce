@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348011281498",
-      "profileName": "Sim User 1498",
-      "inboundId": "wamid.sim.in.text.00586",
-      "at": 1790535458619,
+      "phone": "2348012875585",
+      "profileName": "Sim User 5585",
+      "inboundId": "wamid.sim.in.text.00580",
+      "at": 1790607787598,
       "kind": "text",
-      "text": "DEAL DEAL33 REF REF-BZTT2F"
+      "text": "DEAL DEAL33 REF REF-3L3YS2"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00586",
-      "at": 1790535458625
+      "wamid": "wamid.sim.in.text.00580",
+      "at": 1790607787618
     },
     {
       "dir": "out",
-      "phone": "2348011281498",
-      "wamid": "wamid.sim.001192",
+      "phone": "2348012875585",
+      "wamid": "wamid.sim.001187",
       "statuses": [
         "sent"
       ],
-      "at": 1790535458649,
+      "at": 1790607787720,
       "kind": "text",
       "body": "✅ Deal DEAL33 locked in — it applies automatically at checkout. Happy shopping!"
     }

@@ -192,49 +192,49 @@ export async function handleUnifiedPaymentWebhook(req: Request, res: Response): 
         );
       }
 
-    // Same PAY-13 / AF-01 seam as the dedicated Paystack/Flutterwave routes:
-    // money collected at the wrong amount, or for an order that can no longer
-    // be fulfilled, is quarantined and auto-refunded. Never throws.
-    {
-      const { runPaymentMismatchQuarantineHook } = await import("../paymentMismatchQuarantine");
-      await runPaymentMismatchQuarantineHook(db, {
-        provider: providerId,
-        reference: norm.reference,
-        result,
-        amountMajor: norm.amountCents / 100,
-        currency,
-        rawPayload: payload?.data ?? payload,
-      });
-    }
+      // Same PAY-13 / AF-01 seam as the dedicated Paystack/Flutterwave routes:
+      // money collected at the wrong amount, or for an order that can no longer
+      // be fulfilled, is quarantined and auto-refunded. Never throws.
+      {
+        const { runPaymentMismatchQuarantineHook } = await import("../paymentMismatchQuarantine");
+        await runPaymentMismatchQuarantineHook(db, {
+          provider: providerId,
+          reference: norm.reference,
+          result,
+          amountMajor: norm.amountCents / 100,
+          currency,
+          rawPayload: payload?.data ?? payload,
+        });
+      }
 
-    // === W31 AR webhook hook ===
-    // After the pinned confirmProviderPayment verified + completed the
-    // payment, record any AR-invoice payment keyed by this reference
-    // (ar_invoices.payment_link_ref). Exactly-once (unique psp_reference),
-    // never throws into the webhook ack.
-    // === W48 PERF-API-1: the AR + buyer-credit hooks are independent —
-    // run them in PARALLEL (Promise.allSettled) instead of nested-serial. ===
-    if (result.ok) {
-      const settled = await Promise.allSettled([
-        (async () => {
-          const { runArInvoiceWebhookHook } = await import("../../arInvoices");
-          await runArInvoiceWebhookHook(db, { provider: providerId, reference: norm.reference });
-        })(),
-        // === W41 buyer-credit hook (adjacent seam — plan activation +
-        // consented token save; exactly-once, never throws) ===
-        (async () => {
-          const { runBuyerCreditWebhookHook } = await import("../../buyerInstallments");
-          await runBuyerCreditWebhookHook(db, { provider: providerId, reference: norm.reference, rawPayload: payload?.data ?? payload });
-        })(),
-        // === END W41 buyer-credit hook ===
-      ]);
-      for (const s of settled) {
-        if (s.status === "rejected") {
-          console.warn(`[unified-payment-webhook] post-confirm hook ${norm.reference}: ${(s.reason as any)?.message ?? s.reason}`);
+      // === W31 AR webhook hook ===
+      // After the pinned confirmProviderPayment verified + completed the
+      // payment, record any AR-invoice payment keyed by this reference
+      // (ar_invoices.payment_link_ref). Exactly-once (unique psp_reference),
+      // never throws into the webhook ack.
+      // === W48 PERF-API-1: the AR + buyer-credit hooks are independent —
+      // run them in PARALLEL (Promise.allSettled) instead of nested-serial. ===
+      if (result.ok) {
+        const settled = await Promise.allSettled([
+          (async () => {
+            const { runArInvoiceWebhookHook } = await import("../../arInvoices");
+            await runArInvoiceWebhookHook(db, { provider: providerId, reference: norm.reference });
+          })(),
+          // === W41 buyer-credit hook (adjacent seam — plan activation +
+          // consented token save; exactly-once, never throws) ===
+          (async () => {
+            const { runBuyerCreditWebhookHook } = await import("../../buyerInstallments");
+            await runBuyerCreditWebhookHook(db, { provider: providerId, reference: norm.reference, rawPayload: payload?.data ?? payload });
+          })(),
+          // === END W41 buyer-credit hook ===
+        ]);
+        for (const s of settled) {
+          if (s.status === "rejected") {
+            console.warn(`[unified-payment-webhook] post-confirm hook ${norm.reference}: ${(s.reason as any)?.message ?? s.reason}`);
+          }
         }
       }
-    }
-    // === END W31 AR webhook hook ===
+      // === END W31 AR webhook hook ===
 
       // W23 (additive): a fresh webhook confirmation also lands on the
       // compliance audit trail — previously only the admin payment.confirm

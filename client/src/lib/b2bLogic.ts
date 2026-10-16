@@ -163,6 +163,24 @@ export function formatNaira(val: number | string | null | undefined, opts: { dec
   }).format(n);
 }
 
+// === W55 ui-b ===
+/**
+ * Integer-cents → currency display (backend convention: all money columns are
+ * bigint/integer *_cents). Divides by 100 and formats with Intl; falls back
+ * to "—" for null/undefined so tables stay honest about missing values.
+ */
+export function formatCents(cents: number | string | null | undefined, currency = "NGN"): string {
+  if (cents === null || cents === undefined) return "—";
+  const n = typeof cents === "string" ? Number(cents) : cents;
+  if (!Number.isFinite(n)) return "—";
+  try {
+    return new Intl.NumberFormat("en-NG", { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n / 100);
+  } catch {
+    return `${currency} ${(n / 100).toFixed(2)}`;
+  }
+}
+// === END W55 ui-b ===
+
 /** Short date, e.g. "12 Mar 2026". Falls back to "—" for missing/invalid. */
 export function formatDate(iso: string | Date | null | undefined): string {
   if (!iso) return "—";

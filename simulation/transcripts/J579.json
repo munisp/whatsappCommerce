@@ -1,0 +1,20 @@
+{
+  "id": "J579",
+  "title": "identity link detects multi-account default at signup (cash unaffected)",
+  "feature": "W57 risk-shield F1: identity graph + default freeze",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001303",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790841109500,
+      "kind": "text",
+      "body": "⚠️ Credit risk: buyer cust-j579-948304 is identity-linked to 1 defaulted credit account(s). Credit eligibility is FROZEN pending review (cash sales are unaffected)."
+    }
+  ]
+}

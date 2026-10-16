@@ -1,0 +1,109 @@
+# === W54 CILIUM ===
+# Hubble network observability for this platform. Applied as helm value
+# overrides / CiliumConfig patches — the Cilium helm install (see
+# k8s/README.md §Install) owns the actual Deployments; this file pins the
+# config so `git diff` shows exactly what observability is turned on.
+#
+# Enable at install time:
+#   helm upgrade --install cilium cilium/cilium -n kube-system -f k8s/cilium/hubble-values.yaml
+# (values below are ALSO inlined in this file as comments for review)
+#
+# hubble-values.yaml:
+#   hubble:
+#     enabled: true
+#     relay:
+#       enabled: true
+#     ui:
+#       enabled: true
+#       service: {type: ClusterIP}          # expose via ingress/LB, auth in front
+#     metrics:
+#       enableOpenMetrics: true
+#       enabled:
+#         - dns:query;ignoreAAAA
+#         - drop
+#         - tcp
+#         - flow
+#         - icmp
+#         - httpV2:exemplars=true;labelsContext=source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload,traffic_direction
+#     export:
+#       # Flow export → OTel collector (aligned with deploy/otel stack):
+#       # fluentd/OTLP endpoint consumed by the in-cluster collector, which
+#       # forwards to Loki (logs) and Tempo/Jaeger per collector-config.yaml.
+#       dynamic:
+#         sources:
+#           - name: flows
+#             contentType: EXPORT
+#             includeFilters: []            # all flows; tighten in prod
+#         exporters:
+#           - name: otlp
+#             otlp:
+#               endpoint: otel-collector.whatsapp-commerce.svc.cluster.local:4317
+#               tls: false
+#     tls:
+#       auto:
+#         enabled: true
+#         method: cronJob
+---
+# In-namespace scrape + policy plumbing for Hubble components.
+# Hubble relay/ui live in kube-system; this ServiceMonitor assumes the
+# prometheus-operator CRDs already present via k8s/monitoring/.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hubble-otlp-export
+  namespace: kube-system
+  labels: {app.kubernetes.io/part-of: hubble}
+data:
+  # Consumed by the hubble export configmap when using `hubble.export.dynamic`.
+  flows.yaml: |
+    exporters:
+      - name: otlp/flows
+        otlp:
+          endpoint: otel-collector.whatsapp-commerce.svc.cluster.local:4317
+          tls: false
+    sources:
+      - name: flows
+        contentType: EXPORT
+        includeFilters: []
+---
+# Allow hubble-relay (kube-system) → cilium-agent (host) and Hubble UI → relay.
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: hubble-internal
+  labels: {app.kubernetes.io/part-of: hubble}
+spec:
+  description: "Hubble relay/UI data path (kube-system only)"
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: kube-system
+      k8s:k8s-app: hubble-relay
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: hubble-ui
+      toPorts:
+        - ports: [{port: "4245", protocol: TCP}]
+  egress:
+    - toEntities:
+        - remote-node
+      toPorts:
+        - ports: [{port: "4244", protocol: TCP}] # cilium-agent hubble server
+---
+# Prometheus scrape of Hubble metrics (agent :9965, relay :9966).
+# Prometheus in this repo ships via deploy/otel/prometheus.yml + k8s/otel-stack.yaml;
+# add these jobs to that config when wiring a cluster:
+#   - job_name: hubble
+#     kubernetes_sd_configs: [{role: pod, namespaces: {names: [kube-system]}}]
+#     relabel_configs:
+#       - {source_labels: [__meta_kubernetes_pod_label_k8s_app], regex: cilium|hubble-relay, action: keep}
+#
+# AUDIT-MODE ANNOTATION GUIDANCE (network policy rollout):
+#   kubectl -n whatsapp-commerce annotate cnp --all \
+#     io.cilium.network-policy-mode=audit --overwrite
+# then:
+#   hubble observe --namespace whatsapp-commerce --verdict AUDIT -f
+# Every line here is a flow the policy WOULD have denied. When quiet for a
+# full traffic cycle, remove the annotation to enforce.
+# === END W54 CILIUM ===

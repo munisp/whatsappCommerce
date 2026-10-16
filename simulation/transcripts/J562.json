@@ -1,0 +1,8 @@
+{
+  "id": "J562",
+  "title": "TG permanent failure → SMS failover (transactional only)",
+  "feature": "W55 parity: TG→SMS failover in channelParity (PARITY-3)",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

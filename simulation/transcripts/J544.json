@@ -1,8 +1,87 @@
 {
   "id": "J544",
-  "title": "wallet top-up is ledger-tracked (AF-05)",
-  "feature": "direct-leg settlement stamped for recon-worker",
+  "title": "sold-out: claim-first inventory, honest rejection, race-safe",
+  "feature": "W53 events: sold-out enforcement",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
-  "messages": []
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348011090292",
+      "profileName": "Sim User 0292",
+      "inboundId": "wamid.sim.in.text.00594",
+      "at": 1790607807590,
+      "kind": "text",
+      "text": "events"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00594",
+      "at": 1790607807604
+    },
+    {
+      "dir": "out",
+      "phone": "2348011090292",
+      "wamid": "wamid.sim.001211",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607807660,
+      "kind": "text",
+      "body": "🎟️ Upcoming events:\n1. W53 J544 Live Show — 2026-10-05 15:03 @ W53 Arena, Lagos\nReply TICKET <number> to see ticket types (e.g. TICKET 1)."
+    },
+    {
+      "dir": "in",
+      "phone": "2348011090292",
+      "profileName": "Sim User 0292",
+      "inboundId": "wamid.sim.in.text.00595",
+      "at": 1790607808141,
+      "kind": "text",
+      "text": "ticket 1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00595",
+      "at": 1790607808172
+    },
+    {
+      "dir": "out",
+      "phone": "2348011090292",
+      "wamid": "wamid.sim.001212",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607808293,
+      "kind": "text",
+      "body": "🎟️ W53 J544 Live Show\nTicket types:\n1. Last Seat — NGN 1,000.00 (0 left)\nReply BUY <number> [qty] to get a payment link (e.g. BUY 1 2)."
+    },
+    {
+      "dir": "in",
+      "phone": "2348011090292",
+      "profileName": "Sim User 0292",
+      "inboundId": "wamid.sim.in.text.00596",
+      "at": 1790607808686,
+      "kind": "text",
+      "text": "buy 1 1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00596",
+      "at": 1790607808704
+    },
+    {
+      "dir": "out",
+      "phone": "2348011090292",
+      "wamid": "wamid.sim.001213",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607808789,
+      "kind": "text",
+      "body": "Sorry — Last Seat is SOLD OUT."
+    }
+  ]
 }

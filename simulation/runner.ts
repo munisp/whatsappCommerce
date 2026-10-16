@@ -700,35 +700,98 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j534-self-share-rejected"),
     import("./journeys/j535-ussd-forward-text"),
     import("./journeys/j536-pcm-share-bundle"),
+    // === W53 RESIDUALS ===
+    import("./journeys/j537-ussd-greeting-locales"),
+    import("./journeys/j538-menu-publish-wamenu-sync"),
+    // === END W53 RESIDUALS ===
+    // === W53 EVENTS ===
+    import("./journeys/j539-events-router-crud"),
+    import("./journeys/j540-wa-ticket-purchase"),
+    import("./journeys/j541-tg-ticket-parity"),
+    import("./journeys/j542-ussd-ticket-purchase"),
+    import("./journeys/j543-double-checkin-rejected"),
+    import("./journeys/j544-sold-out-enforcement"),
+    import("./journeys/j545-cancelled-event-refunds"),
+    // === END W53 EVENTS ===
+    // === W54 disputes ===
+    import("./journeys/j546-dispute-resolution-buyer-notify"),
+    import("./journeys/j547-chargeback-escrow-interlock"),
+    import("./journeys/j548-merchant-respond"),
+    import("./journeys/j549-tg-dispute-intake"),
+    import("./journeys/j550-buyer-no-response-autoclose"),
+    import("./journeys/j551-replacement-rma"),
+    import("./journeys/j552-admin-phone-fallback"),
+    // === END W54 disputes ===
+    // === W54 CAPABILITIES === (merged: renumbered J553-J559)
+    import("./journeys/j553-membership-router-crud"),
+    import("./journeys/j554-wa-membership-discount"),
+    import("./journeys/j555-tg-membership-parity"),
+    import("./journeys/j556-paid-membership-activation"),
+    import("./journeys/j557-membership-cancel-expiry"),
+    import("./journeys/j558-ussd-savings-loyalty-balance"),
+    import("./journeys/j559-ussd-balance-locales"),
+    // === W55 parity ===
+    import("./journeys/j560-tg-savings-keywords"),
+    import("./journeys/j561-ussd-ticket-sms-codes"),
+    import("./journeys/j562-tg-sms-failover"),
+    import("./journeys/j563-tg-menu-financeqa"),
+    import("./journeys/j564-wallet-balance-keyword"),
+    import("./journeys/j565-i18n-parity-gaps"),
+    // === W56 credit ===
+    import("./journeys/j566-credit-score-deterministic"),
+    import("./journeys/j567-credit-score-seam-update"),
+    import("./journeys/j568-credit-score-sweep-registered"),
+    import("./journeys/j569-buyercredit-score-advisory"),
+    import("./journeys/j570-bureau-pull-requires-consent"),
+    import("./journeys/j571-bureau-consent-pull-history"),
+    import("./journeys/j572-bureau-report-outbox"),
+    import("./journeys/j573-credit-chat-parity"),
+    // === W56 credit (Feature 3): servicing ===
+    import("./journeys/j574-fee-adjust-future-only"),
+    import("./journeys/j575-reschedule-math"),
+    import("./journeys/j576-reschedule-approval-gate"),
+    import("./journeys/j577-grace-dunning"),
+    import("./journeys/j578-servicing-notify-parity"),
+    // === END W56 credit ===
+    // === W57 risk-shield ===
+    import("./journeys/j579-identity-multidefault"),
+    import("./journeys/j580-identity-dispute-clear"),
+    import("./journeys/j581-default-registry"),
+    import("./journeys/j582-insurance-quote-bind-claim"),
+    import("./journeys/j583-insurance-claim-machine"),
+    import("./journeys/j584-provision-fund"),
+    import("./journeys/j585-credit-risk-parity"),
+    import("./journeys/j586-i18n-w57"),
+    // === END W57 risk-shield ===
+    // === END W55 parity ===
+    // === END W54 CAPABILITIES ===
     // === END W51 PROMOS ===
     // === W50 IMAGES END ===
-    // === Temporal worker ⇄ platform contract (real HTTP + real DB) — renumbered J467-J487 → J537-J557 2026-09-27
-    // to resolve the collision with origin/main's W48-W52 waves above, which independently claimed the same
-    // range. Internal ids and every cross-reference (server/temporalInternal.test.ts,
-    // server/temporalEnabledWorkflows.test.ts, server/routers/nlp.ts, server/services/deterministicShop.ts, and
-    // these journeys' own mentions of each other) were updated to match. ===
-    import("./journeys/j537-temporal-worker-platform"),
-    import("./journeys/j538-temporal-enable-gate"),
-    import("./journeys/j539-telegram-default-off"),
-    import("./journeys/j540-telegram-setup-card"),
-    import("./journeys/j541-telegram-whatsapp-parity"),
-    import("./journeys/j542-late-payment-dead-order"),
-    import("./journeys/j543-unified-webhook-quarantine"),
-    import("./journeys/j544-wallet-topup-ledger-tracked"),
-    import("./journeys/j545-escrow-hold-atomic-heal"),
-    import("./journeys/j546-telegram-start-shows-menu"),
-    import("./journeys/j547-telegram-order-and-pay"),
-    import("./journeys/j548-deterministic-order-llm-down"),
-    import("./journeys/j549-telegram-delivery-location-request"),
-    import("./journeys/j550-cart-shortage-recovery"),
-    import("./journeys/j551-session-language-self-correct"),
-    import("./journeys/j552-support-handoff-contact-line"),
-    import("./journeys/j553-deterministic-first-routing"),
-    import("./journeys/j554-deterministic-dispute-routing"),
-    import("./journeys/j555-wallet-currency-mismatch-refused"),
-    import("./journeys/j556-driver-pool-assignment"),
-    import("./journeys/j557-discovery-no-hallucination"),
-    // === END renumbered temporal/telegram/AF/deterministic-first/driver-pool/discovery journeys ===
+    // === development: J587-J605 (renumbered from J560-J578 on merge with W55-W57,
+    // which independently claimed J560-J578 for its own TG/credit-bureau/wallet batch) ===
+    // Temporal worker ⇄ platform contract (real HTTP + real DB)
+    import("./journeys/j587-temporal-worker-platform"),
+    import("./journeys/j588-temporal-enable-gate"),
+    import("./journeys/j589-telegram-default-off"),
+    import("./journeys/j590-telegram-setup-card"),
+    import("./journeys/j591-telegram-whatsapp-parity"),
+    import("./journeys/j592-late-payment-dead-order"),
+    import("./journeys/j593-unified-webhook-quarantine"),
+    import("./journeys/j594-wallet-topup-ledger-tracked"),
+    import("./journeys/j595-escrow-hold-atomic-heal"),
+    import("./journeys/j596-telegram-start-shows-menu"),
+    import("./journeys/j597-telegram-order-and-pay"),
+    import("./journeys/j598-deterministic-order-llm-down"),
+    import("./journeys/j599-telegram-delivery-location-request"),
+    import("./journeys/j600-cart-shortage-recovery"),
+    import("./journeys/j601-session-language-self-correct"),
+    import("./journeys/j602-support-handoff-contact-line"),
+    import("./journeys/j603-deterministic-first-routing"),
+    import("./journeys/j604-deterministic-dispute-routing"),
+    import("./journeys/j605-wallet-currency-mismatch-refused"),
+    // this branch's driver pool + discovery journeys (were J556/J557, which W54 also claimed) — J606/J607
+    import("./journeys/j606-driver-pool-assignment"),
+    import("./journeys/j607-discovery-no-hallucination"),
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),

@@ -413,7 +413,7 @@ function ProductsInner() {
               <VirtualTableBody
                 rows={filteredProducts}
                 virtualizer={virtualizer}
-                colSpan={7}
+                colSpan={8}
                 emptyState={
                   <div className="text-center text-muted-foreground py-8">{q ? `No products match "${search}".` : "No products yet. Add your first product or import via CSV."}</div>
                 }

@@ -198,9 +198,11 @@ export function parseMenuEntryReplyId(id: string): number | null {
 export function renderWhatsAppInteractive(
   config: WaMenuConfig,
   ctx: MenuDynamicCtx = {},
+  // WhatsApp list messages cap at 10 rows; Telegram's list sender paginates ("More →"), so it passes Infinity.
+  opts: { maxEntries?: number } = {},
 ): SendInteractiveInput | null {
   const entries = buildMenuEntries(config);
-  if (entries.length === 0 || entries.length > 10) return null;
+  if (entries.length === 0 || entries.length > (opts.maxEntries ?? 10)) return null;
   const bodyText = interpolate(config.greeting, ctx);
   const footerText = "Tap an option, or reply with its number.";
   if (entries.length <= 3) {

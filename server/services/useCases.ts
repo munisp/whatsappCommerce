@@ -627,6 +627,11 @@ async function pushMenuDoc(deps: DispatchDeps): Promise<void> {
     .catch((e: any) => console.warn("[useCases] menuDocUrl push failed:", e?.message));
 }
 
+/** Telegram pages a long menu list itself, so only WhatsApp is held to the 10-row list limit. */
+function menuRenderOpts(channel: ConversationChannel | undefined): { maxEntries?: number } {
+  return channel === "telegram" ? { maxEntries: Infinity } : {};
+}
+
 async function showMenu(deps: DispatchDeps, opts: { sendMenuDoc?: boolean } = {}): Promise<InboundOutcome> {
   const ctx = await menuCtxForCaller(deps);
   const config = localizedMenuConfig(deps);
@@ -636,12 +641,12 @@ async function showMenu(deps: DispatchDeps, opts: { sendMenuDoc?: boolean } = {}
     handled: true,
     reply: renderWhatsAppMenu(config, ctx),
     // WhatsApp prefers the interactive rendering; USSD never calls showMenu.
-    interactive: renderWhatsAppInteractive(config, ctx) ?? undefined,
+    interactive: renderWhatsAppInteractive(config, ctx, menuRenderOpts(deps.channel)) ?? undefined,
   };
 }
 
 /**
- * The tenant's interactive menu for one caller (null when there is none, or it has more than 10 entries). Lets
+ * The tenant's interactive menu for one caller (null when there is none, or — WhatsApp only — more than 10 entries). Lets
  * Telegram serve a "More →" page of a long menu list without re-running the conversation (which would reset the
  * session and push the PDF menu again).
  */
@@ -665,7 +670,7 @@ export async function renderInteractiveMenuForCaller(opts: {
     businessName: opts.tenant?.name ?? undefined,
     locale,
   };
-  return renderWhatsAppInteractive(localizedMenuConfig(deps), await menuCtxForCaller(deps));
+  return renderWhatsAppInteractive(localizedMenuConfig(deps), await menuCtxForCaller(deps), menuRenderOpts(deps.channel));
 }
 
 /** Run a use-case handler and persist the resulting session state. */
@@ -1561,6 +1566,117 @@ export async function handleUssdRequest(opts: {
   }
   // === END W50 CHANNELS ===
 
+  // === W53 EVENTS === USSD/SMS ticket purchase: "events" → numbered
+  // published-events list → event number → ticket types → type number →
+  // quantity → order + payment link via the EXISTING rail
+  // (services/events.purchaseTickets — integer cents, idempotency,
+  // paymentConfirm untouched). Codes are issued on payment confirm via the
+  // post-commit receipt seam and delivered by text to this phone. ===
+  {
+    const flow = session?.eventsFlow;
+    const numeric = /^\d{1,3}$/.test(lastInput) ? Number(lastInput) : null;
+    const money = (cents: number, cur: string) =>
+      `${cur} ${(cents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+
+    if (/^(events|tickets)$/i.test(lastInput)) {
+      const { listPublishedEvents } = await import("./events");
+      const rows = await listPublishedEvents(db, tenantId, 5).catch(() => [] as any[]);
+      if (!rows.length) {
+        await saveSession({ ...(session ?? newSession(tenantId, phone)), eventsFlow: undefined });
+        return ussdWrap(t27(ussdLocale, "eventsEmpty"), true);
+      }
+      await saveSession({
+        ...(session ?? newSession(tenantId, phone)),
+        eventsFlow: { step: "pick_event", eventIds: rows.map((r: any) => r.id) },
+      });
+      const lines = rows.map((ev: any, i: number) => {
+        const when = ev.startsAt instanceof Date ? ev.startsAt.toISOString().slice(0, 10) : String(ev.startsAt ?? "").slice(0, 10);
+        return `${i + 1}. ${ev.title} — ${when}${ev.venue ? ` @ ${ev.venue}` : ""}`;
+      });
+      return ussdWrap(`${t27(ussdLocale, "eventsHeader")}\n${lines.join("\n")}\n${t27(ussdLocale, "eventUssdPickEvent")}`, false);
+    }
+
+    // === W55 parity (PARITY-2) === "my tickets" in-session code pull:
+    // USSD has no push channel, so after payment confirmation (codes arrive
+    // by SMS too) the buyer can dial back and read the codes here — the
+    // SAME read-only listBuyerTickets the WA/TG "my tickets" keyword uses.
+    // Kept within USSD length limits (END, newest 8 tickets).
+    if (/^my tickets$/i.test(lastInput)) {
+      const { listBuyerTickets } = await import("./events");
+      const rows = await listBuyerTickets(db, tenantId, phone).catch(() => [] as any[]);
+      if (!rows.length) {
+        return ussdWrap(t27(ussdLocale, "eventMyTicketsEmpty"), true);
+      }
+      const lines = rows.slice(0, 8).map((t: any) => `${t.code} (${t.status})`);
+      return ussdWrap(`🎟️ ${t27(ussdLocale, "eventMyTicketsHeader")}\n${lines.join("\n")}`.slice(0, 155), true);
+    }
+    // === END W55 parity ===
+
+    if (flow && numeric !== null) {
+      if (flow.step === "pick_event" && Array.isArray(flow.eventIds)) {
+        const eventId = flow.eventIds[numeric - 1];
+        if (!eventId) {
+          await saveSession({ ...session!, eventsFlow: undefined });
+          return ussdWrap(t27(ussdLocale, "eventsPickInvalid"), true);
+        }
+        const { getEventForTenant, listTicketTypes } = await import("./events");
+        const [ev, types] = await Promise.all([
+          getEventForTenant(db, tenantId, eventId),
+          listTicketTypes(db, tenantId, eventId),
+        ]);
+        if (!ev || !types.length) {
+          await saveSession({ ...session!, eventsFlow: undefined });
+          return ussdWrap(t27(ussdLocale, "eventTicketTypesEmpty"), true);
+        }
+        await saveSession({
+          ...session!,
+          eventsFlow: { step: "pick_type", eventId, typeIds: types.map((t: any) => t.id) },
+        });
+        const lines = types.map((t: any, i: number) =>
+          `${i + 1}. ${t.name} — ${money(t.priceCents, t.currency)} (${t27(ussdLocale, "eventTicketsLeft", { count: String(Math.max(0, t.quantity - t.soldCount)) })})`);
+        return ussdWrap(`${ev.title}\n${t27(ussdLocale, "eventTicketTypesHeader")}\n${lines.join("\n")}`, false);
+      }
+      if (flow.step === "pick_type" && Array.isArray(flow.typeIds)) {
+        const ticketTypeId = flow.typeIds[numeric - 1];
+        if (!ticketTypeId || !flow.eventId) {
+          await saveSession({ ...session!, eventsFlow: undefined });
+          return ussdWrap(t27(ussdLocale, "eventsPickInvalid"), true);
+        }
+        await saveSession({ ...session!, eventsFlow: { step: "pick_qty", eventId: flow.eventId, ticketTypeId } });
+        return ussdWrap(t27(ussdLocale, "eventUssdPickQty"), false);
+      }
+      if (flow.step === "pick_qty" && flow.eventId && flow.ticketTypeId) {
+        let reply: string;
+        try {
+          const { purchaseTickets } = await import("./events");
+          const p = await purchaseTickets(db, {
+            tenantId, eventId: flow.eventId, ticketTypeId: flow.ticketTypeId,
+            qty: numeric, buyerCustomerId: phone,
+            // === W55 parity (PARITY-2) === mark USSD origin so ticket-code
+            // delivery adds an SMS copy (USSD has no push channel).
+            channel: "ussd",
+          });
+          reply = t27(ussdLocale, "eventTicketPurchaseReady", {
+            qty: String(numeric), type: p.ticketTypeName, event: p.eventTitle,
+            total: (p.totalCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 }),
+            currency: p.currency, orderNumber: p.orderNumber,
+          }) + (p.paymentUrl ? `\nPay: ${p.paymentUrl}` : `\n${t27(ussdLocale, "eventTicketLinkPending")}`);
+        } catch (e: any) {
+          reply = e?.code === "CONFLICT" || e?.code === "BAD_REQUEST" || e?.code === "NOT_FOUND"
+            ? (e?.message ?? t27(ussdLocale, "eventTicketSoldOut"))
+            : t27(ussdLocale, "eventTicketPurchaseFailed");
+        }
+        await saveSession({ ...(await getSession(tenantId, phone)) ?? session!, eventsFlow: undefined });
+        return ussdWrap(reply, true);
+      }
+    }
+    // A stale flow never swallows free text — any non-numeric input clears it.
+    if (flow && numeric === null && session) {
+      await saveSession({ ...session, eventsFlow: undefined });
+    }
+  }
+  // === END W53 EVENTS ===
+
   // Numeric menu selection.
   if (!session || session.mode === "menu") {
     const selection = resolveMenuSelection(deps.config, lastInput);
@@ -1592,6 +1708,30 @@ export async function handleUssdRequest(opts: {
       return ussdWrap(outcome.reply ?? "OK.", !continues);
     }
   }
+
+  // === W54 capabilities (CAP-2): USSD depth — read-only balance queries ===
+  // "savings"/"stokvel" → circle balance + next payout (read paths reused
+  // from services/stokvel.ts — the same data savingsWa renders on chat);
+  // "loyalty"/"points" → loyalty points balance (services/loyalty.ts);
+  // "membership" → consumer membership status (CAP-1). All READ-ONLY and
+  // END-terminated: no state to hijack, consistent with the existing USSD
+  // session semantics (a dial is already phone-authenticated by the carrier,
+  // same as the events/order-status flows). Localized ×8 via t27.
+  // === W55 parity (PARITY-8) === "wallet"/"wallet balance" joins the
+  // read-only USSD balance queries (same customerWallet read path as the
+  // WA/TG/SMS chat keyword).
+  if (/^(savings|stokvel|esusu|ajo|chama|loyalty|points|loyalty points|membership|my membership|wallet|wallet balance)$/i.test(lastInput)) {
+    const { buildUssdBalanceReply } = await import("./ussdBalances");
+    const kw = lastInput.replace(/^loyalty points$/i, "loyalty").replace(/^my membership$/i, "membership").replace(/^wallet balance$/i, "wallet");
+    const reply = await buildUssdBalanceReply(db, {
+      tenantId, phone, keyword: kw, sessionLanguage: ussdLocale,
+    }).catch((e: any) => {
+      console.warn("[ussd] balance query failed (fail-open):", e?.message);
+      return null;
+    });
+    if (reply) return ussdWrap(reply, true);
+  }
+  // === END W54 capabilities ===
 
   // Unknown input → re-show the menu.
   await saveSession({ ...newSession(tenantId, phone), awaitingMenuSelection: true });

@@ -495,6 +495,9 @@ export async function confirmProviderPayment(
     } catch (err: any) {
       console.error(`[payment-confirm] escrow hold retry failed for order ${orderId}:`, err?.message);
       captureException(err, { service: "paymentConfirm", operation: "escrowHoldRetry", tenantId, severity: "critical", extra: { orderId, reference } });
+      // Rethrown, exactly like a first-delivery hold failure: the PSP webhooks ack first (W48), so the caller's retry
+      // (services/payments/pspChargeWebhook.ts) is what heals this — it must see that the hold is still missing.
+      throw err;
     }
   };
 
@@ -676,11 +679,22 @@ export async function confirmProviderPayment(
     // Digital receipt to the buyer (additive, non-throwing): exact figures
     // from the confirmed order row — business name, itemized lines, discount,
     // delivery fee, total paid, payment ref, delivery PIN, tracking link.
-    // Delivery-fulfillment orders get a shipment (+ fresh PIN) created right here, right after payment — see
-    // ensureDeliveryShipment's own comment for why nothing did this before (QA-061). Awaited synchronously
-    // (unlike the receipt send below): it's a local DB insert, not the external API call PERF-API-2 is about,
-    // and the receipt needs its freshPin result before it can be composed. Never throws (own internal try/catch).
-    const freshPin = await ensureDeliveryShipment(db, orderId, tenantId);
+    // Delivery-fulfillment orders get a shipment (+ fresh PIN) created right here, right after
+    // payment — see ensureDeliveryShipment's own comment for why nothing did this before. This stays
+    // in-band (it's a DB write the buyer's next message depends on); only the receipt send below is deferred.
+    let freshPin: string | null | undefined;
+    try {
+      freshPin = await ensureDeliveryShipment(db, orderId, tenantId);
+    } catch (err: any) {
+      console.error(`[payment-confirm] delivery shipment failed for order ${orderId}:`, err?.message);
+      captureException(err, {
+        service: "paymentConfirm",
+        operation: "ensureDeliveryShipment",
+        tenantId,
+        severity: "warn",
+        extra: { orderId, reference },
+      });
+    }
     // === W48 PERF-API-2: the receipt send is an external Meta API call —
     // run it POST-COMMIT / fire-and-forget so it no longer sits in-band on
     // the webhook ack / buyer confirm path. The payment + order state are

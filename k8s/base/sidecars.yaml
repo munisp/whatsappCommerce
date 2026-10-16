@@ -1,0 +1,256 @@
+# === W54 CILIUM ===
+# Key sidecars modeled from docker-compose.yml. Each carries only the env it
+# actually uses (see compose depends_on); the Cilium policies in
+# k8s/cilium/network-policies.yaml mirror exactly these reaches.
+# Images: REPLACE_WITH_REGISTRY placeholders — build from the compose contexts
+# (services/<name>/Dockerfile, rust/<name>/Dockerfile, ai-agent/Dockerfile).
+---
+# KYC document-verification sidecar (Python, port 8001)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kyc-verifier
+  namespace: whatsapp-commerce
+  labels: {app: kyc-verifier, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: kyc-verifier}
+  template:
+    metadata:
+      labels: {app: kyc-verifier, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+    spec:
+      containers:
+        - name: kyc-verifier
+          image: REPLACE_WITH_REGISTRY/kyc-verifier:latest
+          env:
+            - {name: PORT, value: "8001"}
+            - {name: REDIS_URL, value: "redis://redis:6379"}
+            - {name: REDIS_DURABLE_URL, value: "redis://redis-durable:6379"}
+            - {name: VLM_MOCK_MODE, value: "false"}
+            - name: KYC_INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef: {name: platform-app, key: kyc-service-api-key}
+            # Ollama is external (host GPU box) — Cilium toFQDNs/toCIDR
+            # egress + L7 policy covers it; see cilium/network-policies.yaml.
+            - {name: OLLAMA_URL, value: "http://ollama.REPLACE_WITH_EXTERNAL_HOST:11434"}
+            - {name: KAFKA_BROKERS, value: "kafka:9092"}
+          ports:
+            - {name: http, containerPort: 8001}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "2", memory: 2Gi}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kyc-verifier
+  namespace: whatsapp-commerce
+  labels: {app: kyc-verifier}
+spec:
+  selector: {app: kyc-verifier}
+  ports:
+    - {name: http, port: 8001, targetPort: http}
+---
+# Cron scheduler (Node, no listener — invokes /api/scheduled/* on cadence)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduler
+  namespace: whatsapp-commerce
+  labels: {app: scheduler, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: scheduler}
+  template:
+    metadata:
+      labels: {app: scheduler, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+    spec:
+      containers:
+        - name: scheduler
+          image: REPLACE_WITH_REGISTRY/scheduler:latest
+          env:
+            - {name: PLATFORM_URL, value: "http://platform:3000"}
+            - name: CRON_JWT
+              valueFrom:
+                secretKeyRef: {name: platform-app, key: cron-jwt}
+            - {name: TICK_MS, value: "15000"}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 256Mi}
+          # No listening port: liveness is the process itself.
+          livenessProbe:
+            exec:
+              command: ["node", "-e", "process.exit(0)"]
+            periodSeconds: 60
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+---
+# ML inference (Python, port 8099)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-inference
+  namespace: whatsapp-commerce
+  labels: {app: ml-inference, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: ml-inference}
+  template:
+    metadata:
+      labels: {app: ml-inference, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+    spec:
+      containers:
+        - name: ml-inference
+          image: REPLACE_WITH_REGISTRY/ml-inference:latest
+          env:
+            - {name: PORT, value: "8099"}
+            - {name: MODEL_DIR, value: /app/models}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: platform-db, key: database-url}
+            - {name: PLATFORM_API_URL, value: "http://platform:3000"}
+            - name: INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef: {name: platform-app, key: internal-api-key}
+            - {name: LOG_LEVEL, value: info}
+          ports:
+            - {name: http, containerPort: 8099}
+          resources:
+            requests: {cpu: 250m, memory: 1Gi}
+            limits: {cpu: "2", memory: 2Gi}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 45
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-inference
+  namespace: whatsapp-commerce
+  labels: {app: ml-inference}
+spec:
+  selector: {app: ml-inference}
+  ports:
+    - {name: http, port: 8099, targetPort: http}
+---
+# AI agent (Python, port 8090)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-agent
+  namespace: whatsapp-commerce
+  labels: {app: ai-agent, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: ai-agent}
+  template:
+    metadata:
+      labels: {app: ai-agent, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+    spec:
+      containers:
+        - name: ai-agent
+          image: REPLACE_WITH_REGISTRY/ai-agent:latest
+          env:
+            - {name: PORT, value: "8090"}
+            - {name: REDIS_URL, value: "redis://redis:6379"}
+            - {name: COMMERCE_ENGINE_URL, value: "http://commerce-engine:8083"}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef: {name: platform-app, key: openai-api-key}
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef: {name: platform-app, key: anthropic-api-key}
+            - name: INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef: {name: platform-app, key: internal-api-key}
+            - {name: LOG_LEVEL, value: info}
+          ports:
+            - {name: http, containerPort: 8090}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "2", memory: 2Gi}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-agent
+  namespace: whatsapp-commerce
+  labels: {app: ai-agent}
+spec:
+  selector: {app: ai-agent}
+  ports:
+    - {name: http, port: 8090, targetPort: http}
+# === END W54 CILIUM ===

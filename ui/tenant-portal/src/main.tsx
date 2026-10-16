@@ -31,8 +31,15 @@ window.addEventListener("vite:preloadError", () => {
 });
 setTimeout(() => sessionStorage.removeItem("vitePreloadReloaded"), 10_000);
 
-// createAppQueryClient (client/src/lib/appQueryClient.ts) carries both the shared empty-tenant-id guard and the
-// W48 perf (PERF-FE-3) staleTime/refetchOnWindowFocus defaults — see its own doc comment.
+// === W55 pwa (MOB-4): register the PWA service worker (autoUpdate). ===
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  import("virtual:pwa-register")
+    .then(({ registerSW }) => registerSW({ immediate: true }))
+    .catch(() => {
+      /* SW registration is best-effort: fail open */
+    });
+}
+
 const queryClient = createAppQueryClient();
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {

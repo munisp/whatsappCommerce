@@ -200,6 +200,13 @@ export interface CreateBuyerPlanResult {
   downPaymentRef: string;
   schedule: BuyerScheduleEntry[];
   duplicate?: boolean;
+  /**
+   * === W56 credit === read-only ADVISORY credit-score stamp for the buyer
+   * (services/creditScoring.ts). Never blocks plan creation; null when no
+   * score could be computed. Merchants may use it to size installment
+   * limits; existing flows are unchanged.
+   */
+  scoreAdvisory?: { score: number; grade: string; version: string } | null;
 }
 
 /**
@@ -235,6 +242,29 @@ export async function createBuyerPlan(
   if (!eligibility.config.choices.includes(opts.installments)) {
     throw Object.assign(new Error(`installments must be one of ${eligibility.config.choices.join("/")}`), { code: "BAD_REQUEST" });
   }
+  // === W57 risk-shield ===
+  // Identity-graph gate at the CREDIT application seam: record the buyer's
+  // phone link + check for multi-account defaults (fail-open populate), then
+  // fail-CLOSED on a live identity flag — credit eligibility frozen. Cash /
+  // prepaid checkout never consults this path.
+  try {
+    const ig = await import("./identityGraph");
+    await ig.recordSignupIdentity(db as any, {
+      tenantId: opts.tenantId, subjectType: "buyer", subjectId: opts.buyerPhone, phone: opts.buyerPhone,
+    });
+    if (await ig.isCreditFrozen(db as any, opts.tenantId, "buyer", opts.buyerPhone)) {
+      throw Object.assign(
+        new Error("credit_frozen: credit eligibility is frozen pending identity review — cash-on-delivery is still available"),
+        { code: "FORBIDDEN" },
+      );
+    }
+  } catch (e: any) {
+    if (e?.code === "FORBIDDEN") throw e;
+    // Graph lookup outage → fail-open telemetry, never blocks checkout.
+    console.warn("[buyerInstallments] identity-graph check failed (fail-open):", e?.message);
+  }
+  // === END W57 risk-shield ===
+
   const { downPaymentCents, schedule } = computeBuyerSchedule(opts.totalCents, opts.installments, now);
 
   const [existing] = await db.select().from(buyerInstallmentPlans)
@@ -250,6 +280,20 @@ export async function createBuyerPlan(
       duplicate: true,
     };
   }
+
+  // === W56 credit ===
+  // Read-only advisory: compute (or refresh) the buyer's internal credit
+  // score and stamp it on the decision result. Fail-open — a scoring
+  // failure never blocks plan creation, and the score never auto-declines.
+  let scoreAdvisory: CreateBuyerPlanResult["scoreAdvisory"] = null;
+  try {
+    const { computeAndStoreSubjectScore } = await import("./creditScoring");
+    const s = await computeAndStoreSubjectScore(db as any, opts.tenantId, "buyer", opts.buyerPhone, { now });
+    if (s) scoreAdvisory = { score: s.score, grade: s.grade, version: s.version };
+  } catch {
+    scoreAdvisory = null; // advisory only — fail-open
+  }
+  // === END W56 credit ===
 
   const planId = crypto.randomUUID();
   await db.insert(buyerInstallmentPlans).values({
@@ -268,7 +312,7 @@ export async function createBuyerPlan(
     createdAt: now,
     updatedAt: now,
   });
-  return { ok: true, planId, downPaymentCents, downPaymentRef: bipDownRef(planId), schedule };
+  return { ok: true, planId, downPaymentCents, downPaymentRef: bipDownRef(planId), schedule, scoreAdvisory };
 }
 
 // ── Down-payment webhook hook (adjacent seam, W31 AR-hook pattern) ─────────

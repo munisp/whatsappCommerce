@@ -148,14 +148,7 @@ struct AppState {
     producers: RwLock<HashMap<String, Arc<TopicProducerPool>>>,
 }
 
-// PERF-SC-12's typed RecordsResponse + file-based offset persistence (load_offsets/persist_offsets) applied to
-// the REST-polling consumer stub this file used to have. That stub is gone — the real Fluvio SDK consumer below
-// (consume_topic/run_one_topic) streams from Offset::end() over a live connection per topic and doesn't poll a
-// /topics/{}/records endpoint or track a numeric offset to persist, so those helpers were dead code and removed
-// rather than kept unused; PERF-SC-12's OTHER two fixes for this file (batch-typed produce responses moved
-// nowhere they were needed here, and the tracing-span fix) are folded into consume_span above instead.
-
-// ─── HTTP Client ──────────────────────────────────────────────────────────────
+// ─── HTTP Client (consumer → platform) ───────────────────────────────────────
 
 async fn forward_events(
     client: &reqwest::Client,
@@ -184,11 +177,6 @@ async fn forward_events(
 }
 
 // ─── Fluvio consumer loop (one task per topic; Fluvio's own client is not topic-scoped) ─────────
-// Real Fluvio SDK consumer (superseded the earlier REST-polling stub this used to be — see
-// run_one_topic below): each topic streams from Offset::end() over its own long-lived connection, so
-// PERF-SC-12's file-based offset persistence (for a restart-from-0 REST poller) doesn't apply here —
-// Offset::end() is deliberate (new records only; replaying old test messages on every restart would be
-// surprising for a live service), not an oversight.
 
 /// Consume one topic from `Offset::end()` (new records only — replaying the handful of pre-existing
 /// test messages on every restart would be surprising for a live service) and forward each record to
@@ -206,10 +194,10 @@ async fn consume_topic(config: Arc<Config>, client: reqwest::Client, topic: Stri
             }
             Err(e) => {
                 warn!(topic = %topic, error = ?e, backoff_secs = backoff.as_secs(), "consumer error; retrying with backoff");
-                sleep(backoff).await;
-                backoff = std::cmp::min(backoff * 2, MAX_BACKOFF);
             }
         }
+        sleep(backoff).await;
+        backoff = std::cmp::min(backoff * 2, MAX_BACKOFF);
     }
 }
 
@@ -294,16 +282,13 @@ fn extract_traceparent(payload: &serde_json::Value) -> Option<String> {
 }
 
 /// Start a `fluvio.consume` span for one record, continuing the producer trace when a traceparent
-/// field is present. Returns the span guard. (origin/main's PERF-SC-12 batched this per-BATCH instead —
-/// tied to the REST-polling consumer this file's real Fluvio SDK implementation replaced, which streams
-/// records one at a time rather than fetching discrete batches; per-record span the SDK path actually
-/// produces, not the unbounded-cardinality problem PERF-SC-12 was fixing on the old stub.)
+/// field is present. Returns the span guard.
 fn consume_span(topic: &str, offset: i64, payload: &serde_json::Value) -> tracing::Span {
     let span = tracing::info_span!(
         "fluvio.consume",
         messaging.system = "fluvio",
         messaging.destination = %topic,
-        messaging.fluvio.offset = offset,
+        messaging.offset = offset,
     );
     if let Some(tp) = extract_traceparent(payload) {
         use tracing_opentelemetry::OpenTelemetrySpanExt;

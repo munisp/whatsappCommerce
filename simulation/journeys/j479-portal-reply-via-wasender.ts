@@ -7,18 +7,12 @@
  * classification, no ban-circuit check, no metering, and version drift vs
  * the platform's v21.0.
  *
- * Rewritten 2026-09-27 (merge with a QA-057 fix this same window that routes this same mutation through
- * sendChannelMessage — the channel-agnostic facade — instead of calling waSender directly, so it also works
- * for Telegram): sendChannelMessage's WhatsApp branch calls the exact same waSender.sendWhatsAppText
- * underneath, forwarding opts (including notifType) straight through — so PERF-INT-4's hardening (timeout,
- * retry classification, ban-circuit, metering) is still real, just reached one layer indirectly.
- *
  * Asserts:
  *   1. Source: conversation.ts no longer calls Graph directly; it delegates
- *      to the channel-agnostic facade with notifType "portal_agent_reply".
+ *      to waSender with notifType "portal_agent_reply".
  *   2. Behavior: the mutation succeeds through the waSender path (Graph
- *      intercepted by the sim metaMock), returns message ids, and records
- *      the outbound text for the timeline + outbound log.
+ *      intercepted by the sim metaMock), returns wamids, and records the
+ *      outbound text for the timeline + outbound log.
  */
 import { readFile } from "node:fs/promises";
 import { assert, TENANT_ID, type World } from "../world";
@@ -35,7 +29,11 @@ export const journey: Journey = {
     // appears in the explanatory comment D left above the waSender seam).
     assert(!/fetch\([^)]*graph\.facebook\.com/.test(src), "no raw Graph fetch call in conversation.ts");
     assert(src.includes('notifType: "portal_agent_reply"'), "reply is metered under its own notifType");
-    assert(src.includes("sendChannelMessage"), "reply routes through the channel-agnostic facade (which itself calls waSender for WhatsApp)");
+    // Merge with development: the reply goes through the channel-agnostic sendChannelMessage facade (so a Telegram
+    // chat can be answered too), whose whatsapp branch is waSender.sendWhatsAppText.
+    assert(src.includes("sendChannelMessage"), "reply routes through the channel facade");
+    const facade = await readFile(new URL("../../server/services/channelSender.ts", import.meta.url), "utf8");
+    assert(facade.includes("wa.sendWhatsAppText("), "the facade's whatsapp branch is waSender");
 
     const caller = await tenantCaller(TENANT_ID);
     const phone = "+2348017000479";
@@ -50,7 +48,7 @@ export const journey: Journey = {
       body: "Hello from the portal — your order is on its way!",
     });
     assert(res.sent === true, `reply sent (got ${JSON.stringify(res)})`);
-    assert(Array.isArray(res.messageIds) && res.messageIds.length >= 1, "message ids returned from the waSender path");
+    assert(Array.isArray(res.wamids) && res.wamids.length >= 1, "wamids returned from the waSender path");
     await world.waitFor(() => textsTo() > before, 5000, "outbound reply recorded");
 
     // Timeline row persisted.

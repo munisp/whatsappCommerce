@@ -1,8 +1,60 @@
 {
   "id": "J538",
-  "title": "temporal enable-list gate (real DB)",
-  "feature": "TEMPORAL_ENABLED_WORKFLOWS: local record + honest signal; orchestration still runs locally",
+  "title": "legacy menu publish syncs settings.waMenu → WA + TG render it",
+  "feature": "W53 residuals: menu convergence bridge",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
-  "messages": []
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348011875950",
+      "profileName": "Sim User 5950",
+      "inboundId": "wamid.sim.in.text.00582",
+      "at": 1790607792302,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00582",
+      "at": 1790607792323
+    },
+    {
+      "dir": "out",
+      "phone": "2348011875950",
+      "wamid": "wamid.sim.001189",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607792387,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store (j471)! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "listButton": "View options",
+      "sections": [
+        {
+          "title": "Sim Store (j471)",
+          "rows": [
+            {
+              "id": "menu_1",
+              "title": "Shop products"
+            },
+            {
+              "id": "menu_2",
+              "title": "Track my order"
+            },
+            {
+              "id": "menu_3",
+              "title": "Talk to a human"
+            },
+            {
+              "id": "menu_4",
+              "title": "J538 Published Special"
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }

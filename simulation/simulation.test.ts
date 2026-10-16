@@ -24,7 +24,7 @@ process.env.CREDIT_TENURE_GATE_DAYS = "0";
 // module top level so every journey gets a statically-defined test block.
 const journeys = await loadJourneys();
 
-describe("WhatsApp feature simulation (555 journeys)", () => {
+describe("WhatsApp feature simulation (606 journeys)", () => {
   let world: World;
 
   beforeAll(async () => {
@@ -36,11 +36,13 @@ describe("WhatsApp feature simulation (555 journeys)", () => {
   });
 
   it("loads the full journey registry", () => {
-    // Development-branch merge 2026-09-27: origin/main's W52 total (535 ACTUAL via loadJourneys, see below) plus
-    // this branch's 21 journeys, renumbered J467-J487 → J537-J557 to resolve the collision (see runner.ts's
-    // comment at the renumbered import block) = 556 expected; ACTUAL below is loadJourneys()'s own real count,
-    // the authoritative source per this repo's established convention, not the arithmetic.
-    expect(journeys.length).toBe(555); // W52 merger: 529 (W51) + J531-J536 (share) = 535 ACTUAL via loadJourneys (0 dupes) // W51 merger: 519 (W50) + J521-J530 (promos) = 529 ACTUAL via loadJourneys (0 dupes) // W50 merger: 496 (W49) + J498-J507 (channels) + J508-J514 (sms) + J515-J520 (images) = 519 ACTUAL via loadJourneys (0 dupes) // W49 merger: 485 (W48) + J487-J496 (richmedia) + J497 (i18n-pcm) = 496 ACTUAL via loadJourneys // W48 merger FINAL: 465 (W47) + J467-J476 (api-db) + J477-J486 (integrations) = 485 ACTUAL via loadJourneys (D 475 counted only one branch). W47 merger FINAL: 425 (W46) + J427-J466 (merchant10+buyer10+stakeholders10+crosscutting10) ACTUAL via loadJourneys. W46 FINAL: 385 (W45) + J387-J426 (A/B/C/D/E/F/G/H, 8x5) — ACTUAL verified via loadJourneys at merge. W45 merger FINAL: 350 (W44) + J352-J356 (A1) + J357-J361 (A2) + J362-J366 (B1) + J367-J371 (B2) + J372-J376 (B3) + J377-J381 (C) + J382-J386 (D) = 385 ACTUAL (verified via loadJourneys, 0 dupes).
+    // 558 (W54 merger) + J560-J578 (W55: TG parity, credit bureau, wallet) + J579-J586
+    // (W57 risk-shield: identity graph ×2, registry, insurance ×2, provision, parity, i18n)
+    // + J587-J605 (development: Temporal worker, Telegram parity, deterministic shop,
+    // AF-01..06 fixes — independently claimed J560-J578 before merging with W55, so
+    // renumbered to J587-J605 on merge to avoid colliding with W55's own J560-J578) = 604,
+    // + J606-J607 (driver pool, discovery; were J556/J557) = 606.
+    expect(journeys.length).toBe(606);
     const ids = journeys.map((j) => j.id);
     expect(new Set(ids).size).toBe(ids.length);
   });

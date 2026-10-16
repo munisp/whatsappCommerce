@@ -1,8 +1,86 @@
 {
   "id": "J547",
-  "title": "telegram: place an order and pay, end to end (order-action card + pay tap)",
-  "feature": "Telegram/WhatsApp parity — order card + payment follow-up",
+  "title": "DISP-2: chargeback freezes escrow + idempotent replay + lost recovery entry",
+  "feature": "W54 chargeback-escrow interlock + lost-chargeback recovery",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
-  "messages": []
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001229",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607816378,
+      "kind": "text",
+      "body": "🚨 *Payment dispute* (open): paystack ref w54-j547-paohai92 for 1250.00 NGN on order ord-j547-paohai92. The order is flagged; review the dispute in your PSP dashboard."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001230",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607816401,
+      "kind": "text",
+      "body": "🔒 Escrow on order ord-j547-paohai92 is FROZEN (dispute_raised) — payout is blocked while the dispute (w54-j547-paohai92) is open."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001231",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607816889,
+      "kind": "text",
+      "body": "🚨 *Payment dispute* (open): paystack ref w54-j547-paohai92 for 1250.00 NGN on order ord-j547-paohai92. The order is flagged; review the dispute in your PSP dashboard."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001232",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607817396,
+      "kind": "text",
+      "body": "🚨 *Payment dispute* (lost): paystack ref w54-j547-paohai92 for 1250.00 NGN on order ord-j547-paohai92. The order is flagged; review the dispute in your PSP dashboard."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001233",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607817420,
+      "kind": "text",
+      "body": "🧾 *Chargeback lost* on order ord-j547-paohai92 (w54-j547-paohai92) — a recovery entry of 1250.00 NGN was recorded for ops follow-up."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001234",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607817898,
+      "kind": "text",
+      "body": "🚨 *Payment dispute* (lost): paystack ref w54-j547-paohai92 for 1250.00 NGN on order ord-j547-paohai92. The order is flagged; review the dispute in your PSP dashboard."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001235",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607817917,
+      "kind": "text",
+      "body": "🧾 *Chargeback lost* on order ord-j547-paohai92 (w54-j547-paohai92) — a recovery entry of 1250.00 NGN was recorded for ops follow-up."
+    }
+  ]
 }

@@ -459,6 +459,18 @@ export function disputeAutoResolveGraceMs(): number {
   return Math.max(1, Number.isFinite(h) ? h : 72) * 3600_000;
 }
 
+// === W54 disputes (DISP-6): buyer no-response auto-close ==================
+/** Config-gated like the buyer-favour auto-resolve (default ON). */
+export function disputeBuyerAutocloseEnabled(): boolean {
+  return (process.env.DISPUTE_BUYER_AUTOCLOSE_ENABLED ?? "true") === "true";
+}
+/** Idle window after the merchant responded (default 7 days). */
+export function disputeBuyerAutocloseMs(): number {
+  const d = parseInt(process.env.DISPUTE_BUYER_AUTOCLOSE_DAYS ?? "7", 10);
+  return Math.max(1, Number.isFinite(d) ? d : 7) * 24 * 3600_000;
+}
+// === END W54 disputes ===
+
 /** Order statuses where the merchant has NEVER shipped (buyer funds locked). */
 const NEVER_SHIPPED_ORDER_STATUSES = ["pending", "confirmed", "processing", "partially_fulfilled"];
 /** Buyer confirm-or-dispute prompt re-send dedupe window. */
@@ -609,6 +621,9 @@ export interface DisputeSweepSummary {
   autoResolvedBuyer: number;
   resolveFailed: number;
   autoResolveEnabled: boolean;
+  /** === W54 disputes (DISP-6) === under_review disputes auto-closed because
+   *  the buyer went idle after the merchant responded. */
+  autoClosedBuyerIdle: number;
 }
 
 /**
@@ -626,6 +641,7 @@ export async function runDisputeDeadlineSweep(now: Date = new Date()): Promise<D
   const summary: DisputeSweepSummary = {
     scanned: 0, escalated: 0, autoResolvedBuyer: 0, resolveFailed: 0,
     autoResolveEnabled: disputeAutoResolveEnabled(),
+    autoClosedBuyerIdle: 0,
   };
   const db = await getDb();
   if (!db) return summary;
@@ -669,7 +685,10 @@ export async function runDisputeDeadlineSweep(now: Date = new Date()): Promise<D
   }
 
   // ── 2. Auto-resolve buyer-favour after grace (config-gated) ────────────
-  if (!summary.autoResolveEnabled) return summary;
+  // === W54 disputes (DISP-6): early-return removed — the buyer-no-response
+  // auto-close leg (3) has its OWN config gate and must still run when the
+  // buyer-favour auto-resolve is disabled. ===
+  if (summary.autoResolveEnabled) {
   const graceCutoff = new Date(now.getTime() - disputeAutoResolveGraceMs());
   const staleEscalated = await db.select().from(escrowDisputes)
     .where(and(
@@ -758,6 +777,99 @@ export async function runDisputeDeadlineSweep(now: Date = new Date()): Promise<D
       console.error(`[dispute-sweep] auto-resolve failed for dispute ${d.id}:`, (err as Error)?.message);
     }
   }
+  }
+
+  // === W54 disputes (DISP-6): buyer no-response auto-close ================
+  // Leg 3 (own config gate): disputes where the MERCHANT responded
+  // (under_review) but the BUYER stayed idle past DISPUTE_BUYER_AUTOCLOSE_DAYS
+  // (default 7, measured from metadata.merchantRespondedAt, falling back to
+  // the row's updatedAt) are auto-closed MERCHANT-FAVOUR: the escrow is
+  // released to the merchant through the SAME atomic settle path as the
+  // admin review (settleEscrowAtomic from dispute states), the dispute is
+  // claimed under_review → resolved_merchant (exactly-once), audited as
+  // 'system:buyer-no-response', and BOTH parties are notified.
+  if (disputeBuyerAutocloseEnabled()) {
+    const idleCutoff = new Date(now.getTime() - disputeBuyerAutocloseMs());
+    const underReview = await db.select().from(escrowDisputes)
+      .where(and(
+        eq(escrowDisputes.status, "under_review"),
+        lt(escrowDisputes.updatedAt, now), // scanned below against the idle cutoff per-row
+      ))
+      .limit(100);
+    for (const d of underReview) {
+      try {
+        const meta = (d.metadata ?? {}) as Record<string, unknown>;
+        const respondedAtRaw = typeof meta.merchantRespondedAt === "string" ? meta.merchantRespondedAt : null;
+        const respondedAt = respondedAtRaw ? new Date(respondedAtRaw) : d.updatedAt;
+        if (!respondedAt || respondedAt > idleCutoff) continue; // buyer still inside the response window
+
+        // Money FIRST via the atomic settle helper (FOR UPDATE + guarded
+        // transition from the dispute states), then claim the dispute row.
+        const settle = await settleEscrowAtomic(db, d.escrowTxId, {
+          autoConfirmed: false,
+          allowedFromStates: ["dispute_raised", "dispute_resolved"],
+          descriptionPrefix: `Dispute ${d.id} auto-closed: buyer no response after merchant reply`,
+        }).catch(async (settleErr) => {
+          const { EscrowSettlementError, compensateEscrowSettlementFailure } = await import("./escrow");
+          if (settleErr instanceof EscrowSettlementError) {
+            await compensateEscrowSettlementFailure(db, {
+              escrowId: d.escrowTxId,
+              pendingIds: settleErr.capturedPendingIds,
+              reason: settleErr.message,
+            }).catch((compErr) => console.error("[dispute-sweep] buyer-autoclose compensation failed:", compErr));
+          }
+          throw settleErr;
+        });
+        if (!settle.transitioned) {
+          summary.resolveFailed++;
+          console.error(`[dispute-sweep] buyer-autoclose settle could not transition escrow ${d.escrowTxId} (state changed concurrently)`);
+          continue;
+        }
+        const claimed = await db.update(escrowDisputes)
+          .set({
+            status: "resolved_merchant",
+            resolution: "no_action",
+            resolvedBy: "system:buyer-no-response",
+            resolverNotes: `Auto-closed: merchant responded ${respondedAt.toISOString()} but the buyer did not follow up within ${disputeBuyerAutocloseMs() / (24 * 3600_000)}d — escrow released to the merchant.`,
+            resolvedAt: now,
+            updatedAt: now,
+          })
+          .where(and(eq(escrowDisputes.id, d.id), eq(escrowDisputes.status, "under_review")))
+          .returning({ id: escrowDisputes.id });
+        if (claimed.length !== 1) continue; // concurrent human resolve won
+        await db.update(orders).set({ paymentStatus: "completed", updatedAt: now })
+          .where(eq(orders.id, d.orderId));
+
+        summary.autoClosedBuyerIdle++;
+        await writeAuditLog({
+          actorId: "system", actorRole: "system",
+          action: "dispute.auto_closed_buyer_idle",
+          entityType: "escrow_dispute", entityId: d.id, tenantId: d.tenantId,
+          summary: `Dispute ${d.id} (order ${d.orderId}) auto-closed merchant-favour: buyer no response within ${disputeBuyerAutocloseMs() / (24 * 3600_000)}d of the merchant response; escrow released via settle path`,
+          after: { status: "resolved_merchant", resolution: "no_action", autoClose: "buyer-no-response" },
+        }).catch(() => {});
+        // Merchant portal notification.
+        await emitNotification({
+          tenantId: d.tenantId, type: "dispute_resolved",
+          title: "Dispute Auto-Closed (Buyer No Response)",
+          body: `The dispute on order ${d.orderId} was auto-closed in your favour — the buyer did not follow up within ${disputeBuyerAutocloseMs() / (24 * 3600_000)} days of your response. The escrow was released.`,
+          metadata: { orderId: d.orderId, disputeId: d.id, autoClosed: true },
+        }).catch(() => {});
+        // Buyer WA/TG notification (DISP-1 rail; honest outcome = release).
+        const { notifyBuyerDisputeResolution } = await import("../services/disputeNotify");
+        await notifyBuyerDisputeResolution(db, {
+          tenantId: d.tenantId,
+          orderId: d.orderId,
+          resolution: "full_release_to_merchant",
+          resolverNotes: "Auto-closed: no buyer follow-up after the merchant response.",
+        }).catch(() => {});
+      } catch (err) {
+        summary.resolveFailed++;
+        console.error(`[dispute-sweep] buyer-autoclose failed for dispute ${d.id}:`, (err as Error)?.message);
+      }
+    }
+  }
+  // === END W54 disputes ===
   return summary;
 }
 // === END W45 money-scheduled (PAY-21/PAY-22) ===

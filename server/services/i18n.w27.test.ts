@@ -69,8 +69,11 @@ describe("message catalog (t27)", () => {
     }
   });
   it("falls back to en for keys missing in a locale", () => {
-    expect(t27("ig", "paymentPending")).toBe(MESSAGE_CATALOG.en.paymentPending);
-    expect(t27("am", "paymentPending")).toBe(MESSAGE_CATALOG.en.paymentPending);
+    // pcm lacks the membership/ussdLoyalty keys (ig/am paymentPending were filled by W55 PARITY-7)
+    expect(t27("pcm", "ussdLoyaltyBalance", { points: "10" })).toBe(
+      MESSAGE_CATALOG.en.ussdLoyaltyBalance.replace("{points}", "10"),
+    );
+    expect(t27("pcm", "membershipStatusActive")).toBe(MESSAGE_CATALOG.en.membershipStatusActive);
   });
   it("falls back to en for unknown/undefined locales", () => {
     expect(t27("zz", "cartEmpty")).toBe(MESSAGE_CATALOG.en.cartEmpty);

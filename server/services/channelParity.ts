@@ -151,6 +151,9 @@ export const PARITY_CATEGORIES: readonly ParityCategory[] = [
   { id: "age_attestation",     description: "Age-restricted checkout attestation prompt (TEN-15) — 'confirm you are N+' reply request", telegram: "full", notes: "Plain-text prompt rendered by buildAgeAttestationPrompt inside the SHARED nlp checkout flow (createChatOrder); both channels route through the same engine and the buyer's affirmative reply is parsed identically (AGE_AFFIRM_RE) — no channel-specific affordance." },
   { id: "kyb_sla",             description: "KYB review-queue SLA breach/escalation notice to the tenant admin (TEN-22)", telegram: "full", notes: "Plain-text notice via sendAdminOpsAlert → waSender on WA; telegram-linked admins route via the ops_alert category seam. Log-only when no admin phone is configured (unchanged ops_alert doctrine)." },
   // === END W46 privacy-consent ===
+  // === W54 disputes (DISP-1): buyer dispute lifecycle notices ===
+  { id: "dispute_resolution", description: "Dispute resolution outcome + merchant-response notices to the buyer", telegram: "full", notes: "Plain-text localized notice via sendCustomerText from disputeNotify.ts (escrow review, buyer-no-response auto-close, merchantRespond); WA takes the original sendWhatsAppText path, telegram routes via channelSender. Fail-open — never blocks resolution." },
+  // === END W54 disputes ===
 ] as const;
 
 export const PARITY_CATEGORY_IDS: readonly string[] = PARITY_CATEGORIES.map((c) => c.id);
@@ -425,9 +428,75 @@ export async function notifyCustomer(
     // business flow. We still report handled:true — falling back to WA would
     // message a number the telegram-linked customer may not monitor.
     console.warn(`[channelParity] telegram ${category} notify failed:`, e?.message);
+    // === W55 parity (PARITY-3) === TG→SMS failover for transactional
+    // notices on a PERMANENT TG failure (dead session / blocked bot).
+    await maybeTgFailoverToSms({
+      tenantId, chatId: route.to, category,
+      notifType: payload.notifType ?? category,
+      text: payload.text, error: e?.message ?? String(e),
+    }).catch((fe: any) => console.warn("[channelParity] TG→SMS failover failed (fail-open):", fe?.message));
+    // === END W55 parity ===
     return { handled: true, channel: TELEGRAM_CHANNEL, sent: false, error: e?.message ?? String(e) };
   }
 }
+
+// === W55 parity (PARITY-3) ===
+/**
+ * TG→SMS failover, analogous to waSender.maybeFailoverToSms
+ * (waSender.ts W50 seam): on a PERMANENT Telegram send failure (chat not
+ * found / bot blocked / deactivated — classifyTelegramSendError), deliver
+ * transactional notices (order_* / payment_* / dispute* / refund / escrow_*
+ * / event_ticket — NEVER marketing categories like broadcast, dunning,
+ * cart_abandonment, price_drop_alert) by SMS to the identity's linked
+ * E.164 phone. Same tenant `smsFailoverEnabled` flag, same stripSmsChrome +
+ * segmentation, idempotent via a content-hash failover key. Fail-open.
+ */
+const TG_SMS_FAILOVER_CATEGORY = /^(order_|payment_|dispute|refund$|escrow_|event_ticket$)/;
+
+async function maybeTgFailoverToSms(opts: {
+  tenantId: string;
+  chatId: string;
+  category: string;
+  notifType: string;
+  text: string;
+  error: string;
+}): Promise<void> {
+  if (!TG_SMS_FAILOVER_CATEGORY.test(opts.category) && !TG_SMS_FAILOVER_CATEGORY.test(opts.notifType)) return;
+  // telegramSender.callTelegramApi throws `Telegram <kind> send failed (<status>): …`
+  const statusMatch = /\((\d{3})\)/.exec(opts.error);
+  if (!statusMatch) return; // network/unknown → retriable, outbox retry owns it
+  const { classifyTelegramSendError } = await import("./telegramSender");
+  if (classifyTelegramSendError(Number(statusMatch[1])) !== "permanent") return;
+  const db = await getDb();
+  if (!db) return;
+  const { eq, and } = await import("drizzle-orm");
+  const { tenants } = await import("../../drizzle/schema");
+  const { telegramIdentities } = await import("../../drizzle/schema");
+  const [t] = await db
+    .select({ smsFailoverEnabled: tenants.smsFailoverEnabled })
+    .from(tenants)
+    .where(eq(tenants.id, opts.tenantId))
+    .limit(1)
+    .catch(() => [] as any[]);
+  if (!t?.smsFailoverEnabled) return;
+  const [ident] = await db
+    .select({ phone: telegramIdentities.phoneE164 })
+    .from(telegramIdentities)
+    .where(and(eq(telegramIdentities.tenantId, opts.tenantId), eq(telegramIdentities.chatId, opts.chatId)))
+    .limit(1)
+    .catch(() => [] as any[]);
+  if (!ident?.phone) return;
+  const { createHash } = await import("node:crypto");
+  const failoverKey = `tg-sms-failover:${opts.tenantId}:${opts.chatId}:` +
+    createHash("md5").update(`${opts.notifType}:${opts.text}`).digest("hex").slice(0, 16);
+  const sms = await import("./smsSender");
+  if (await sms.smsAlreadySent(opts.tenantId, failoverKey)) return;
+  const res = await sms.sendSms(opts.tenantId, ident.phone, sms.stripSmsChrome(opts.text) || opts.text, {
+    idempotencyKey: failoverKey,
+  });
+  console.info(`[channelParity] TG permanent failure → SMS failover (${opts.tenantId}, ${opts.category}, sent=${res.sent}, simulated=${res.simulated})`);
+}
+// === END W55 parity ===
 
 /**
  * One-line mechanical replacement for sendWhatsAppText in migrated callers:

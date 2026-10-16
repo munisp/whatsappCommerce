@@ -1,7 +1,7 @@
 {
   "id": "J555",
-  "title": "escrow.createHold refuses a currency-mismatched wallet credit",
-  "feature": "server/routers/escrow.ts recordWalletTxInTx currency guard",
+  "title": "TG membership parity: list → join → status on Telegram",
+  "feature": "W54 capabilities: consumer membership tiers (TG parity)",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
   "messages": []

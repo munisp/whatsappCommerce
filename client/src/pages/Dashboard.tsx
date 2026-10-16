@@ -149,18 +149,17 @@ export default function Dashboard() {
         </div>
 
         {/* Charts — platform-wide (cross-tenant) aggregates, admin-only; see isPlatformAdmin note above.
-            Lazy chunk keeps recharts out of the initial bundle (W48 PERF-FE-2) — the gate stays OUTSIDE the
-            Suspense boundary so a non-admin never even triggers the chunk fetch, let alone sees the data. */}
+            Lazy chunk keeps recharts out of the initial bundle (W48 PERF-FE-2). */}
         {isPlatformAdmin && (
-          <Suspense fallback={
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {[0, 1].map((i) => (
-                <Card key={i} className="bg-card border-border"><CardContent className="h-[248px] animate-pulse" /></Card>
-              ))}
-            </div>
-          }>
-            <DashboardCharts revenueData={revenueData} convData={convData} />
-          </Suspense>
+        <Suspense fallback={
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {[0, 1].map((i) => (
+              <Card key={i} className="bg-card border-border"><CardContent className="h-[248px] animate-pulse" /></Card>
+            ))}
+          </div>
+        }>
+          <DashboardCharts revenueData={revenueData} convData={convData} />
+        </Suspense>
         )}
 
         {/* Tenant Metrics */}

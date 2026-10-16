@@ -1,0 +1,19 @@
+# === W54 CILIUM ===
+# Namespace for the compose→k8s core stack modeled by k8s/base/*.
+# NOTE: k8s/namespace.yaml (earlier wave) also defines this namespace with
+# istio-injection enabled. Apply ONE definition — for the Cilium path use this
+# file (no service-mesh sidecars; Cilium provides policy/observability/encryption
+# at eBPF level, so a sidecar mesh is redundant overhead).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: whatsapp-commerce
+  labels:
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+  annotations:
+    # Cilium: start in audit-friendly posture; flip policies to enforce after
+    # Hubble-verified (see k8s/cilium/network-policies.yaml header).
+    cilium.io/network-policy-mode: default
+# === END W54 CILIUM ===

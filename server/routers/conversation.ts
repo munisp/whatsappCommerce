@@ -59,10 +59,6 @@ export const conversationRouter = router({
           : eq(channelMessages.tenantId, input.tenantId))
         .orderBy(desc(channelMessages.createdAt))
         .limit(input.limit);
-      const realRows = input.customerPhone
-        ? rows.filter(r => r.fromAddress === input.customerPhone || r.toAddress === input.customerPhone)
-        : rows;
-
       const { nlpSessions } = await import("../../drizzle/schema");
       const sessionConds = [eq(nlpSessions.tenantId, input.tenantId)];
       if (input.customerPhone) {
@@ -103,7 +99,7 @@ export const conversationRouter = router({
         });
       }
 
-      return [...realRows, ...synthRows]
+      return [...rows, ...synthRows]
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, input.limit);
     }),
@@ -124,22 +120,9 @@ export const conversationRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
-      // === W48 integrations (PERF-INT-4) ===
-      // Was: raw fetch to graph.facebook.com/v19.0 with no timeout, no retry,
-      // no ban-circuit check, no suppression-list check, no usage metering —
-      // and version drift vs the rest of the platform (v21.0). PERF-INT-4's own fix routed this directly through
-      // waSender.sendWhatsAppText for that hardening (12s AbortController timeout, retriable classification, ban
-      // circuit breaker, per-tenant credential resolution, metering + send log) — but sendChannelMessage's own
-      // "whatsapp" branch already calls that exact same waSender.sendWhatsAppText underneath, so routing through
-      // it (as the QA-057 fix above already does) inherits all of that hardening for free, AND supports Telegram
-      // (PERF-INT-4's direct waSender call could not) — keeping this channel-agnostic, not WhatsApp-only.
       try {
         const { sendChannelMessage } = await import("../services/channelSender");
         const result = await sendChannelMessage(input.tenantId, input.channel, input.toPhone, { kind: "text", text: input.body }, {
-          // W48 (PERF-INT-4): keep this reply metered under its own notifType — sendChannelMessage forwards
-          // opts straight through to the underlying per-channel sender (waSender for WhatsApp), so this is
-          // still real metering, not lost by going through the channel-agnostic facade instead of calling
-          // waSender directly.
           notifType: "portal_agent_reply",
           userId: ctx.user?.id ?? null,
         });
@@ -159,7 +142,7 @@ export const conversationRouter = router({
             processed: true,
           });
         }
-        return { sent: true, simulated: result.simulated, messageIds: result.messageIds };
+        return { sent: true, simulated: result.simulated, wamids: result.messageIds };
       } catch (e: any) {
         return { sent: false, error: e.message };
       }

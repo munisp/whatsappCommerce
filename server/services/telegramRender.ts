@@ -47,13 +47,11 @@ export function renderInteractiveForTelegram(input: SendInteractiveInput): Teleg
     if (!buttons.length || !buttons.every((b) => carriable(b.id))) return null;
     return { kind: "keyboard", text, buttons };
   }
-  // W49 RICHMEDIA (RICH-7): a WA cta_url interactive (payment/tracking "Pay now" / "Track shipment" style
-  // button) becomes a single Telegram URL button — carries a `url` instead of callback_data, so it isn't subject
-  // to the 64-byte callback_data limit `carriable` checks below (mirrors telegramInbound.ts's own
-  // sendTelegramInteractive, the render path actually wired into the live send path today).
   if (input.action.type === "cta_url") {
-    if (!input.action.url?.trim()) return null;
-    return { kind: "keyboard", text, buttons: [{ id: input.action.url, title: title(input.action.displayText, "Open"), url: input.action.url }] };
+    // W49 RICH-7: a WhatsApp cta_url button is a Telegram URL button (no callback_data to carry).
+    const { url, displayText } = input.action;
+    if (!url?.trim()) return null;
+    return { kind: "keyboard", text, buttons: [{ id: url, title: title(displayText, "Open"), url }] };
   }
   const rows = input.action.sections
     .flatMap((s) => s.rows)

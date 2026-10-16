@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017857704",
-      "profileName": "Sim User 7704",
+      "phone": "2348011919218",
+      "profileName": "Sim User 9218",
       "inboundId": "wamid.sim.in.text.00488",
-      "at": 1790535288411,
+      "at": 1790607563671,
       "kind": "text",
       "text": "change my address to 5 Nowhere St, Lagos"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00488",
-      "at": 1790535288417
+      "at": 1790607563695
     },
     {
       "dir": "out",
-      "phone": "2348017857704",
-      "wamid": "wamid.sim.000870",
+      "phone": "2348011919218",
+      "wamid": "wamid.sim.000871",
       "statuses": [
         "sent"
       ],
-      "at": 1790535288440,
+      "at": 1790607563783,
       "kind": "text",
       "body": "Sorry, this store doesn't allow address changes after dispatch."
     },
     {
       "dir": "in",
-      "phone": "2348018243586",
-      "profileName": "Sim User 3586",
+      "phone": "2348016143177",
+      "profileName": "Sim User 3177",
       "inboundId": "wamid.sim.in.text.00489",
-      "at": 1790535288976,
+      "at": 1790607564282,
       "kind": "text",
       "text": "change my address to 8 Reject Rd, Lagos"
     },
@@ -44,83 +44,83 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00489",
-      "at": 1790535288983
+      "at": 1790607564307
     },
     {
       "dir": "out",
-      "phone": "2348014650776",
-      "wamid": "wamid.sim.000871",
+      "phone": "2348011929058",
+      "wamid": "wamid.sim.000872",
       "statuses": [
         "sent"
       ],
-      "at": 1790535289015,
+      "at": 1790607564415,
       "kind": "interactive",
-      "body": "📍 Address change requested for order W43-j336r-6BF2 (ref 2adec214)\nNew address: 8 Reject Rd, Lagos",
+      "body": "📍 Address change requested for order W43-j336r-B7C7 (ref 3a7abf0e)\nNew address: 8 Reject Rd, Lagos",
       "buttons": [
         {
-          "id": "addrchg:approve:2adec214-b2ee-4898-b077-c809ad65e340",
+          "id": "addrchg:approve:3a7abf0e-9ca7-4de8-a1d9-f829e968dc9a",
           "title": "✅ Approve"
         },
         {
-          "id": "addrchg:reject:2adec214-b2ee-4898-b077-c809ad65e340",
+          "id": "addrchg:reject:3a7abf0e-9ca7-4de8-a1d9-f829e968dc9a",
           "title": "❌ Reject"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348018243586",
-      "wamid": "wamid.sim.000872",
+      "phone": "2348016143177",
+      "wamid": "wamid.sim.000873",
       "statuses": [
         "sent"
       ],
-      "at": 1790535289018,
+      "at": 1790607564426,
       "kind": "text",
-      "body": "📍 Got it — your address change for order W43-j336r-6BF2 is pending merchant approval (ref 2adec214). We'll message you here as soon as it's approved or rejected."
+      "body": "📍 Got it — your address change for order W43-j336r-B7C7 is pending merchant approval (ref 3a7abf0e). We'll message you here as soon as it's approved or rejected."
     },
     {
       "dir": "in",
-      "phone": "2348014650776",
-      "profileName": "Sim User 0776",
+      "phone": "2348011929058",
+      "profileName": "Sim User 9058",
       "inboundId": "wamid.sim.in.text.00490",
-      "at": 1790535289530,
+      "at": 1790607564835,
       "kind": "text",
-      "text": "ADDR REJECT 2adec214-b2ee-4898-b077-c809ad65e340 rider already at the gate"
+      "text": "ADDR REJECT 3a7abf0e-9ca7-4de8-a1d9-f829e968dc9a rider already at the gate"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00490",
-      "at": 1790535289537
+      "at": 1790607564856
     },
     {
       "dir": "out",
-      "phone": "2348018243586",
-      "wamid": "wamid.sim.000873",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790535289571,
-      "kind": "text",
-      "body": "📍 Sorry — the address change for order W43-j336r-6BF2 was rejected by the store (rider already at the gate). Your order goes to the original address."
-    },
-    {
-      "dir": "out",
-      "phone": "2348014650776",
+      "phone": "2348016143177",
       "wamid": "wamid.sim.000874",
       "statuses": [
         "sent"
       ],
-      "at": 1790535289574,
+      "at": 1790607564967,
       "kind": "text",
-      "body": "Address change 2adec214 rejected — the customer has been notified."
+      "body": "📍 Sorry — the address change for order W43-j336r-B7C7 was rejected by the store (rider already at the gate). Your order goes to the original address."
+    },
+    {
+      "dir": "out",
+      "phone": "2348011929058",
+      "wamid": "wamid.sim.000875",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607564978,
+      "kind": "text",
+      "body": "Address change 3a7abf0e rejected — the customer has been notified."
     },
     {
       "dir": "in",
-      "phone": "2348015023196",
-      "profileName": "Sim User 3196",
+      "phone": "2348012113845",
+      "profileName": "Sim User 3845",
       "inboundId": "wamid.sim.in.text.00491",
-      "at": 1790535290090,
+      "at": 1790607565409,
       "kind": "text",
       "text": "change my address to 1 Expire Ln, Lagos"
     },
@@ -128,83 +128,83 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00491",
-      "at": 1790535290103
+      "at": 1790607565429
     },
     {
       "dir": "out",
-      "phone": "2348014650776",
-      "wamid": "wamid.sim.000875",
+      "phone": "2348011929058",
+      "wamid": "wamid.sim.000876",
       "statuses": [
         "sent"
       ],
-      "at": 1790535290141,
+      "at": 1790607565532,
       "kind": "interactive",
-      "body": "📍 Address change requested for order W43-j336x-6F31 (ref aa5d6e4a)\nNew address: 1 Expire Ln, Lagos",
+      "body": "📍 Address change requested for order W43-j336x-939C (ref f4e6c567)\nNew address: 1 Expire Ln, Lagos",
       "buttons": [
         {
-          "id": "addrchg:approve:aa5d6e4a-89f4-4894-bd5b-5954975f6ba3",
+          "id": "addrchg:approve:f4e6c567-008b-4bef-805a-fbe661564a46",
           "title": "✅ Approve"
         },
         {
-          "id": "addrchg:reject:aa5d6e4a-89f4-4894-bd5b-5954975f6ba3",
+          "id": "addrchg:reject:f4e6c567-008b-4bef-805a-fbe661564a46",
           "title": "❌ Reject"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348015023196",
-      "wamid": "wamid.sim.000876",
+      "phone": "2348012113845",
+      "wamid": "wamid.sim.000877",
       "statuses": [
         "sent"
       ],
-      "at": 1790535290145,
+      "at": 1790607565541,
       "kind": "text",
-      "body": "📍 Got it — your address change for order W43-j336x-6F31 is pending merchant approval (ref aa5d6e4a). We'll message you here as soon as it's approved or rejected."
+      "body": "📍 Got it — your address change for order W43-j336x-939C is pending merchant approval (ref f4e6c567). We'll message you here as soon as it's approved or rejected."
     },
     {
       "dir": "in",
-      "phone": "2348014650776",
-      "profileName": "Sim User 0776",
+      "phone": "2348011929058",
+      "profileName": "Sim User 9058",
       "inboundId": "wamid.sim.in.text.00492",
-      "at": 1790535290644,
+      "at": 1790607565965,
       "kind": "text",
-      "text": "ADDR APPROVE aa5d6e4a-89f4-4894-bd5b-5954975f6ba3"
+      "text": "ADDR APPROVE f4e6c567-008b-4bef-805a-fbe661564a46"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00492",
-      "at": 1790535290651
+      "at": 1790607565988
     },
     {
       "dir": "out",
-      "phone": "2348015023196",
-      "wamid": "wamid.sim.000877",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790535290679,
-      "kind": "text",
-      "body": "📍 The address change request for order W43-j336x-6F31 expired before the store responded. Your order goes to the original address."
-    },
-    {
-      "dir": "out",
-      "phone": "2348014650776",
+      "phone": "2348012113845",
       "wamid": "wamid.sim.000878",
       "statuses": [
         "sent"
       ],
-      "at": 1790535290681,
+      "at": 1790607566080,
       "kind": "text",
-      "body": "Address change aa5d6e4a expired — the customer has been notified."
+      "body": "📍 The address change request for order W43-j336x-939C expired before the store responded. Your order goes to the original address."
+    },
+    {
+      "dir": "out",
+      "phone": "2348011929058",
+      "wamid": "wamid.sim.000879",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607566089,
+      "kind": "text",
+      "body": "Address change f4e6c567 expired — the customer has been notified."
     },
     {
       "dir": "in",
-      "phone": "2348017529458",
-      "profileName": "Sim User 9458",
+      "phone": "2348018407438",
+      "profileName": "Sim User 7438",
       "inboundId": "wamid.sim.in.text.00493",
-      "at": 1790535291210,
+      "at": 1790607566557,
       "kind": "text",
       "text": "change my address to 4 Fee Ave, Lagos"
     },
@@ -212,94 +212,94 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00493",
-      "at": 1790535291218
+      "at": 1790607566578
     },
     {
       "dir": "out",
-      "phone": "2348014650776",
-      "wamid": "wamid.sim.000879",
+      "phone": "2348011929058",
+      "wamid": "wamid.sim.000880",
       "statuses": [
         "sent"
       ],
-      "at": 1790535291252,
+      "at": 1790607566672,
       "kind": "interactive",
-      "body": "📍 Address change requested for order W43-j336f-022D (ref b610ec0b)\nNew address: 4 Fee Ave, Lagos\nFee: ₦50.00",
+      "body": "📍 Address change requested for order W43-j336f-A6E8 (ref 79b13d8a)\nNew address: 4 Fee Ave, Lagos\nFee: ₦50.00",
       "buttons": [
         {
-          "id": "addrchg:approve:b610ec0b-12be-4640-ad4f-95b8ebe8a4c6",
+          "id": "addrchg:approve:79b13d8a-e20e-4605-86e0-894982bd4477",
           "title": "✅ Approve"
         },
         {
-          "id": "addrchg:reject:b610ec0b-12be-4640-ad4f-95b8ebe8a4c6",
+          "id": "addrchg:reject:79b13d8a-e20e-4605-86e0-894982bd4477",
           "title": "❌ Reject"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348017529458",
-      "wamid": "wamid.sim.000880",
+      "phone": "2348018407438",
+      "wamid": "wamid.sim.000881",
       "statuses": [
         "sent"
       ],
-      "at": 1790535291255,
+      "at": 1790607566684,
       "kind": "text",
-      "body": "📍 Got it — your address change for order W43-j336f-022D is pending merchant approval (ref b610ec0b). We'll message you here as soon as it's approved or rejected. A fee of ₦50.00 applies on approval."
+      "body": "📍 Got it — your address change for order W43-j336f-A6E8 is pending merchant approval (ref 79b13d8a). We'll message you here as soon as it's approved or rejected. A fee of ₦50.00 applies on approval."
     },
     {
       "dir": "in",
-      "phone": "2348014650776",
-      "profileName": "Sim User 0776",
+      "phone": "2348011929058",
+      "profileName": "Sim User 9058",
       "inboundId": "wamid.sim.in.text.00494",
-      "at": 1790535291763,
+      "at": 1790607567111,
       "kind": "text",
-      "text": "ADDR APPROVE b610ec0b-12be-4640-ad4f-95b8ebe8a4c6"
+      "text": "ADDR APPROVE 79b13d8a-e20e-4605-86e0-894982bd4477"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00494",
-      "at": 1790535291769
+      "at": 1790607567140
     },
     {
       "dir": "out",
-      "phone": "2348017529458",
-      "wamid": "wamid.sim.000881",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790535291805,
-      "kind": "text",
-      "body": "📍 Good news — the delivery address for order W43-j336f-022D was updated to: 4 Fee Ave, Lagos\n💳 Address-change fee ₦50.00 charged from your wallet (balance ₦150.00)."
-    },
-    {
-      "dir": "out",
-      "phone": "2348014650776",
+      "phone": "2348018407438",
       "wamid": "wamid.sim.000882",
       "statuses": [
         "sent"
       ],
-      "at": 1790535291809,
+      "at": 1790607567252,
       "kind": "text",
-      "body": "Address change b610ec0b applied — the customer has been notified."
+      "body": "📍 Good news — the delivery address for order W43-j336f-A6E8 was updated to: 4 Fee Ave, Lagos\n💳 Address-change fee ₦50.00 charged from your wallet (balance ₦150.00)."
     },
     {
       "dir": "out",
-      "phone": "2348014650776",
+      "phone": "2348011929058",
       "wamid": "wamid.sim.000883",
       "statuses": [
         "sent"
       ],
-      "at": 1790535292376,
+      "at": 1790607567262,
+      "kind": "text",
+      "body": "Address change 79b13d8a applied — the customer has been notified."
+    },
+    {
+      "dir": "out",
+      "phone": "2348011929058",
+      "wamid": "wamid.sim.000884",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790607567859,
       "kind": "interactive",
-      "body": "📍 Address change requested for order W43-j336t-7CC0 (ref 83f7a725)\nNew address: 21 Telegram Blvd, Abuja",
+      "body": "📍 Address change requested for order W43-j336t-3F41 (ref 77229093)\nNew address: 21 Telegram Blvd, Abuja",
       "buttons": [
         {
-          "id": "addrchg:approve:83f7a725-3a5e-43ee-acc7-5494ebebcf3e",
+          "id": "addrchg:approve:77229093-4f10-489a-b03e-1a95032fc1b8",
           "title": "✅ Approve"
         },
         {
-          "id": "addrchg:reject:83f7a725-3a5e-43ee-acc7-5494ebebcf3e",
+          "id": "addrchg:reject:77229093-4f10-489a-b03e-1a95032fc1b8",
           "title": "❌ Reject"
         }
       ]
