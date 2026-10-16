@@ -32,7 +32,7 @@ export const journey: Journey = {
 
     // ── Handoff is checked (previous POST discarded the response) ──────────
     assert(!orch.includes("\n\to.client.Do(req)\n"), "no unchecked fire-and-forget POST remains");
-    assertIncludes(orch, "setChatwootStatus(ctx, conv.ChatwootConvID, \"open\")", "handoff opens Chatwoot conversation");
+    assertIncludes(orch, "setChatwootStatus(ctx, chatwootID, \"open\")", "handoff opens Chatwoot conversation");
 
     // ── Resolve → bot_active path back from handed_off ─────────────────────
     assertIncludes(orch, "func (o *Orchestrator) ResolveToBot", "resolve-to-bot entrypoint");

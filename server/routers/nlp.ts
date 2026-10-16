@@ -1313,7 +1313,10 @@ export const nlpRouter = router({
         // still self-correct a stale value rather than getting stuck forever (was `detectedLang !==
         // "english"`, a one-way ratchet: a single false-positive non-English detection used to stick
         // permanently since a later confidently-English message was never allowed to reset it back).
-        if (detectedLang !== session.language) {
+        // A session already on the sticky locale keeps its own spelling: "pcm" and "pidgin" are both Pidgin but
+        // render different USSD greetings (J537), so rewriting "pcm" to "pidgin" here would swap the greeting.
+        const alreadyOnSticky = !!stickyLocale && localeFromSessionLanguage(session.language) === stickyLocale;
+        if (!alreadyOnSticky && detectedLang !== session.language) {
           await db.update(nlpSessions)
             .set({ language: detectedLang, lastActivityAt: new Date() })
             .where(eq(nlpSessions.id, session.id));

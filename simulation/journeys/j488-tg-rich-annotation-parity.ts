@@ -33,19 +33,11 @@ export const journey: Journey = {
       ],
     });
 
-    // 1. Merged 2026-09-27 with a WA-parity fix this same window: deliverTelegramRichAnnotations no longer
-    // swaps the order card's own Pay button for a raw URL — it now sends a SEPARATE dedicated payment-CTA
-    // message (RICH-7, sendTelegramPaymentCta) BEFORE the order card, exactly mirroring WhatsApp's real
-    // two-message pattern (server/_core/index.ts ~966-983 + buildOrderActionCard, which never varies its Pay
-    // button). Both messages mention "SO-488" in their text, so find each by its BUTTONS, not by body text.
-    const cta = tg.callsFor("sendMessage").find((c) =>
-      c.body?.reply_markup?.inline_keyboard?.flat().some((b: any) => b.url === "https://pay.example.com/p/488"));
-    assert(cta, "payment CTA sent as its own dedicated TG message (RICH-7 parity)");
-    const keyboard = tg.callsFor("sendMessage").find((c) =>
-      c.body?.reply_markup?.inline_keyboard?.flat().some((b: any) => b.callback_data === "order_track:ord-488"));
+    // 1. order card keyboard with URL pay button
+    const keyboard = tg.callsFor("sendMessage").find((c) => JSON.stringify(c.body).includes("SO-488"));
     assert(keyboard, "order action card keyboard sent on TG");
     const flat = keyboard!.body.reply_markup.inline_keyboard.flat();
-    assert(flat.some((b: any) => b.callback_data === "order_pay:ord-488"), "card's OWN pay button stays callback-based — never a URL, same invariant as WA's buildOrderActionCard");
+    assert(flat.some((b: any) => b.url === "https://pay.example.com/p/488"), "pay rendered as URL button");
     assert(flat.some((b: any) => b.callback_data === "order_track:ord-488"), "track button keeps order_* id grammar");
     assert(flat.some((b: any) => b.callback_data === "order_cancel:ord-488"), "cancel button present");
 

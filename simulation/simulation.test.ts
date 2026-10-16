@@ -24,7 +24,7 @@ process.env.CREDIT_TENURE_GATE_DAYS = "0";
 // module top level so every journey gets a statically-defined test block.
 const journeys = await loadJourneys();
 
-describe("WhatsApp feature simulation (606 journeys)", () => {
+describe("WhatsApp feature simulation (605 journeys)", () => {
   let world: World;
 
   beforeAll(async () => {
@@ -41,8 +41,9 @@ describe("WhatsApp feature simulation (606 journeys)", () => {
     // + J587-J605 (development: Temporal worker, Telegram parity, deterministic shop,
     // AF-01..06 fixes — independently claimed J560-J578 before merging with W55, so
     // renumbered to J587-J605 on merge to avoid colliding with W55's own J560-J578) = 604,
-    // + J606-J607 (driver pool, discovery; were J556/J557) = 606.
-    expect(journeys.length).toBe(606);
+    // + J606-J607 (driver pool, discovery; were J556/J557), − J455 (rider onboarding, retired with the riders
+    // table; J606 replaces it) = 605.
+    expect(journeys.length).toBe(605);
     const ids = journeys.map((j) => j.id);
     expect(new Set(ids).size).toBe(ids.length);
   });

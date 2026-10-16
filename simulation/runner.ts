@@ -597,7 +597,7 @@ export async function loadJourneys(): Promise<Journey[]> {
     // whole `riders` router/table was deliberately removed (see drizzle/schema.ts's retirement comment) and
     // replaced with a platform-wide, self-service driver pool (server/routers/drivers.ts) — a fundamentally
     // different model (drivers self-register via email OTP, go online/offline, get assigned by proximity; no
-    // merchant-side register/approve step exists anymore). J556 is its direct, purpose-built successor and
+    // merchant-side register/approve step exists anymore). J606 is its direct, purpose-built successor and
     // already covers the equivalent ground (signup/OTP, online/offline, nearby, assign, driver-token-authenticated
     // status updates including a wrong-driver-token guard) under the real new architecture — nothing here was
     // dropped without a replacement.
