@@ -31,7 +31,7 @@ import { toast } from "sonner";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
-  ArrowDown, ArrowUp, Check, Copy, Globe, HelpCircle, LifeBuoy, Link2, Loader2, Palette, Plus, QrCode, Save, Settings2, ShoppingCart, Tag, Trash2, Upload, UserPlus, Users, Warehouse, X,
+  ArrowDown, ArrowUp, Check, Copy, Globe, HelpCircle, LifeBuoy, Link2, Loader2, Palette, Plus, QrCode, Save, Settings2, ShoppingCart, Store, Tag, Trash2, Upload, UserPlus, Users, Warehouse, X,
 } from "lucide-react";
 import type {
   BrandingConfig, CommerceConfig, CrmCustomField, DeliveryZone, InventoryConfig, SupportConfig,
@@ -1312,6 +1312,81 @@ function CopyButton({ value, label }: { value: string; label?: string }) {
 type CtwaAction = "menu" | "track" | "support" | "promo" | "none";
 const CTWA_ACTIONS: CtwaAction[] = ["none", "menu", "track", "support", "promo"];
 
+// Shared platform number: the code buyers send ("SHOP ADIRE") to reach this shop on the platform's WhatsApp
+// number, its prefilled wa.me link and a printable QR code. Hidden when no shared number is configured.
+function SharedNumberCard({ tenantId }: { tenantId: string }) {
+  const utils = trpc.useUtils();
+  const { data } = trpc.tenant.getSharedNumberInfo.useQuery({ tenantId });
+  const [editing, setEditing] = useState(false);
+  const [code, setCode] = useState("");
+  const save = trpc.tenant.setShopCode.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Shop code set to ${r.shopCode}`);
+      setEditing(false);
+      utils.tenant.getSharedNumberInfo.invalidate({ tenantId });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  if (!data?.available) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Store className="w-4 h-4" /> Your shop on {data.platformName}
+        </CardTitle>
+        <CardDescription>
+          {data.hasOwnNumber
+            ? "You use your own WhatsApp number, so buyers message you there. If someone sends your code to the shared number, they get a link to yours."
+            : "Buyers reach you on the platform's WhatsApp number by sending your shop code. Share the link or QR code below — it opens WhatsApp with the code already typed."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm text-muted-foreground">Shop code</span>
+          {editing ? (
+            <>
+              <Input
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                className="w-48 font-mono"
+                maxLength={32}
+                aria-label="Shop code"
+              />
+              <Button size="sm" disabled={code.trim().length < 2 || save.isPending} onClick={() => save.mutate({ tenantId, shopCode: code.trim() })}>
+                Save
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
+            </>
+          ) : (
+            <>
+              <Badge variant="outline" className="font-mono text-sm">{data.shopCode}</Badge>
+              <Button size="sm" variant="ghost" onClick={() => { setCode(data.shopCode); setEditing(true); }}>Change</Button>
+            </>
+          )}
+        </div>
+        {data.link ? (
+          <div className="flex flex-wrap items-start gap-4">
+            {data.qrDataUrl ? (
+              <a href={data.qrDataUrl} download={`shop-${data.shopCode.toLowerCase()}-qr.png`} title="Download QR code">
+                <img src={data.qrDataUrl} alt={`QR code that opens WhatsApp with SHOP ${data.shopCode}`} className="h-32 w-32 rounded border bg-white p-1" />
+              </a>
+            ) : null}
+            <div className="space-y-2 min-w-0">
+              <p className="text-xs text-muted-foreground font-mono break-all">{data.link}</p>
+              <CopyButton value={data.link} label="Copy link" />
+            </div>
+          </div>
+        ) : !data.hasOwnNumber ? (
+          <p className="text-xs text-muted-foreground">
+            Buyers can type <span className="font-mono">SHOP {data.shopCode}</span> to the platform number. (No link yet: the platform's display number isn't configured.)
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function CtwaSection({ tenantId }: { tenantId: string }) {
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.ctwa.getLinks.useQuery({ tenantId });
@@ -1342,6 +1417,7 @@ function CtwaSection({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-4">
+      <SharedNumberCard tenantId={tenantId} />
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">

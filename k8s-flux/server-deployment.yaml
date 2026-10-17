@@ -83,6 +83,31 @@ spec:
               name: whatsapp-server-app-secret
         - name: WHATSAPP_DEFAULT_TENANT_ID
           value: 3ad325ad-d0f3-4193-b7f0-d03002cfa451
+        # Shared platform WhatsApp number (server/services/sharedNumber.ts); off until the secret exists.
+        - name: SHARED_WA_PHONE_NUMBER_ID
+          valueFrom:
+            secretKeyRef:
+              key: phoneNumberId
+              name: whatsapp-shared-number
+              optional: true
+        - name: SHARED_WA_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: token
+              name: whatsapp-shared-number
+              optional: true
+        - name: SHARED_WA_DISPLAY_NUMBER
+          valueFrom:
+            secretKeyRef:
+              key: displayNumber
+              name: whatsapp-shared-number
+              optional: true
+        - name: SHARED_WA_PLATFORM_NAME
+          valueFrom:
+            secretKeyRef:
+              key: platformName
+              name: whatsapp-shared-number
+              optional: true
         - name: OPENSEARCH_URL
           value: http://shared-cluster-master.opensearch.svc.cluster.local:9200
         - name: OPENSEARCH_USER

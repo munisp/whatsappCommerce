@@ -40,6 +40,7 @@ import { runSlaScan } from "../routers/sla";
 import { finalizeWalletWithdrawal } from "../routers/escrow";
 import { sendWhatsAppInteractive, sendWhatsAppMedia, sendWhatsAppText, applyWaDeliveryStatus, markMessageRead } from "../services/waSender";
 import { isOnboardingIntakeNumber } from "../services/waOnboarding";
+import { isSharedNumber } from "../services/sharedNumber";
 // === W48 integrations (PERF-INT-6): cached phone_number_id → tenant lookup ===
 import { lookupTenantByPhoneNumberId } from "../services/waTenantLookup";
 import { handleInboundReceiptImage } from "../services/receiptVerification";
@@ -213,10 +214,13 @@ async function processWaWebhookValue(
   // Redis read-through cache (waTenantLookup) instead of an uncached
   // Postgres select on every message of every webhook.
   const isOnboardingIntakeValue = isOnboardingIntakeNumber(phoneNumberId);
-  const valueTenant: any = isOnboardingIntakeValue
+  // The platform's shared number serves every shop without a number of its own; the shop is chosen per message
+  // (services/sharedNumber.ts), not per value.
+  const isSharedValue = !isOnboardingIntakeValue && isSharedNumber(phoneNumberId);
+  const valueTenant: any = isOnboardingIntakeValue || isSharedValue
     ? null
     : await lookupTenantByPhoneNumberId(db, phoneNumberId);
-      for (const msg of messages) {
+      for (let msg of messages) {
         // === W45 webhook-core (MSG-7): per-message try/catch → the
         // caller marks the DLQ event failed+lastError so the retry
         // heartbeat has real work. ===
@@ -231,7 +235,16 @@ async function processWaWebhookValue(
         // W48 (PERF-INT-6): tenant resolved once per change value above
         // (cached lookup); identical row shape to the previous per-message
         // select — semantics unchanged.
-        const tenant = valueTenant;
+        let tenant = valueTenant;
+        if (isSharedValue) {
+          // Which shop is this for? The router answers the platform-level ones itself (no shop chosen yet,
+          // unknown code, "stores"); the rest continue below exactly as if they came in on the shop's own number.
+          const { routeSharedInbound } = await import("../services/sharedNumber");
+          const routed = await routeSharedInbound(db, msg, waPhoneNumber);
+          if (routed.kind === "handled") continue;
+          tenant = routed.tenant;
+          msg = routed.msg;
+        }
         // === W40 tenancy (TEN-1): suspended/churned tenants get NO inbound
         // processing — drop with a structured log, before the dedupe claim,
         // metering, contact provisioning or NLP dispatch. The 200 ack was
@@ -1380,9 +1393,14 @@ async function processWaWebhookValue(
         const errorCode: string = st.errors?.[0]?.code?.toString() ?? "";
         const errorMessage: string = st.errors?.[0]?.title ?? "";
         if (!waMessageId || !["sent","delivered","read","failed"].includes(statusVal)) continue;
-        const [stTenant] = await db.select({ id: tenants.id }).from(tenants)
-          .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
-          .limit(1).catch(() => [null as any]);
+        const [stTenant] = isSharedValue
+          // Shared number: many shops send from it, so the shop is the one whose send log holds this wamid.
+          ? await db.select({ id: whatsappNotificationLog.tenantId }).from(whatsappNotificationLog)
+              .where(eq(whatsappNotificationLog.wamid, waMessageId))
+              .limit(1).catch(() => [null as any])
+          : await db.select({ id: tenants.id }).from(tenants)
+              .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
+              .limit(1).catch(() => [null as any]);
         const stTenantId: string = (stTenant as any)?.id ?? "default";
         await db.insert(waMessageDeliveryReceipts).values({
           tenantId: stTenantId,

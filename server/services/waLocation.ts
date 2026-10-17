@@ -15,6 +15,7 @@
  */
 
 import { resolveTenantWaCredentials, normalizeWaPhone } from "./waSender";
+import { applySharedEnvelope } from "./sharedNumber";
 // === W46 platform-p2 (PLT-25) === central redacting logger — toPhone and
 // message bodies are PII and never hit logs raw.
 import { rlog, redactString } from "./logRedact";
@@ -42,6 +43,14 @@ export async function sendWhatsAppLocationRequest(
       rlog.info(`[waLocation] simulated location request → ${redactString(toPhone)}`, { body: bodyText.slice(0, 80) });
       return { sent: false, simulated: true };
     }
+    const locationPayload = {
+      type: "interactive",
+      interactive: {
+        type: "location_request_message",
+        body: { text: bodyText.slice(0, 1024) },
+        action: { name: "send_location" },
+      },
+    };
     const resp = await fetch(`https://graph.facebook.com/v21.0/${creds.phoneNumberId}/messages`, {
       method: "POST",
       headers: {
@@ -52,12 +61,7 @@ export async function sendWhatsAppLocationRequest(
         messaging_product: "whatsapp",
         recipient_type: "individual",
         to: normalizeWaPhone(toPhone),
-        type: "interactive",
-        interactive: {
-          type: "location_request_message",
-          body: { text: bodyText.slice(0, 1024) },
-          action: { name: "send_location" },
-        },
+        ...(creds.source === "shared" && creds.shop ? applySharedEnvelope(creds.shop, locationPayload) : locationPayload),
       }),
       signal: AbortSignal.timeout(15000),
     });

@@ -157,6 +157,70 @@ export const tenantRouter = router({
       };
     }),
 
+  // Shared platform number (services/sharedNumber.ts): how buyers reach this shop when it has no number of its own.
+  getSharedNumberInfo: operatorProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const t = await db.getTenantById(input.tenantId);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      const { sharedNumberConfig, shopCodeOf, shopLink, hasOwnNumber } = await import("../services/sharedNumber");
+      const cfg = sharedNumberConfig();
+      const code = shopCodeOf({ shopCode: t.shopCode, slug: t.slug });
+      const own = hasOwnNumber(t);
+      const link = cfg && !own ? shopLink(code, cfg) : null;
+      let qrDataUrl: string | null = null;
+      if (link) {
+        const QRCode = (await import("qrcode")).default;
+        qrDataUrl = await QRCode.toDataURL(link, { margin: 1, width: 320 }).catch(() => null);
+      }
+      return {
+        available: !!cfg,
+        usingSharedNumber: !!cfg && !own,
+        hasOwnNumber: own,
+        shopCode: code.toUpperCase(),
+        customCode: !!t.shopCode,
+        link,
+        qrDataUrl,
+        platformName: cfg?.platformName ?? null,
+      };
+    }),
+
+  setShopCode: operatorProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      shopCode: z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9-]{1,31}$/, "2–32 letters, numbers or dashes, starting with a letter or number"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const t = await db.getTenantById(input.tenantId);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      const code = input.shopCode.toLowerCase();
+      const handle = await db.getDb();
+      if (!handle) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const { sql } = await import("drizzle-orm");
+      // Taken by another shop's code or slug. Slugs stay reserved for their shop even after it sets a custom
+      // code: links printed with the old slug must never start reaching a different business.
+      const [clash] = await handle.select({ id: tenants.id }).from(tenants)
+        .where(and(ne(tenants.id, input.tenantId), sql`(lower(${tenants.shopCode}) = ${code} OR lower(${tenants.slug}) = ${code})`))
+        .limit(1);
+      if (clash) throw new TRPCError({ code: "CONFLICT", message: `The shop code ${input.shopCode.toUpperCase()} is already taken` });
+      const before = t.shopCode ?? null;
+      await db.updateTenant(input.tenantId, { shopCode: code });
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "tenant.setShopCode",
+        entityType: "tenant",
+        entityId: input.tenantId,
+        tenantId: input.tenantId,
+        summary: `Shop code ${before ?? "∅"} → ${code}`,
+        before: { shopCode: before },
+        after: { shopCode: code },
+      });
+      return { shopCode: code.toUpperCase() };
+    }),
+
   updateWhatsAppConfig: operatorProcedure
     .input(z.object({
       tenantId: z.string(),

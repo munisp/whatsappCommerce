@@ -146,12 +146,28 @@ export const tenants = pgTable("tenants", {
   // UC-24: tenant-configured gift-wrap fee (integer cents); 0 = wrap off.
   giftWrapFeeCents: integer("giftWrapFeeCents").default(0).notNull(),
   // === END W46 uc-ux ===
+  // Shared platform number (mig 0180): the code a buyer sends ("SHOP ADIRE") to reach this shop on the
+  // platform's WhatsApp number. Unique case-insensitively (index in the SQL); null = the slug is the code.
+  shopCode: varchar("shopCode", { length: 32 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("tenants_status_idx").on(t.status),
   index("tenants_plan_idx").on(t.plan),
 ]);
+
+// Shared platform number (mig 0180): which shops a buyer has visited on the platform's WhatsApp number.
+// The most recent lastActiveAt is the buyer's current shop; the rest back the "stores" list.
+export const sharedNumberVisits = pgTable("shared_number_visits", {
+  buyerPhone: varchar("buyerPhone", { length: 32 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  firstVisitAt: timestamp("firstVisitAt").defaultNow().notNull(),
+  lastActiveAt: timestamp("lastActiveAt").defaultNow().notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.buyerPhone, t.tenantId] }),
+  index("shared_number_visits_buyer_active_idx").on(t.buyerPhone, t.lastActiveAt),
+]);
+export type SharedNumberVisit = typeof sharedNumberVisits.$inferSelect;
 // ─── Tenant SSO Provisioning (legacy — see W12 tenantMemberships below) ───────
 // One row per TENANT (not per user) — a single linked SSO identity + role.
 // Superseded by tenantMemberships for real multi-user tenant membership;

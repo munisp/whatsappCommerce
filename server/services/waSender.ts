@@ -28,6 +28,7 @@ import { tenants, whatsappNotificationLog } from "../../drizzle/schema";
 import { decryptSecret } from "./crypto/secrets";
 import { isBanCircuitOpen, recordWaSendErrorSignal } from "./banCircuitBreaker";
 import { redactString } from "./logRedact"; // W46 platform-p2 (PLT-25)
+import { applySharedEnvelope, sharedNumberConfig, shopCodeOf, type SharedSender } from "./sharedNumber";
 
 // === W45 messaging-services (MSG-25) ===
 /**
@@ -77,7 +78,9 @@ export const WA_TEXT_LIMIT = 4000;
 export interface WaCredentials {
   phoneNumberId: string;
   accessToken: string;
-  source: "tenant" | "env";
+  /** "shared": the platform's shared number, sending on behalf of `shop` (see services/sharedNumber.ts). */
+  source: "tenant" | "env" | "shared";
+  shop?: SharedSender;
 }
 
 export interface SendTextResult {
@@ -98,7 +101,7 @@ export async function resolveTenantWaCredentials(tenantId: string | null | undef
       const db = await getDb();
       if (db) {
         const [t] = await db
-          .select({ phoneNumberId: tenants.whatsappPhoneNumberId, settings: tenants.settings })
+          .select({ phoneNumberId: tenants.whatsappPhoneNumberId, settings: tenants.settings, name: tenants.name, slug: tenants.slug, shopCode: tenants.shopCode })
           .from(tenants)
           .where(eq(tenants.id, tenantId))
           .limit(1);
@@ -109,6 +112,16 @@ export async function resolveTenantWaCredentials(tenantId: string | null | undef
         const accessToken = rawToken ? decryptSecret(rawToken) : "";
         if (t?.phoneNumberId && accessToken) {
           return { phoneNumberId: t.phoneNumberId, accessToken, source: "tenant" };
+        }
+        // No number of its own: the shop is served on the platform's shared number when one is configured.
+        const shared = sharedNumberConfig();
+        if (t && shared) {
+          return {
+            phoneNumberId: shared.phoneNumberId,
+            accessToken: shared.accessToken,
+            source: "shared",
+            shop: { name: t.name, code: shopCodeOf({ shopCode: t.shopCode, slug: t.slug }) },
+          };
         }
       }
     } catch (e: any) {
@@ -304,9 +317,12 @@ export async function sendWhatsAppText(
   await assertBanCircuitClosed(creds, { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId, skipLog: opts?.skipLog });
 
   const wamids: string[] = [];
-  for (const chunk of chunks) {
+  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+    const chunk = chunks[chunkIndex];
     const url = `https://graph.facebook.com/v21.0/${creds.phoneNumberId}/messages`;
-    const chunkPayload: Record<string, unknown> = { type: "text", text: { preview_url: true, body: chunk } };
+    let chunkPayload: Record<string, unknown> = { type: "text", text: { preview_url: true, body: chunk } };
+    // Shared number: the first chunk names the shop the buyer is talking to.
+    if (creds.source === "shared" && creds.shop && chunkIndex === 0) chunkPayload = applySharedEnvelope(creds.shop, chunkPayload);
     const logBase = { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId, skipLog: opts?.skipLog, payload: chunkPayload };
     let res: Response;
     try {
@@ -563,6 +579,8 @@ async function deliverWaPayload(
 ): Promise<SendTemplateResult> {
   const to = normalizeWaPhone(toPhone);
   const creds = await resolveTenantWaCredentials(tenantId);
+  // Shared number: the shop's name on the message and its code on every button (see services/sharedNumber.ts).
+  if (creds?.source === "shared" && creds.shop) payload = applySharedEnvelope(creds.shop, payload);
   const logBase = { tenantId, phone: to, notifType: logCtx.notifType, orderId: opts?.orderId, userId: opts?.userId, skipLog: opts?.skipLog };
   if (!creds) {
     console.info(`[waSender] SIMULATION ${logCtx.simulationNote} (${tenantId}) → *${to.slice(-4)}`);
