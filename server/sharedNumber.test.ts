@@ -94,3 +94,14 @@ describe("shared number: every message names the shop", () => {
     expect(original.text.body).toBe("hi");
   });
 });
+
+describe("sharedClaimId", () => {
+  it("fits processed_webhook_events.id (64) for a real-length Meta message id, and is stable and distinct", async () => {
+    const { sharedClaimId } = await import("./services/sharedNumber");
+    const wamid = "wamid.HBgNMjM0NzA3NzM0NzQyMhUCABIYFDNBNEExODg2ODE4OEUxNjQ3MzU2AA==";
+    expect(sharedClaimId(wamid).length).toBeLessThanOrEqual(64);
+    expect(sharedClaimId(wamid)).toBe(sharedClaimId(wamid));
+    expect(sharedClaimId(wamid)).not.toBe(sharedClaimId(wamid + "x"));
+    expect(sharedClaimId(wamid).startsWith("shared:")).toBe(true);
+  });
+});

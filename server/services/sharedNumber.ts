@@ -17,10 +17,18 @@
  *
  * Off unless SHARED_WA_PHONE_NUMBER_ID and SHARED_WA_TOKEN are both set.
  */
+import { createHash } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { sharedNumberVisits, tenants } from "../../drizzle/schema";
 
 type Db = any;
+
+
+// The dedupe key for a message on the shared number. processed_webhook_events.id is 64 characters and Meta's
+// message ids (wamid.…) are already about 60, so the id is hashed: "shared:" + 56 hex = 63, unique per message.
+export function sharedClaimId(messageId: string): string {
+  return "shared:" + createHash("sha256").update(messageId).digest("hex").slice(0, 56);
+}
 
 export interface SharedNumberConfig {
   phoneNumberId: string;
@@ -246,7 +254,7 @@ export async function routeSharedInbound(db: Db, msg: any, buyerPhone: string): 
     const claimOnce = async (): Promise<boolean> => {
       if (!msg?.id) return true;
       const { claimWebhookEvent } = await import("./webhookDedupe");
-      return (await claimWebhookEvent(db, { id: `shared:${msg.id}`, tenantId: "shared", type: msg.type ?? "unknown" })) === "claimed";
+      return (await claimWebhookEvent(db, { id: sharedClaimId(msg.id), tenantId: "shared", type: msg.type ?? "unknown" })) === "claimed";
     };
 
     const go = async (t: ShopRow, routedMsg: any): Promise<SharedRoute> => {
