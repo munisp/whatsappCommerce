@@ -2,8 +2,9 @@
  * sharedNumber.ts — one platform WhatsApp number for every shop that has no number of its own.
  *
  * A buyer reaches a shop by sending its code — "SHOP ADIRE", normally from the shop's wa.me link with the text
- * prefilled — and every later message goes to the shop they last reached, until they send another code or pick
- * one from "stores". Shops with their own number keep it; a code for one of those gets a link to that number.
+ * prefilled — or by talking to the lobby (sharedLobby.ts): browsing the stores, searching for a product, or typing
+ * a shop's name. Every later message goes to the shop they last reached, until they send another code or ask for
+ * the stores again. Shops with their own number keep it; a code for one of those gets a link to that number.
  *
  * Inbound: the Meta webhook calls routeSharedInbound for every message on SHARED_WA_PHONE_NUMBER_ID, BEFORE the
  * normal per-tenant pipeline. It either answers the message itself (welcome, unknown code, stores list) or hands
@@ -20,6 +21,11 @@
 import { createHash } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { sharedNumberVisits, tenants } from "../../drizzle/schema";
+import {
+  LOBBY_BROWSE, LOBBY_MINE, LOBBY_SEARCH, MORE_PREFIX, PICK_PREFIX,
+  classifyWithModel, directoryPage, directoryPayload, isLeaveShopText, listedShopsById, parseLobbyText,
+  searchPayload, searchPromptText, searchShops, shopNamed, welcomePayload, type LobbyIntent,
+} from "./sharedLobby";
 
 type Db = any;
 
@@ -98,8 +104,6 @@ export function untagReplyId(id: string): { code: string; id: string } | null {
   const m = TAG_RE.exec(id ?? "");
   return m ? { code: m[1], id: m[2] } : null;
 }
-
-const PICK_PREFIX = "shared_pick:";
 
 // ── Tenant lookups ───────────────────────────────────────────────────────────
 
@@ -194,8 +198,8 @@ async function replyText(cfg: SharedNumberConfig, to: string, body: string): Pro
 
 function welcomeText(cfg: SharedNumberConfig): string {
   return `Welcome to ${cfg.platformName}! 🛍️\n\n` +
-    `To shop with a business, open the WhatsApp link they shared with you, or send *SHOP* followed by their shop code ` +
-    `(for example: SHOP ADIRE).\n\nSend *STORES* any time to switch between shops you've visited.`;
+    `Send *STORES* to see every shop, tell me what you're looking for (like "rice" or "sneakers"), ` +
+    `or send *SHOP* followed by a shop's code (for example: SHOP ADIRE).`;
 }
 
 async function replyStores(cfg: SharedNumberConfig, to: string, shops: ShopRow[]): Promise<void> {
@@ -284,10 +288,55 @@ export async function routeSharedInbound(db: Db, msg: any, buyerPhone: string): 
       return go(t, asText(msg, ARRIVAL_TEXT));
     };
 
-    // 1. A tap on a button one of the shops sent: it belongs to THAT shop, whichever shop is current.
+    // The lobby's replies are the platform's own (not any shop's); each is sent once per message.
+    const recentIds = async () => (await recentShops(db, buyerPhone)).map((t) => t.id);
+    const send = async (payload: Record<string, unknown> | null, fallbackText?: string) => {
+      if (!(await claimOnce())) return;
+      if (payload) {
+        await postShared(cfg, buyerPhone, payload).catch((e: any) => console.error("[shared-number] lobby reply failed:", e?.message));
+      } else if (fallbackText) {
+        await replyText(cfg, buyerPhone, fallbackText);
+      }
+    };
+    const lobby = async (intent: LobbyIntent | { kind: "browse"; offset: number } | { kind: "prompt" } | { kind: "again" }): Promise<SharedRoute> => {
+      switch (intent.kind) {
+        case "greet":
+        case "again":
+          await send(welcomePayload(cfg.platformName, { visited: (await recentIds()).length > 0, again: intent.kind === "again" }));
+          break;
+        case "prompt":
+          await send(null, searchPromptText());
+          break;
+        case "mine": {
+          const shops = await recentShops(db, buyerPhone);
+          if (shops.length) { if (await claimOnce()) await replyStores(cfg, buyerPhone, shops); }
+          else await send(welcomePayload(cfg.platformName, { visited: false }));
+          break;
+        }
+        case "browse": {
+          const offset = "offset" in intent ? intent.offset : 0;
+          const recent = offset === 0 ? await listedShopsById(db, (await recentIds()).slice(0, 3)) : [];
+          const { shops, total } = await directoryPage(db, offset, 9 - recent.length);
+          await send(directoryPayload(cfg.platformName, shops, total, offset, recent),
+            `No shops are listed on ${cfg.platformName} yet. If a business gave you its shop code, send *SHOP* and the code.`);
+          break;
+        }
+        case "search":
+          await send(searchPayload(intent.query, await searchShops(db, intent.query)));
+          break;
+      }
+      return { kind: "handled" };
+    };
+
+    // 1. Taps. A shop's own button belongs to THAT shop, whichever shop is current; the lobby's buttons and list
+    //    rows (pick a shop, more stores, browse, search, my shops) are the platform's.
     const reply = replyIdOf(msg);
     if (reply) {
       if (reply.id.startsWith(PICK_PREFIX)) return arrive(reply.id.slice(PICK_PREFIX.length));
+      if (reply.id.startsWith(MORE_PREFIX)) return lobby({ kind: "browse", offset: Number(reply.id.slice(MORE_PREFIX.length)) || 0 });
+      if (reply.id === LOBBY_BROWSE) return lobby({ kind: "browse" });
+      if (reply.id === LOBBY_SEARCH) return lobby({ kind: "prompt" });
+      if (reply.id === LOBBY_MINE) return lobby({ kind: "mine" });
       const tag = untagReplyId(reply.id);
       if (tag) {
         const t = await shopByCode(db, tag.code);
@@ -295,24 +344,38 @@ export async function routeSharedInbound(db: Db, msg: any, buyerPhone: string): 
       }
     }
 
-    // 2. Typed commands.
-    if (msg?.type === "text") {
-      const body = String(msg.text?.body ?? "");
-      const code = parseShopCommand(body);
-      if (code) return arrive(code);
-      if (isStoresCommand(body)) {
-        if (await claimOnce()) await replyStores(cfg, buyerPhone, await recentShops(db, buyerPhone));
+    const body = msg?.type === "text" ? String(msg.text?.body ?? "") : "";
+
+    // 2. "SHOP <code>" always goes to that shop.
+    const code = body ? parseShopCommand(body) : null;
+    if (code) return arrive(code);
+
+    // 3. With a shop: everything goes to the shop's own assistant, except asking for the stores again.
+    const current = await currentShop(db, buyerPhone);
+    if (current && reachable(current) && !hasOwnNumber(current)) {
+      if (body && (isLeaveShopText(body) || isStoresCommand(body))) {
+        const intent = parseLobbyText(body);
+        return lobby(intent?.kind === "mine" ? intent : { kind: "browse" });
+      }
+      return go(current, msg);
+    }
+
+    // 4. The lobby: read what the buyer said — the plain phrasings, then a shop's name, then a quick search, then
+    //    the model — and answer like a person would, never with silence.
+    if (!body) return lobby({ kind: "greet" });
+    const intent = parseLobbyText(body);
+    if (intent) return lobby(intent);
+    const named = await shopNamed(db, body);
+    if (named) return arrive(named.code);
+    if (body.trim().split(/\s+/).length <= 6) {
+      const hits = await searchShops(db, body);
+      if (hits.length) {
+        await send(searchPayload(body.trim(), hits));
         return { kind: "handled" };
       }
     }
-
-    // 3. Everything else goes to the buyer's current shop.
-    const current = await currentShop(db, buyerPhone);
-    if (current && reachable(current) && !hasOwnNumber(current)) return go(current, msg);
-
-    // 4. No shop yet.
-    if (await claimOnce()) await replyText(cfg, buyerPhone, welcomeText(cfg));
-    return { kind: "handled" };
+    const understood = await classifyWithModel(body);
+    return lobby(understood ?? { kind: "again" });
   } catch (e: any) {
     console.error("[shared-number] routing failed:", e?.message);
     await replyText(cfg, buyerPhone, welcomeText(cfg));
