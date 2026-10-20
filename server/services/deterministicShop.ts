@@ -253,7 +253,8 @@ export function classifyDeterministically(
 
   // A bare "N" (or "N x qty") picks that position from the catalog just shown, the same way the numbered menu
   // engine treats a digit — never guessed against free text that happens to contain a number elsewhere.
-  const bareNumber = /^(\d{1,2})(?:\s*[x×]\s*(\d{1,3}))?$/.exec(trimmed);
+  // A short interjection or label in front ("oh 1", "ok 2", "number 3", "#1") is still that pick.
+  const bareNumber = /^(?:(?:oh|ok(?:ay)?|um+|uh+|hmm+|so|yes|yeah|number|option|item)[\s,.!:-]+|#\s*)?(\d{1,2})(?:\s*[x×]\s*(\d{1,3}))?[.!]?$/i.exec(trimmed);
   if (bareNumber) {
     const idx = parseInt(bareNumber[1], 10) - 1;
     const product = products[idx];

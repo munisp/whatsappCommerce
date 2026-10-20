@@ -1122,7 +1122,7 @@ const SHOP_REPLY_SCHEMA = {
   strict: true,
 } as const;
 
-function buildSystemPrompt(language: string, products: Array<{ name: string; price: string; currency: string; stockQuantity: number }>, tenantName: string): string {
+function buildSystemPrompt(language: string, products: Array<{ name: string; price: string; currency: string; stockQuantity: number }>, tenantName: string, shopFacts: string[] = []): string {
   const productList = products.slice(0, 20).map(p =>
     `- ${p.name}: ${p.currency} ${p.price} (${p.stockQuantity > 0 ? "in stock" : "out of stock"})`
   ).join("\n");
@@ -1157,7 +1157,12 @@ CONVERSATION RULES:
 9. If the customer wants to CANCEL an order they placed ("cancel my order", "cancel the order", "I don't want it anymore", "please cancel order #..."), use intent "cancel_order" — the system cancels it if it hasn't shipped and refunds any payment. Do NOT use "dispute" for plain cancellation requests.
 10. If the customer describes a DISH or RECIPE and asks what they need for it ("I need ingredients for jollof rice", "what do I need to make suya?"), figure out which AVAILABLE PRODUCTS above are actual ingredients/components for it and suggest those specifically by name — don't just repeat the whole catalog. If the customer agrees, put them in extractedItems like any other add. If nothing in stock is genuinely relevant, say so honestly rather than forcing a match.
 11. When nothing else in these rules fits — an opinion, small talk, "what do you recommend" — just talk to them like a helpful person would. Use intent "unknown" only when you truly have nothing useful to say (this is already a fallback path — a plain, honest, ON-TOPIC answer beats a forced classification).
-12. You only know about {tenantName}'s own catalog above — NOTHING ELSE. If asked about other restaurants/shops/businesses nearby, or what else is around them, do NOT invent or name any real-world business, chain, or competitor — you have no such data and a made-up answer is a lie the customer could act on. Say you can only look up real businesses ON THIS PLATFORM, and that needs their actual location: tell them to tap 📎 → Location and share it (typing a place name doesn't work — it can't be searched).
+12. You only know about ${tenantName}'s own catalog above — NOTHING ELSE. If asked about other restaurants/shops/businesses nearby, or what else is around them, do NOT invent or name any real-world business, chain, or competitor — you have no such data and a made-up answer is a lie the customer could act on. Say you can only look up real businesses ON THIS PLATFORM, and that needs their actual location: tell them to tap 📎 → Location and share it (typing a place name doesn't work — it can't be searched).
+13. Never state a fact about the shop that isn't in SHOP FACTS below or the catalog: no opening or closing hours, delivery areas, delivery fees or times, addresses, refund or other policies. If asked one you don't have, say you don't have that information and that they can type "talk to a human" to ask the shop.
+14. extractedItems holds only what THIS message asks to add — never re-list what is already in CURRENT CART.
+
+SHOP FACTS:
+${shopFacts.length ? shopFacts.map((f) => `- ${f}`).join("\n") : "- (none given)"}
 
 RESPOND WITH JSON (no markdown):
 {
@@ -3730,7 +3735,18 @@ export const nlpRouter = router({
           extractedItems: [], extractedProduct: null, extractedQuantity: null, extractedAddress: null, confidence: 1,
         };
       } else if (llmResult.intent === "unknown") {
-        const systemPrompt = buildSystemPrompt(session.language, tenantProducts, input.tenantId);
+        // The shop's real name and the few facts it has configured — anything else the model must not make up
+        // (live 2026-10-20: "Yes, we deliver to Ikeja", "We close at 8 PM" for a shop with neither set).
+        const [shopRow] = await db.select({ name: tenants.name, settings: tenants.settings })
+          .from(tenants).where(eq(tenants.id, input.tenantId)).limit(1).catch(() => [] as any[]);
+        const commerce = ((shopRow?.settings as any)?.commerce ?? {}) as { pickupEnabled?: boolean; codEnabled?: boolean; deliveryZones?: Array<{ name?: string }> };
+        const zoneNames = (commerce.deliveryZones ?? []).map((z) => z?.name).filter((n): n is string => typeof n === "string" && !!n.trim());
+        const shopFacts = [
+          zoneNames.length ? `Delivers to: ${zoneNames.join(", ")} (nowhere else)` : null,
+          commerce.pickupEnabled === false ? "No pickup — delivery only" : "Pickup is available",
+          commerce.codEnabled === false ? "Online payment only — no cash on delivery" : null,
+        ].filter((f): f is string => !!f);
+        const systemPrompt = buildSystemPrompt(session.language, tenantProducts, shopRow?.name ?? "this shop", shopFacts);
         const cartSummary = cartItemsList.length > 0
           ? `\nCURRENT CART:\n${cartItemsList.map(i => `- ${i.productName} x${i.quantity} @ ${i.currency} ${i.unitPrice}`).join("\n")}\nCart total: ${cartItemsList.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0).toFixed(2)}`
           : "\nCURRENT CART: empty";
@@ -3754,8 +3770,13 @@ export const nlpRouter = router({
           // parses cleanly while leaving `reply`/`intent` undefined. Require both before trusting it over the
           // deterministic catch-all already sitting in `llmResult` (built above, never thrown away here).
           if (parsed && typeof parsed.reply === "string" && parsed.reply.trim() && typeof parsed.intent === "string" && parsed.intent.trim()) {
-            llmResult = parsed;
-            usedLlm = true;
+            // "✅ N × item" lines are the server's record of what was really added (prepended below); a model that
+            // writes its own claims adds that never happened, or doubles the real ones (live 2026-10-20).
+            const ownWords = parsed.reply.split("\n").filter((l: string) => !/^\s*✅/.test(l)).join("\n").trim();
+            if (ownWords || parsed.intent === "add_to_cart") {
+              llmResult = { ...parsed, reply: ownWords };
+              usedLlm = true;
+            }
           }
         } catch {
           // The LLM is unreachable, timed out, or (despite schema enforcement) still returned something
@@ -3779,7 +3800,23 @@ export const nlpRouter = router({
         // extractedProduct/extractedQuantity fields are the fallback. Each item
         // is matched with per-item confidence — ambiguous mentions are NOT
         // guessed; they get a clarification line appended to the reply.
-        const itemsToAdd = normalizeExtractedItems(llmResult);
+        let itemsToAdd = normalizeExtractedItems(llmResult);
+        const proposed = itemsToAdd.length;
+        // A model often re-lists the whole cart in extractedItems ("add a pepsi" → jollof + pepsi), which added
+        // everything already there again. Of the model's items, keep a product already in the cart only when this
+        // message names it.
+        if (usedLlm && cartItemsList.length > 0) {
+          const msg = input.message.toLowerCase();
+          const inCart = new Set(cartItemsList.map((i) => String(i.productName).toLowerCase()));
+          itemsToAdd = itemsToAdd.filter((it) => {
+            const m = matchCatalogItem(tenantProducts, it.product);
+            if (m.status !== "matched" || !inCart.has(m.product.name.toLowerCase())) return true;
+            return m.product.name.toLowerCase().split(/[\s\-_,.()/]+/).some((w) => w.length >= 3 && msg.includes(w));
+          });
+        }
+        if (proposed > 0 && itemsToAdd.length === 0) {
+          llmResult.reply = `That's already in your cart:\n${cartItemsList.map((i) => `• ${i.quantity} × ${i.productName}`).join("\n")}\n\nTell me if you'd like more, or type "confirm" to check out.`;
+        }
         if (itemsToAdd.length > 0) {
           // W46 merge-close: the catalog context window above is limited to
           // 30 rows (unordered) — on tenants with larger catalogs an
@@ -3840,7 +3877,13 @@ export const nlpRouter = router({
             const addedSummary = result.added
               .map(a => `✅ ${a.quantity} × ${a.productName}`)
               .join("\n");
-            llmResult.reply = `${addedSummary}\n${llmResult.reply ?? ""}`.trim();
+            // A model's own words on an add are an echo of it, often with totals it worked out itself — say what
+            // really happened and the real total instead.
+            const total = cartItemsList.reduce((t, i) => t + Number(i.unitPrice) * i.quantity, 0);
+            const cur = cartItemsList[0]?.currency ?? "NGN";
+            llmResult.reply = usedLlm
+              ? `${addedSummary}\nYour cart total: ${cur} ${total.toFixed(2)}. Anything else, or type "confirm" to check out?`
+              : `${addedSummary}\n${llmResult.reply ?? ""}`.trim();
             if (result.clarifications.length > 0) {
               llmResult.reply = `${llmResult.reply}\n\n${result.clarifications.join("\n")}`.trim();
             }

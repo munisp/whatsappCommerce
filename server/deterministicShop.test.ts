@@ -67,6 +67,13 @@ describe("classifyDeterministically — numbered catalog pick", () => {
     const r = classify("1x3");
     expect(r.extractedItems).toEqual([{ product: "Jollof Rice", quantity: 3 }]);
   });
+  it("a short interjection or label in front is still the pick (\"Oh 1\", \"ok 2\", \"#1\")", () => {
+    expect(classify("Oh 1").extractedItems).toEqual([{ product: "Jollof Rice", quantity: 1 }]);
+    expect(classify("ok, 2").extractedItems).toEqual([{ product: "Grilled Chicken", quantity: 1 }]);
+    expect(classify("#1").extractedItems).toEqual([{ product: "Jollof Rice", quantity: 1 }]);
+    expect(classify("number 2.").extractedItems).toEqual([{ product: "Grilled Chicken", quantity: 1 }]);
+    expect(classify("no 1").intent).not.toBe("add_to_cart");
+  });
   it("out of range: says so, still shows the catalog, never silently mismatches to the wrong item", () => {
     const r = classify("9");
     expect(r.intent).toBe("unknown");

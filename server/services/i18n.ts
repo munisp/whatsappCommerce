@@ -2005,7 +2005,9 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     pcm: ["help", "abeg help", "support"],
   },
   handoff: {
-    en: ["human", "agent", "person"],
+    en: ["human", "agent", "person", "talk to a human", "speak to a human", "talk to human", "talk to an agent",
+      "speak to an agent", "talk to agent", "talk to someone", "speak to someone", "talk to a person", "a real person",
+      "real person", "customer care", "customer service"],
     fr: ["agent", "humain", "personne"],
     ha: ["wakili", "mutum"],
     yo: ["aṣojú", "ẹ̀nìyàn"],
