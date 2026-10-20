@@ -601,7 +601,8 @@ async function sendPotDunning(db: Db, tenantId: string, message: string): Promis
 async function releasePotClaim(db: Db, reference: string): Promise<void> {
   try {
     const { processedWebhookEvents } = await import("../../drizzle/schema");
-    await db.delete(processedWebhookEvents).where(eq(processedWebhookEvents.id, reference));
+    const { ledgerId } = await import("./webhookDedupe");
+    await db.delete(processedWebhookEvents).where(eq(processedWebhookEvents.id, ledgerId(reference)));
   } catch (err: any) {
     console.warn(`[payOverTime] claim release failed for ${reference}:`, err?.message);
   }

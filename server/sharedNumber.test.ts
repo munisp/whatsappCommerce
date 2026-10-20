@@ -105,3 +105,15 @@ describe("sharedClaimId", () => {
     expect(sharedClaimId(wamid).startsWith("shared:")).toBe(true);
   });
 });
+
+describe("ledgerId: the dedupe ledger key fits processed_webhook_events.id (64)", () => {
+  it("keeps short ids as they are and turns long ones into a stable 64-character key", async () => {
+    const { ledgerId } = await import("./services/webhookDedupe");
+    const nigerian = "wamid.HBgNMjM0NzA3NzM0NzQyMhUCABIYFDNCQTQzRTgwN0M1MzRFMDgyQUE1AA=="; // 66, from a +234 number
+    expect(nigerian.length).toBe(66);
+    expect(ledgerId(nigerian)).toHaveLength(64);
+    expect(ledgerId(nigerian)).toBe(ledgerId(nigerian)); // the same message is still caught as a duplicate
+    expect(ledgerId(nigerian + "x")).not.toBe(ledgerId(nigerian));
+    expect(ledgerId("wamid.short")).toBe("wamid.short"); // existing rows still match
+  });
+});

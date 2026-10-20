@@ -129,7 +129,8 @@ interface WaValueProcessResult {
 async function releaseWaWebhookClaim(db: WaWebhookDb, claimId: string): Promise<void> {
   try {
     const { processedWebhookEvents } = await import("../../drizzle/schema");
-    await db.delete(processedWebhookEvents).where(eq(processedWebhookEvents.id, claimId));
+    const { ledgerId } = await import("../services/webhookDedupe");
+    await db.delete(processedWebhookEvents).where(eq(processedWebhookEvents.id, ledgerId(claimId)));
     console.warn(`[whatsapp-webhook] released wamid claim ${claimId} (replayable after quota reset)`);
   } catch (e: any) {
     console.error(`[whatsapp-webhook] claim release failed for ${claimId}:`, e?.message);

@@ -19,6 +19,7 @@
  * (invoked from the /api/cron/webhook-dedupe-sweep cron endpoint).
  */
 
+import { createHash } from "node:crypto";
 import { and, eq, lt, or } from "drizzle-orm";
 import type { getDb } from "../db";
 import { processedWebhookEvents, waWebhookEvents, waMessageDeliveryReceipts } from "../../drizzle/schema";
@@ -41,6 +42,17 @@ function isMissingTableError(err: any): boolean {
 export type ClaimResult = "claimed" | "duplicate";
 
 /**
+ * The ledger key for an event id. processed_webhook_events.id is 64 characters, and Meta's message ids are not
+ * always shorter: a message from a Nigerian number (wamid.HBgNMjM0…) is 66, so its claim failed and the message was
+ * dropped ("dedupe ledger unavailable — failing closed"). Ids up to 64 are kept as they are (existing rows still
+ * match); a longer one becomes "h:" + 62 hex of its sha256 — the same id always gives the same key, so duplicates
+ * are still caught. Every read or delete by id must go through this too.
+ */
+export function ledgerId(id: string): string {
+  return id.length <= 64 ? id : "h:" + createHash("sha256").update(id).digest("hex").slice(0, 62);
+}
+
+/**
  * Claim a webhook event for processing. Returns "claimed" when this caller
  * won the insert-first race, "duplicate" when the event was already claimed.
  */
@@ -52,7 +64,7 @@ export async function claimWebhookEvent(
     const inserted = await db
       .insert(processedWebhookEvents)
       .values({
-        id: event.id,
+        id: ledgerId(event.id),
         tenantId: event.tenantId,
         type: event.type,
         processedAt: new Date(),

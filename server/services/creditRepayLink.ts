@@ -32,7 +32,7 @@ import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { creditLedger, paymentIntents, processedWebhookEvents } from "../../drizzle/schema";
 import { ENV } from "../_core/env";
-import { claimWebhookEvent } from "./webhookDedupe";
+import { claimWebhookEvent, ledgerId } from "./webhookDedupe";
 import { recordUsage } from "./metering";
 import { captureException } from "./observability";
 import { initiateWithFallback, ProviderChainExhaustedError } from "./payments/initiateWithFallback";
@@ -339,7 +339,7 @@ export async function runCreditRepaymentHook(
       // (c) fire a CRITICAL captureException, (d) report a truthful failure.
       await db
         .delete(processedWebhookEvents)
-        .where(eq(processedWebhookEvents.id, claimId))
+        .where(eq(processedWebhookEvents.id, ledgerId(claimId)))
         .catch((delErr: any) => console.error("[credit-repay] claim rollback failed:", delErr?.message));
       await persistSettlementRetryMarker(db, accountId, input.reference, amountCents);
       console.error(
@@ -366,7 +366,7 @@ export async function runCreditRepaymentHook(
     // can retry the apply. Best-effort: never mask the original error.
     await db
       .delete(processedWebhookEvents)
-      .where(eq(processedWebhookEvents.id, claimId))
+      .where(eq(processedWebhookEvents.id, ledgerId(claimId)))
       .catch((delErr: any) => console.error("[credit-repay] claim rollback failed:", delErr?.message));
     console.error(`[credit-repay] applyRepayment failed for ref=${input.reference}:`, err?.message);
     // Money-path: a confirmed repayment could not be applied to the ledger
