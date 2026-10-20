@@ -824,6 +824,13 @@ function handleCopilotLlm(body: any): Response | null {
   return copilotCompletion({ content: "Got it — let me know how you'd like to proceed." }, body);
 }
 
+/** Whether a scripted rule answers this request (used to pass unscripted calls to a real model). */
+function llmRuleMatches(body: any): boolean {
+  const userText = extractLastUserText(body);
+  return llm.rules.some((rule) => typeof rule.match === "string" ? userText.includes(rule.match)
+    : rule.match instanceof RegExp ? rule.match.test(userText) : rule.match(userText, body));
+}
+
 function handleLlm(body: any): Response {
   const userText = extractLastUserText(body);
   llm.calls.push({ userText, body });
@@ -1152,6 +1159,21 @@ export function installFetchMock(): void {
       // throwing here is what a real `fetch` does on a connection refused, the exact failure mode found live
       // 2026-09-25 (LLM_BASE_URL pointed at nothing).
       if (llm.forceNetworkError) throw new Error("simulated LLM network error");
+      // SIM_REAL_LLM_URL: forward the model calls to a real OpenAI-compatible endpoint (e.g. a port-forwarded Ollama)
+      // to judge real answers, with everything else still mocked. Scripted rules still win when they match.
+      if (process.env.SIM_REAL_LLM_URL && !llmRuleMatches(parseJsonSafe(bodyText))) {
+        const fwd = parseJsonSafe(bodyText) ?? {};
+        if (process.env.SIM_REAL_LLM_MODEL) fwd.model = process.env.SIM_REAL_LLM_MODEL;
+        const res = await realFetch!(process.env.SIM_REAL_LLM_URL.replace(/\/$/, "") + u.pathname.replace(/^\/v1/, "/v1"), {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(fwd),
+        });
+        // SIM_REAL_LLM_LOG=1 prints each answer's content, to tell the model's own words from the server's.
+        if (process.env.SIM_REAL_LLM_LOG) {
+          const text = await res.clone().text();
+          try { console.log("   [model] " + (JSON.parse(text).choices?.[0]?.message?.content ?? text)); } catch { console.log("   [model] " + text); }
+        }
+        return res;
+      }
       return handleLlm(parseJsonSafe(bodyText));
     }
     if (OPENAI_RE.test(url)) {

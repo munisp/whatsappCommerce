@@ -76,6 +76,37 @@ export function isLeaveShopText(text: string): boolean {
     .test(clean(text));
 }
 
+/**
+ * Inside a shop: is the buyer asking about OTHER shops? ("can you check stores around me that sell this?", "which
+ * other shops have pepsi", "who else sells rice"). Then the platform answers with a search across the stores, and
+ * the buyer stays with their shop until they pick another. Returns the search words ("" when there are none, e.g.
+ * "show me other shops" — then the directory), or null when the message is for the shop itself ("find red shoes").
+ */
+const CROSS_SHOP_RE = new RegExp(
+  "\\b(?:other|another|more|different)\\s+(?:stores?|shops?|sellers?|vendors?|businesses)\\b" +
+    "|\\b(?:stores?|shops?|sellers?|vendors?)\\s+(?:around|near|close to|nearby)\\b" +
+    "|\\b(?:stores?|shops?|sellers?|vendors?)\\s+(?:that|which|who)\\s+(?:sell|sells|selling|have|has|stock|stocks|carry|carries)\\b" +
+    "|\\bwho\\s+else\\s+(?:sells?|has|have)\\b|\\bwhere\\s+else\\s+can\\s+i\\s+(?:buy|get|find)\\b" +
+    "|\\b(?:any|which)\\s+(?:other\\s+)?(?:stores?|shops?|sellers?|vendors?)\\s+(?:sell|sells|have|has)\\b",
+  "i",
+);
+const PRONOUN_RE = /^(?:this|that|it|them|these|those|one|any|some)$/i;
+
+export function crossShopQuery(text: string): string | null {
+  const t = clean(text);
+  if (!CROSS_SHOP_RE.test(t)) return null;
+  // 1. What follows "sell / have / stock": "...shops that sell ankara fabric" -> "ankara fabric".
+  const after = /\b(?:sell|sells|selling|have|has|stock|stocks|carry|carries|buy|get|find)\s+(.+)$/i.exec(t);
+  if (after) {
+    const q = searchQueryOf(after[1].replace(/\b(?:around|near|close to)\s+me\b.*$/i, "").replace(/\b(?:please|pls|abeg)\b/gi, ""));
+    if (q.length >= 2 && !PRONOUN_RE.test(q)) return q;
+  }
+  // 2. Otherwise what came before the question: "some pepsi can you check stores around me that sell this" -> "pepsi".
+  const before = t.split(/\b(?:can|could|would|will)\s+you\b|\b(?:check|find|search|show|look)\b|\b(?:other|another|any|which)\s+(?:stores?|shops?)\b|\b(?:stores?|shops?)\b/i)[0] ?? "";
+  const q = searchQueryOf(before.replace(/\b(?:i\s+(?:want|need)(?:\s+to\s+buy)?|please|pls|abeg|hi|hello)\b/gi, ""));
+  return q.length >= 2 && !PRONOUN_RE.test(q) ? q : "";
+}
+
 // ── The directory ────────────────────────────────────────────────────────────
 
 export interface DirectoryShop {
@@ -90,10 +121,12 @@ export interface DirectoryShop {
 
 const rowsOf = (res: any): any[] => (Array.isArray(res) ? res : (res?.rows ?? []));
 
-// The shops the shared number serves and lists. Kept as one fragment so the directory and search agree.
-const LISTED = sql`
+// The shops the shared number serves (open, no number of their own) — a buyer can always go back to one they visited.
+const SERVED = sql`
   t.status IN ('active', 'trial')
-  AND (t."whatsappPhoneNumberId" IS NULL OR coalesce(t.settings->'whatsapp'->>'accessToken', '') = '')
+  AND (t."whatsappPhoneNumberId" IS NULL OR coalesce(t.settings->'whatsapp'->>'accessToken', '') = '')`;
+// ...and of those, the ones the directory lists. Kept as one fragment so the directory and search agree.
+const LISTED = sql`${SERVED}
   AND coalesce(t.settings->'directory'->>'listed', 'true') <> 'false'
   AND EXISTS (SELECT 1 FROM products p0 WHERE p0."tenantId" = t.id AND p0.status = 'active')`;
 
@@ -132,25 +165,48 @@ export async function directoryPage(db: Db, offset: number, limit: number): Prom
   return { shops: rows.map(toShop), total: Number(rows[0]?.total ?? 0) };
 }
 
-/** Listed shops by id, in the order given (the buyer's recently visited shops). */
+/** The buyer's recently visited shops by id, in the order given: every shop still served on the shared number, listed
+ *  in the directory or not (a hidden or not-yet-stocked shop they reached by its own link is still theirs to go back to). */
 export async function listedShopsById(db: Db, ids: string[]): Promise<DirectoryShop[]> {
   if (!ids.length) return [];
   const res = await db.execute(sql`
     SELECT ${SHOP_FIELDS} FROM tenants t
-    WHERE ${LISTED} AND t.id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`);
+    WHERE ${SERVED} AND t.id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)})`);
   const byId = new Map(rowsOf(res).map((r) => [String(r.id), toShop(r)]));
   return ids.map((i) => byId.get(i)).filter((s): s is DirectoryShop => !!s);
 }
 
-/** Every word must appear in the shop's name or code, or in one product's name, category or description. */
+// Words that say how someone asks, not what they want ("i need to have drink today" is a search for "drink").
+const FILLER_WORDS = new Set(("a an and any are can could do does for from get give got have has i im i'm is it its just like " +
+  "looking me my need of on or please pls abeg some something someone that the them this to today tomorrow now " +
+  "want wanna would you your u us we there here where who which what with buy order cold hot nice good").split(" "));
+
+/** The words a search looks for: filler dropped, a plural also matched as its singular ("chargers" → "charger"). */
+export function searchWords(query: string): string[] {
+  return searchQueryOf(query).toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, " ").split(/\s+/)
+    .filter((w) => w.length >= 2 && !FILLER_WORDS.has(w))
+    .map((w) => (w.length > 3 && /[^s]s$/.test(w) ? w.slice(0, -1) : w))
+    .slice(0, 5);
+}
+
+/**
+ * Shops for a search. Every word must appear in the shop's name or code, or in one product's name, category or
+ * description; when no shop has them all, shops matching the most of them come back instead.
+ */
 export async function searchShops(db: Db, query: string, limit = 10): Promise<DirectoryShop[]> {
-  const words = searchQueryOf(query).toLowerCase().split(" ").filter((w) => w.length >= 2).slice(0, 5);
+  const words = searchWords(query);
   if (!words.length) return [];
+  const all = await searchShopsBy(db, words, "all", limit);
+  return all.length || words.length === 1 ? all : searchShopsBy(db, words, "any", limit);
+}
+
+async function searchShopsBy(db: Db, words: string[], mode: "all" | "any", limit: number): Promise<DirectoryShop[]> {
   const like = (w: string) => `%${w.replace(/[%_\\]/g, (c) => "\\" + c)}%`;
+  const joiner = mode === "all" ? sql` AND ` : sql` OR `;
   const productHit = sql.join(words.map((w) => sql`(
       lower(p.name) LIKE ${like(w)} OR lower(coalesce(p.category, '')) LIKE ${like(w)}
-      OR lower(coalesce(p.description, '')) LIKE ${like(w)})`), sql` AND `);
-  const shopHit = sql.join(words.map((w) => sql`(lower(t.name) LIKE ${like(w)} OR lower(coalesce(t."shopCode", t.slug)) LIKE ${like(w)})`), sql` AND `);
+      OR lower(coalesce(p.description, '')) LIKE ${like(w)})`), joiner);
+  const shopHit = sql.join(words.map((w) => sql`(lower(t.name) LIKE ${like(w)} OR lower(coalesce(t."shopCode", t.slug)) LIKE ${like(w)})`), joiner);
   const res = await db.execute(sql`
     SELECT * FROM (
       SELECT ${SHOP_FIELDS},

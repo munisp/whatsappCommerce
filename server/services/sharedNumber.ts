@@ -23,7 +23,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { sharedNumberVisits, tenants } from "../../drizzle/schema";
 import {
   LOBBY_BROWSE, LOBBY_MINE, LOBBY_SEARCH, MORE_PREFIX, PICK_PREFIX,
-  classifyWithModel, directoryPage, directoryPayload, isLeaveShopText, listedShopsById, parseLobbyText,
+  classifyWithModel, crossShopQuery, directoryPage, directoryPayload, isLeaveShopText, listedShopsById, parseLobbyText,
   searchPayload, searchPromptText, searchShops, shopNamed, welcomePayload, type LobbyIntent,
 } from "./sharedLobby";
 
@@ -321,9 +321,21 @@ export async function routeSharedInbound(db: Db, msg: any, buyerPhone: string): 
             `No shops are listed on ${cfg.platformName} yet. If a business gave you its shop code, send *SHOP* and the code.`);
           break;
         }
-        case "search":
-          await send(searchPayload(intent.query, await searchShops(db, intent.query)));
+        case "search": {
+          let query = intent.query;
+          let hits = await searchShops(db, query);
+          // A whole sentence that found nothing ("something to quench my thirst like a cold drink"): ask the model
+          // what is actually wanted, and search for that.
+          if (!hits.length && query.trim().split(/\s+/).length >= 3) {
+            const asked = await classifyWithModel(query);
+            if (asked?.kind === "search" && asked.query.toLowerCase() !== query.toLowerCase()) {
+              const again = await searchShops(db, asked.query);
+              if (again.length) { query = asked.query; hits = again; }
+            }
+          }
+          await send(searchPayload(query, hits));
           break;
+        }
       }
       return { kind: "handled" };
     };
@@ -357,6 +369,10 @@ export async function routeSharedInbound(db: Db, msg: any, buyerPhone: string): 
         const intent = parseLobbyText(body);
         return lobby(intent?.kind === "mine" ? intent : { kind: "browse" });
       }
+      // Asking about OTHER shops ("can you check stores around me that sell this?"): the platform searches across
+      // the stores; the buyer stays with this shop until they pick another.
+      const elsewhere = body ? crossShopQuery(body) : null;
+      if (elsewhere !== null) return lobby(elsewhere ? { kind: "search", query: elsewhere } : { kind: "browse" });
       return go(current, msg);
     }
 
