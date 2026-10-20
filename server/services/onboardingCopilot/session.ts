@@ -16,7 +16,7 @@
  * - abandoned:   explicitly abandoned by the operator
  */
 import { randomUUID } from "crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../db";
 import { onboardingSessions } from "../../../drizzle/schema";
 
@@ -40,8 +40,12 @@ export const COPILOT_STATES = [
 ] as const;
 export type CopilotState = (typeof COPILOT_STATES)[number];
 
-export const COPILOT_CHANNELS = ["admin", "whatsapp"] as const;
+export const COPILOT_CHANNELS = ["admin", "whatsapp", "telegram"] as const;
 export type CopilotChannel = (typeof COPILOT_CHANNELS)[number];
+/** The chat channels: a person (by their verified phone) has at most one open setup across them, so they can start
+ *  on Telegram and carry on on WhatsApp, and SELL on either finds the same one. */
+export const CHAT_CHANNELS: CopilotChannel[] = ["whatsapp", "telegram"];
+export const isChatChannel = (c: string | null | undefined): boolean => CHAT_CHANNELS.includes(c as CopilotChannel);
 
 /** Terminal states — an "active" session is any non-terminal one. */
 export const TERMINAL_STATES: readonly CopilotState[] = ["live", "failed", "abandoned"];
@@ -207,7 +211,7 @@ export async function findActiveSessionRowByPhone(phone: string): Promise<Onboar
   const rows = await db
     .select()
     .from(onboardingSessions)
-    .where(and(eq(onboardingSessions.channel, "whatsapp"), eq(onboardingSessions.phone, phone)));
+    .where(and(inArray(onboardingSessions.channel, CHAT_CHANNELS), eq(onboardingSessions.phone, phone)));
   const active = rows
     .map(rowToSession)
     .filter((s) => !TERMINAL_STATES.includes(s.state))
@@ -225,7 +229,7 @@ export async function supersedeActiveSessionsForPhone(phone: string, dbOverride?
   const rows = await db
     .select()
     .from(onboardingSessions)
-    .where(and(eq(onboardingSessions.channel, "whatsapp"), eq(onboardingSessions.phone, phone)));
+    .where(and(inArray(onboardingSessions.channel, CHAT_CHANNELS), eq(onboardingSessions.phone, phone)));
   const doomed = rows.filter((r: any) => !TERMINAL_STATES.includes(r.state as CopilotState));
   for (const r of doomed) {
     await db
@@ -252,7 +256,7 @@ export async function startSessionCas(args: {
 }): Promise<{ session: OnboardingSession; superseded: string[] }> {
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
-  const lockKey = `${args.channel}|${args.phone}`;
+  const lockKey = `${isChatChannel(args.channel) ? "chat" : args.channel}|${args.phone}`;
   // Test doubles / drivers without transactions fall back to sequential
   // supersede+insert (the mig 0169 partial unique index still backstops real
   // races on a real driver).

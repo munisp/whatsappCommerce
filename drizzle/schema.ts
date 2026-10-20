@@ -174,6 +174,16 @@ export const sharedNumberLobby = pgTable("shared_number_lobby", {
   buyerPhone: varchar("buyerPhone", { length: 32 }).primaryKey(),
   nearQuery: varchar("nearQuery", { length: 60 }),
   nearAskedAt: timestamp("nearAskedAt"),
+  /** 0182: setting up a shop (SELL) — messages go to the onboarding assistant until done or back to shopping. */
+  sellingAt: timestamp("sellingAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+/** 0182: the platform Telegram bot's chats, each with the phone it proved by sharing its own contact. */
+export const telegramPlatformChats = pgTable("telegram_platform_chats", {
+  chatId: varchar("chatId", { length: 32 }).primaryKey(),
+  phone: varchar("phone", { length: 32 }).notNull(),
+  username: varchar("username", { length: 64 }),
+  verifiedAt: timestamp("verifiedAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 // ─── Tenant SSO Provisioning (legacy — see W12 tenantMemberships below) ───────

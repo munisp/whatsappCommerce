@@ -23,7 +23,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { sharedNumberLobby, sharedNumberVisits, tenants } from "../../drizzle/schema";
 import {
   LOBBY_BROWSE, LOBBY_MINE, LOBBY_SEARCH, MORE_PREFIX, PICK_PREFIX,
-  classifyWithModel, crossShopQuery, directoryPage, directoryPayload, isLeaveShopText, isNearText, listedShopsById,
+  classifyWithModel, crossShopQuery, directoryPage, directoryPayload, isLeaveShopText, isNearText, isSellText, listedShopsById,
   nearAskPayload, nearQueryOf, nearbyPayload, nearbyShops, parseLobbyText, searchPayload, searchPromptText, searchShops,
   shopNamed, welcomePayload, type LobbyIntent,
 } from "./sharedLobby";
@@ -199,6 +199,40 @@ async function takeNearAsk(db: Db, buyerPhone: string): Promise<string | null> {
   await db.update(sharedNumberLobby).set({ nearQuery: null, nearAskedAt: null, updatedAt: new Date() })
     .where(eq(sharedNumberLobby.buyerPhone, buyerPhone));
   return Date.now() - new Date(row.nearAskedAt).getTime() <= NEAR_ASK_TTL_MS ? (row.nearQuery ?? "") : null;
+}
+
+// ── Setting up a shop (SELL) ────────────────────────────────────────────────
+// A business that types SELL talks to the platform's onboarding assistant right here, on the shared number. While
+// their setup is open every message goes there; "stores" or a shop code takes them back to shopping (SELL resumes).
+const SELLING_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+async function setSelling(db: Db, buyerPhone: string, on: boolean): Promise<void> {
+  const now = new Date();
+  await db.insert(sharedNumberLobby)
+    .values({ buyerPhone, sellingAt: on ? now : null, updatedAt: now })
+    .onConflictDoUpdate({ target: sharedNumberLobby.buyerPhone, set: { sellingAt: on ? now : null, updatedAt: now } });
+}
+
+async function isSelling(db: Db, buyerPhone: string): Promise<boolean> {
+  const [row] = await db.select({ sellingAt: sharedNumberLobby.sellingAt }).from(sharedNumberLobby)
+    .where(eq(sharedNumberLobby.buyerPhone, buyerPhone)).limit(1);
+  return !!row?.sellingAt && Date.now() - new Date(row.sellingAt).getTime() <= SELLING_TTL_MS;
+}
+
+/** The onboarding assistant's replies, sent from the shared number. */
+function sharedOnboardingTransport(cfg: SharedNumberConfig) {
+  return {
+    channel: "whatsapp" as const,
+    send: async (to: string, payload: Record<string, unknown>) => {
+      try {
+        await postShared(cfg, to, payload);
+        return { sent: true, simulated: false };
+      } catch (e: any) {
+        console.error("[shared-number] onboarding reply failed:", e?.message);
+        return { sent: false, simulated: false };
+      }
+    },
+  };
 }
 
 /** A WhatsApp location message's point, or null. */
@@ -382,9 +416,39 @@ export async function routeSharedInbound(db: Db, msg: any, buyerPhone: string): 
       return { kind: "handled" };
     };
 
+    const body = msg?.type === "text" ? String(msg.text?.body ?? "") : "";
+    const reply = replyIdOf(msg);
+
+    // 0. Setting up a shop. SELL starts (or resumes) it; while it is open the onboarding assistant gets every
+    //    message, except going back to shopping. A finished setup still takes the owner's location pin (going live
+    //    asks for it), then the phone is a buyer again.
+    const onboarding = async (run: () => Promise<unknown>): Promise<SharedRoute> => {
+      if (await claimOnce()) {
+        const { withOnboardingTransport } = await import("./waOnboarding");
+        await withOnboardingTransport(sharedOnboardingTransport(cfg), run as () => Promise<any>);
+      }
+      return { kind: "handled" };
+    };
+    const { handleInbound: onboardingInbound, hasActiveOnboarding, startOrResumeOnboarding } = await import("./waOnboarding");
+    const backToShopping = !!body && (isLeaveShopText(body) || isStoresCommand(body) || !!parseShopCommand(body));
+    if (body && isSellText(body, cfg.platformName)) {
+      await setSelling(db, buyerPhone, true);
+      return onboarding(() => startOrResumeOnboarding(buyerPhone));
+    }
+    if (reply?.id.startsWith("onb_")) return onboarding(() => onboardingInbound(msg, buyerPhone));
+    if (await isSelling(db, buyerPhone)) {
+      if (backToShopping) {
+        await setSelling(db, buyerPhone, false);
+      } else if (await hasActiveOnboarding(buyerPhone)) {
+        return onboarding(() => onboardingInbound(msg, buyerPhone));
+      } else {
+        await setSelling(db, buyerPhone, false);
+        if (msg?.type === "location") return onboarding(() => onboardingInbound(msg, buyerPhone));
+      }
+    }
+
     // 1. Taps. A shop's own button belongs to THAT shop, whichever shop is current; the lobby's buttons and list
     //    rows (pick a shop, more stores, browse, search, my shops) are the platform's.
-    const reply = replyIdOf(msg);
     if (reply) {
       if (reply.id.startsWith(PICK_PREFIX)) return arrive(reply.id.slice(PICK_PREFIX.length));
       if (reply.id.startsWith(MORE_PREFIX)) return lobby({ kind: "browse", offset: Number(reply.id.slice(MORE_PREFIX.length)) || 0 });
@@ -397,8 +461,6 @@ export async function routeSharedInbound(db: Db, msg: any, buyerPhone: string): 
         if (t && reachable(t) && !hasOwnNumber(t)) return go(t, reply.set(tag.id));
       }
     }
-
-    const body = msg?.type === "text" ? String(msg.text?.body ?? "") : "";
 
     // 2. "SHOP <code>" always goes to that shop.
     const code = body ? parseShopCommand(body) : null;

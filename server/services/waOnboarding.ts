@@ -24,6 +24,7 @@
  * the webhook always completes its 200 ack path.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   buildInteractivePayload,
   chunkWhatsAppText,
@@ -81,7 +82,7 @@ export interface CopilotReply {
 
 export interface OnboardingCopilotApi {
   startSession(args: {
-    channel: "admin" | "whatsapp";
+    channel: "admin" | "whatsapp" | "telegram";
     tenantId?: string;
     phone?: string;
   }): Promise<{ sessionId: string; greeting: string }>;
@@ -153,11 +154,29 @@ export function isOnboardingIntakeNumber(phoneNumberId: string | null | undefine
   return configured.length > 0 && !!phoneNumberId && phoneNumberId.trim() === configured;
 }
 
+// ── Where replies go ────────────────────────────────────────────────────────
+// Onboarding runs on the platform onboarding number by default. The shared platform number (a business typing SELL)
+// and the platform Telegram bot run the very same conversation; they wrap the call in withOnboardingTransport so
+// every reply goes back the way the message came. The person is always identified by their verified phone.
+
+export interface OnboardingTransport {
+  /** Recorded on the onboarding session (whatsapp for both WhatsApp numbers). */
+  channel: "whatsapp" | "telegram";
+  /** Deliver one Cloud API style payload ({type:"text"|"interactive", ...}) to the person. */
+  send(toPhone: string, payload: Record<string, unknown>): Promise<OnboardingSendResult>;
+}
+
+const transportStore = new AsyncLocalStorage<OnboardingTransport>();
+
+export function withOnboardingTransport<T>(transport: OnboardingTransport, fn: () => Promise<T>): Promise<T> {
+  return transportStore.run(transport, fn);
+}
+
 // ── Outbound senders (platform onboarding number) ───────────────────────────
 
 const GRAPH_API_BASE = "https://graph.facebook.com/v21.0";
 
-interface OnboardingSendResult {
+export interface OnboardingSendResult {
   sent: boolean;
   simulated: boolean;
 }
@@ -171,6 +190,8 @@ async function postOnboardingMessage(
   payload: Record<string, unknown>,
 ): Promise<OnboardingSendResult> {
   const to = normalizeWaPhone(toPhone);
+  const transport = transportStore.getStore();
+  if (transport) return transport.send(to, payload);
   const creds = resolveOnboardingWaCredentials();
   if (!creds) {
     console.info(
@@ -433,13 +454,13 @@ async function handleShopPin(phone: string, message: any): Promise<InboundOutcom
   const { pinFromMessage, saveShopPin } = await import("./shopLocation");
   const { getDb } = await import("../db");
   const { onboardingSessions } = await import("../../drizzle/schema");
-  const { and, desc, eq, isNotNull } = await import("drizzle-orm");
+  const { and, desc, eq, inArray, isNotNull } = await import("drizzle-orm");
   const db = await getDb();
   const pin = pinFromMessage(message);
   if (!db || !pin) return { handled: true, outcome: "error" };
   const [row] = await db.select({ tenantId: onboardingSessions.tenantId, intake: onboardingSessions.intake })
     .from(onboardingSessions)
-    .where(and(eq(onboardingSessions.channel, "whatsapp"), eq(onboardingSessions.phone, phone), isNotNull(onboardingSessions.tenantId)))
+    .where(and(inArray(onboardingSessions.channel, ["whatsapp", "telegram"]), eq(onboardingSessions.phone, phone), isNotNull(onboardingSessions.tenantId)))
     .orderBy(desc(onboardingSessions.createdAt)).limit(1);
   const lang = intakeLang(row ? ({ intake: row.intake } as any) : null);
   if (!row?.tenantId) {
@@ -464,7 +485,7 @@ async function startFreshSession(toPhone: string, copilot: OnboardingCopilotApi)
     return false;
   }
   // === END W47 crosscutting ===
-  const { greeting } = await copilot.startSession({ channel: "whatsapp", phone: toPhone });
+  const { greeting } = await copilot.startSession({ channel: transportStore.getStore()?.channel ?? "whatsapp", phone: toPhone });
   if (greeting?.trim()) await sendOnboardingText(toPhone, greeting);
   return true;
 }
@@ -604,6 +625,38 @@ async function processText(
  * Entry point for the Meta webhook branch. NEVER throws — the webhook ack
  * (200) has already been sent and must never be jeopardized.
  */
+/**
+ * Someone asked to open a shop (SELL on the shared number, a verified contact on the Telegram bot): start their
+ * onboarding, or — when one is already under way for their phone — tell them where it stands. Never throws.
+ */
+export async function startOrResumeOnboarding(senderPhone: string): Promise<InboundOutcome> {
+  try {
+    const copilot = await loadCopilot();
+    const phone = normalizeWaPhone(senderPhone ?? "");
+    const session = await copilot.findActiveSessionByPhone(phone);
+    if (!session) {
+      const started = await startFreshSession(phone, copilot);
+      return { handled: true, outcome: started ? "greeting" : "throttled" };
+    }
+    await sendOnboardingText(phone, copilotT(intakeLang(session), "resumed"));
+    return { handled: true, outcome: "message" };
+  } catch (e: any) {
+    console.error("[waOnboarding] start/resume failed:", e?.message ?? e);
+    await sendOnboardingText(senderPhone, copilotT("en", "failsafe")).catch(() => {});
+    return { handled: true, outcome: "error" };
+  }
+}
+
+/** Whether this phone has an onboarding conversation under way (any channel). */
+export async function hasActiveOnboarding(senderPhone: string): Promise<boolean> {
+  try {
+    const copilot = await loadCopilot();
+    return !!(await copilot.findActiveSessionByPhone(normalizeWaPhone(senderPhone ?? "")));
+  } catch {
+    return false;
+  }
+}
+
 export async function handleInbound(message: any, senderPhone: string): Promise<InboundOutcome> {
   try {
     return await processInbound(message, senderPhone);

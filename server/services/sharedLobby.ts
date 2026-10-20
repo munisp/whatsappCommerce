@@ -107,6 +107,30 @@ export function crossShopQuery(text: string): string | null {
   return q.length >= 2 && !PRONOUN_RE.test(q) ? q : "";
 }
 
+/**
+ * A business that wants to sell here: "SELL", "I want to sell", "open a shop", "register my business", "become a
+ * vendor". About their OWN business only — "who sells rice" or "do you sell pepsi" are searches, never this.
+ */
+const SELL_RE = new RegExp(
+  "^(?:/?sell|sell here|sell with you|sell on (?:here|this|whatsapp|telegram|your platform))$" +
+    "|^(?:i(?:'d| would)? ?(?:want|wanna|like|need) to (?:start )?sell(?:ing)?(?: (?:here|on here|with you|my (?:products|goods|items|stuff)))?)$" +
+    "|^(?:how (?:do|can) i (?:start )?sell(?:ing)?(?: (?:here|on here|with you|my (?:products|goods|items)))?)$" +
+    "|^(?:(?:i (?:want|wanna|would like) to |how (?:do|can) i |help me |let me )?" +
+    "(?:open|create|start|set ?up|register|list|add|onboard)(?: (?:a|my|an))? (?:own )?(?:shop|store|business|online store|online shop)(?: here| on here| with you)?)$" +
+    "|^(?:i (?:want|wanna|would like) to |how (?:do|can) i |can i )?(?:become|be) an? (?:seller|vendor|merchant)(?: here| on here| with you)?$" +
+    "|^(?:onboard me|merchant sign ?up|seller sign ?up|vendor sign ?up|sign me up as an? (?:seller|vendor|merchant))$",
+  "i",
+);
+
+export function isSellText(text: string, platformName = ""): boolean {
+  const t = clean(text).replace(/\s*(?:please|pls)$/i, "");
+  if (SELL_RE.test(t)) return true;
+  // "sell on Runit Technologies" / "sell on runit".
+  const m = /^(?:i (?:want|wanna|would like) to )?sell on (.{2,60})$/i.exec(t);
+  const name = platformName.toLowerCase().trim();
+  return !!m && !!name && (name.startsWith(m[1].toLowerCase()) || m[1].toLowerCase().startsWith(name.split(/\s+/)[0]));
+}
+
 /** "near me", "around here", "closest", "in my area": the buyer wants shops close to where they are. */
 const NEAR_RE = /\b(?:near\s*(?:me|here|by|my\s+(?:place|house|location|area))|nearby|around\s+(?:me|here|my\s+(?:area|place))|close\s+to\s+(?:me|here|my\s+(?:place|house|location))|closest|nearest|in\s+my\s+(?:area|neighbou?rhood|location))\b/i;
 
@@ -337,7 +361,7 @@ export function welcomePayload(platformName: string, opts: { visited: boolean; a
       `you want (like "rice" or "sneakers"), or type a shop's name.`
     : `Hi! 👋 Welcome to *${platformName}*.\n\nI can help you find a shop and buy from it right here on WhatsApp. ` +
       `Browse the stores, search for something you want, or just tell me what you're looking for. ` +
-      `Share your 📍 location to see shops near you.`;
+      `Share your 📍 location to see shops near you.\n\nOwn a business? Type *SELL* to open your shop here.`;
   const buttons = [
     { type: "reply", reply: { id: LOBBY_BROWSE, title: "🛍️ Browse stores" } },
     { type: "reply", reply: { id: LOBBY_SEARCH, title: "🔎 Search" } },

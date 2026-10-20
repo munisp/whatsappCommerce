@@ -108,6 +108,19 @@ spec:
               key: platformName
               name: whatsapp-shared-number
               optional: true
+        # The platform Telegram bot where businesses open their shop (telegramPlatformBot.ts); off until set.
+        - name: TELEGRAM_PLATFORM_BOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: token
+              name: telegram-platform-bot
+              optional: true
+        - name: TELEGRAM_PLATFORM_WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: webhookSecret
+              name: telegram-platform-bot
+              optional: true
         - name: OPENSEARCH_URL
           value: http://shared-cluster-master.opensearch.svc.cluster.local:9200
         - name: OPENSEARCH_USER

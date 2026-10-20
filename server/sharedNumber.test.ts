@@ -147,3 +147,26 @@ describe("shared lobby: shops near the buyer", () => {
     expect(pinFromMessage({ type: "text", text: { body: "6.5,3.4" } })).toBeNull();
   });
 });
+
+describe("chat onboarding", () => {
+  it("knows a business that wants to sell from a buyer", async () => {
+    const { isSellText } = await import("./services/sharedLobby");
+    for (const t of ["SELL", "/sell", "I want to sell", "I want to sell my products", "how do I sell here?", "open a shop",
+      "register my business", "I want to open my own store", "become a vendor", "sell on Runit", "sell on runit technologies please"]) {
+      expect(isSellText(t, "Runit Technologies"), t).toBe(true);
+    }
+    for (const t of ["who sells rice?", "do you sell pepsi", "sell on credit", "where can I buy shoes", "shops that sell chargers",
+      "I want to buy", "selling price?"]) {
+      expect(isSellText(t, "Runit Technologies"), t).toBe(false);
+    }
+  });
+  it("turns onboarding replies into Telegram messages", async () => {
+    const { telegramMessageFor } = await import("./services/telegramPlatformBot");
+    expect(telegramMessageFor({ type: "text", text: { body: "hi" } })).toEqual({ text: "hi" });
+    const card = telegramMessageFor({ type: "interactive", interactive: { type: "button", body: { text: "Approve the menu?" },
+      action: { buttons: [{ type: "reply", reply: { id: "onb_approve:p1", title: "Approve" } }, { type: "reply", reply: { id: "onb_edit:p1", title: "Edit" } }] } } });
+    expect(card?.replyMarkup).toEqual({ inline_keyboard: [[{ text: "Approve", callback_data: "onb_approve:p1" }], [{ text: "Edit", callback_data: "onb_edit:p1" }]] });
+    const loc = telegramMessageFor({ type: "interactive", interactive: { type: "location_request_message", body: { text: "Where are you?" }, action: { name: "send_location" } } });
+    expect((loc?.replyMarkup as any)?.keyboard?.[0]?.[0]?.request_location).toBe(true);
+  });
+});

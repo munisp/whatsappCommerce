@@ -3238,6 +3238,25 @@ async function startServer() {
     }
   });
   // === END W37 telegram ===
+  // The platform's own Telegram bot: businesses open their shop by chat (telegramPlatformBot.ts). Off unless
+  // TELEGRAM_PLATFORM_BOT_TOKEN + TELEGRAM_PLATFORM_WEBHOOK_SECRET are set; fail-closed secret check; 200 ack first.
+  app.post("/api/webhooks/telegram-platform", express.raw({ type: "application/json" }), async (req, res) => {
+    try {
+      const { platformBotConfig, platformBotSecretValid, processPlatformBotUpdate } = await import("../services/telegramPlatformBot");
+      if (!platformBotConfig()) return res.status(404).json({ error: "not-found" });
+      if (!platformBotSecretValid(String(req.headers["x-telegram-bot-api-secret-token"] ?? ""))) {
+        return res.status(401).json({ error: "unauthorized" });
+      }
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "DB unavailable" });
+      const update = JSON.parse(toRawBody(req.body).toString());
+      res.status(200).json({ received: true });
+      await processPlatformBotUpdate(db, update);
+    } catch (err: any) {
+      console.error("[telegram-platform-webhook]", err?.message);
+      if (!res.headersSent) res.status(400).json({ error: "bad-request" });
+    }
+  });
 
   // ── USSD gateway (Africa's Talking) ───────────────────────────────────────
   // Form body: sessionId, serviceCode, phoneNumber, text (cumulative buffer

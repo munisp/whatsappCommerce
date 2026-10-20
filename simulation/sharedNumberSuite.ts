@@ -450,6 +450,92 @@ export const journeys: Journey[] = [
     await sendPin(world, stranger, [6.5, 3.4], undefined, ONBOARDING_PHONE_NUMBER_ID);
     assert(world.outbound.toPhone(stranger).some((c) => textOf(c).includes("can't find a shop")), "a stranger's pin is refused");
   }),
+
+  J("S22", "a business types SELL: the onboarding assistant takes the chat until they go back to shopping; SELL resumes", async (world) => {
+    const p = world.newPhone("s");
+    const { normalizeWaPhone } = await import("../server/services/waSender");
+    const session = async () => {
+      const res = await world.pg.query(`select id, channel, state, jsonb_array_length(transcript) n from onboarding_sessions
+        where phone=$1 order by created_at desc limit 1`, [normalizeWaPhone(p)]);
+      return (Array.isArray(res) ? res : res.rows)[0] ?? null;
+    };
+    let m = mark(world, p);
+    await send(world, p, "I want to sell");
+    assertIncludes(textOf(one(world, p, m, "sell")[0]), "onboarding assistant", "the onboarding assistant greets them, from the shared number");
+    const s1 = await session();
+    assert(s1?.channel === "whatsapp" && !["live", "failed", "abandoned"].includes(s1.state), `an open WhatsApp setup (got ${JSON.stringify(s1)})`);
+    m = mark(world, p);
+    await send(world, p, "I run Ada's Fabrics in Enugu, ankara and lace");
+    assert(repliesSince(world, p, m).length >= 1, "the assistant answers");
+    assert(Number((await session())?.n) > Number(s1.n), "the message went to the setup, not the lobby");
+    assert(!repliesSince(world, p, m).some((c) => textOf(c).includes("Runit Technologies* 🛍️")), "no store directory mid-setup");
+    // Back to shopping.
+    m = mark(world, p);
+    await send(world, p, "stores");
+    assertIncludes(textOf(one(world, p, m, "stores")[0]), "Here are the shops", "'stores' goes back to the directory");
+    m = mark(world, p);
+    await send(world, p, "hi");
+    assertIncludes(textOf(one(world, p, m, "hi")[0]), "Welcome to *Runit Technologies*", "after leaving, hi is the lobby again");
+    // SELL picks the same setup up again.
+    m = mark(world, p);
+    await send(world, p, "SELL");
+    assertIncludes(textOf(one(world, p, m, "sell again")[0]), "Welcome back", "SELL resumes the open setup");
+    assert((await session())?.id === s1.id, "the same setup, not a new one");
+    // A buyer's question is never a SELL.
+    const b = world.newPhone("t");
+    m = mark(world, b);
+    await send(world, b, "who sells rice?");
+    assert(!textOf(one(world, b, m, "who sells")[0]).includes("onboarding assistant"), "'who sells rice' is a search");
+  }),
+
+  J("S23", "the platform Telegram bot: own contact first, then the same onboarding; another's contact is refused", async (world) => {
+    const { tg } = await import("./metaMock");
+    process.env.TELEGRAM_PLATFORM_BOT_TOKEN = "sim-platform-bot";
+    process.env.TELEGRAM_PLATFORM_WEBHOOK_SECRET = "sim-platform-secret";
+    let update = 9_000_000 + Math.floor(Math.random() * 100_000);
+    const chat = 7_000_000 + Math.floor(Math.random() * 100_000);
+    const post = async (body: Record<string, unknown>, secret = "sim-platform-secret") => {
+      const res = await fetch(`${world.baseUrl}/api/webhooks/telegram-platform`, {
+        method: "POST", headers: { "Content-Type": "application/json", "X-Telegram-Bot-Api-Secret-Token": secret },
+        body: JSON.stringify({ update_id: ++update, ...body }),
+      });
+      await world.settle(400);
+      return res.status;
+    };
+    const from = { id: chat, first_name: "Ada", language_code: "en" };
+    const msg = (extra: Record<string, unknown>) => ({ message: { message_id: update, chat: { id: chat }, from, date: 0, ...extra } });
+    const sent = () => tg.calls.filter((c) => c.token === "sim-platform-bot" && c.method === "sendMessage" && String(c.body.chat_id) === String(chat));
+    try {
+      assert((await post(msg({ text: "/start" }), "wrong")) === 401, "a wrong secret is refused");
+      let n = sent().length;
+      await post(msg({ text: "/start" }));
+      const ask = sent().slice(n)[0];
+      assert(!!ask?.body?.reply_markup?.keyboard?.[0]?.[0]?.request_contact, "first, the bot asks for their own phone number");
+      // Someone else's contact is not accepted.
+      n = sent().length;
+      await post(msg({ contact: { phone_number: "+2348011112222", user_id: chat + 1 } }));
+      assert(!!sent().slice(n)[0]?.body?.reply_markup?.keyboard?.[0]?.[0]?.request_contact, "another person's contact: asked again");
+      // Their own contact starts the setup, keyed by that phone, on the telegram channel.
+      const phone = `23480${String(chat).slice(-8)}`;
+      n = sent().length;
+      await post(msg({ contact: { phone_number: `+${phone}`, user_id: chat } }));
+      assert(sent().slice(n).some((c) => String(c.body.text).includes("onboarding assistant")), "the onboarding assistant greets them on Telegram");
+      const res = await world.pg.query(`select channel, state from onboarding_sessions where phone=$1 order by created_at desc limit 1`, [phone]);
+      const row = (Array.isArray(res) ? res : res.rows)[0];
+      assert(row?.channel === "telegram" && row.state !== "abandoned", `an open telegram setup for the shared phone (got ${JSON.stringify(row)})`);
+      // Their messages now go to that setup.
+      n = sent().length;
+      await post(msg({ text: "I sell shoes in Lagos" }));
+      assert(sent().length > n, "the assistant answers on Telegram");
+      // The same person on WhatsApp (SELL on the shared number) finds the same setup.
+      const m = mark(world, phone);
+      await send(world, phone, "SELL");
+      assertIncludes(textOf(one(world, phone, m, "sell on whatsapp")[0]), "Welcome back", "SELL on WhatsApp resumes the Telegram setup");
+    } finally {
+      delete process.env.TELEGRAM_PLATFORM_BOT_TOKEN;
+      delete process.env.TELEGRAM_PLATFORM_WEBHOOK_SECRET;
+    }
+  }),
 ];
 
 // ── CLI ───────────────────────────────────────────────────────────────────────

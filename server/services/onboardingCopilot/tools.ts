@@ -590,7 +590,8 @@ const handlers: Record<
     // is now a STATIC import (module landed). Bootstrap failure does NOT
     // roll back the KYB-gated go-live; it is audit-logged loudly. ===
     let ownerBootstrap: Awaited<ReturnType<typeof bootstrapTenantOwner>> | null = null;
-    if (session.channel === "whatsapp" && session.phone) {
+    // Telegram too: the bot only starts a setup after the person shared their OWN contact (Telegram's verified phone).
+    if ((session.channel === "whatsapp" || session.channel === "telegram") && session.phone) {
       try {
         ownerBootstrap = await bootstrapTenantOwner({
           tenantId: session.tenantId,
