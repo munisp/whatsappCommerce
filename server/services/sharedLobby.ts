@@ -107,6 +107,28 @@ export function crossShopQuery(text: string): string | null {
   return q.length >= 2 && !PRONOUN_RE.test(q) ? q : "";
 }
 
+/** "near me", "around here", "closest", "in my area": the buyer wants shops close to where they are. */
+const NEAR_RE = /\b(?:near\s*(?:me|here|by|my\s+(?:place|house|location|area))|nearby|around\s+(?:me|here|my\s+(?:area|place))|close\s+to\s+(?:me|here|my\s+(?:place|house|location))|closest|nearest|in\s+my\s+(?:area|neighbou?rhood|location))\b/i;
+
+export function isNearText(text: string): boolean {
+  return NEAR_RE.test(clean(text));
+}
+
+/** What a "near me" message is looking for: "who sells rice near me" → "rice", "shops around me" → "". */
+export function nearQueryOf(text: string): string {
+  const t = clean(text);
+  const cross = crossShopQuery(t);
+  if (cross) return cross;
+  const rest = clean(t.replace(new RegExp(NEAR_RE.source, "gi"), " ")
+    .replace(/\b(?:can|could|would|will)\s+you\b|\b(?:check|show|tell|find|search|list|see)(?:\s+me)?\b|\b(?:please|pls|abeg|the|any|are|is|there)\b/gi, " "));
+  if (!rest) return "";
+  const intent = parseLobbyText(rest);
+  if (intent?.kind === "search") return intent.query;
+  if (intent) return "";
+  const words = searchWords(rest).filter((w) => !/^(?:stores?|shops?|sellers?|vendors?|businesse?s?|places?|sell|sells|selling)$/.test(w));
+  return words.join(" ");
+}
+
 // ── The directory ────────────────────────────────────────────────────────────
 
 export interface DirectoryShop {
@@ -117,6 +139,8 @@ export interface DirectoryShop {
   categories: string[];
   /** Search results only: product names that matched. */
   matches?: string[];
+  /** Nearby results only: how far the shop is from the buyer, in km. */
+  km?: number;
 }
 
 const rowsOf = (res: any): any[] => (Array.isArray(res) ? res : (res?.rows ?? []));
@@ -139,6 +163,7 @@ function toShop(r: any): DirectoryShop {
     categories: (Array.isArray(r.categories) ? r.categories : String(r.categories ?? "").split("|"))
       .map((c: string) => String(c ?? "").trim()).filter(Boolean).slice(0, 3),
     matches: r.matches ? String(r.matches).split("|").filter(Boolean).slice(0, 3) : undefined,
+    km: r.km == null ? undefined : Number(r.km),
   };
 }
 
@@ -181,9 +206,11 @@ const FILLER_WORDS = new Set(("a an and any are can could do does for from get g
   "looking me my need of on or please pls abeg some something someone that the them this to today tomorrow now " +
   "want wanna would you your u us we there here where who which what with buy order cold hot nice good").split(" "));
 
+const NON_WORD_RE = new RegExp("[^\\p{L}\\p{N}\\s-]", "gu"); // letters in any script, digits, spaces, hyphens
+
 /** The words a search looks for: filler dropped, a plural also matched as its singular ("chargers" → "charger"). */
 export function searchWords(query: string): string[] {
-  return searchQueryOf(query).toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, " ").split(/\s+/)
+  return searchQueryOf(query).toLowerCase().replace(NON_WORD_RE, " ").split(/\s+/)
     .filter((w) => w.length >= 2 && !FILLER_WORDS.has(w))
     .map((w) => (w.length > 3 && /[^s]s$/.test(w) ? w.slice(0, -1) : w))
     .slice(0, 5);
@@ -200,13 +227,18 @@ export async function searchShops(db: Db, query: string, limit = 10): Promise<Di
   return all.length || words.length === 1 ? all : searchShopsBy(db, words, "any", limit);
 }
 
-async function searchShopsBy(db: Db, words: string[], mode: "all" | "any", limit: number): Promise<DirectoryShop[]> {
+function hitFragments(words: string[], mode: "all" | "any") {
   const like = (w: string) => `%${w.replace(/[%_\\]/g, (c) => "\\" + c)}%`;
   const joiner = mode === "all" ? sql` AND ` : sql` OR `;
   const productHit = sql.join(words.map((w) => sql`(
       lower(p.name) LIKE ${like(w)} OR lower(coalesce(p.category, '')) LIKE ${like(w)}
       OR lower(coalesce(p.description, '')) LIKE ${like(w)})`), joiner);
   const shopHit = sql.join(words.map((w) => sql`(lower(t.name) LIKE ${like(w)} OR lower(coalesce(t."shopCode", t.slug)) LIKE ${like(w)})`), joiner);
+  return { productHit, shopHit };
+}
+
+async function searchShopsBy(db: Db, words: string[], mode: "all" | "any", limit: number): Promise<DirectoryShop[]> {
+  const { productHit, shopHit } = hitFragments(words, mode);
   const res = await db.execute(sql`
     SELECT * FROM (
       SELECT ${SHOP_FIELDS},
@@ -220,6 +252,45 @@ async function searchShopsBy(db: Db, words: string[], mode: "all" | "any", limit
     ORDER BY name_hit DESC, hits DESC, lower(name)
     LIMIT ${limit}`);
   return rowsOf(res).map(toShop);
+}
+
+/** How far "near you" reaches (SHARED_NEAR_MAX_KM, default 50 km). */
+export function nearMaxKm(): number {
+  const v = Number(process.env.SHARED_NEAR_MAX_KM);
+  return Number.isFinite(v) && v > 0 ? v : 50;
+}
+
+/**
+ * Listed shops closest to a point, nearest first, within nearMaxKm(). Only a shop's locations it has made
+ * discoverable count (a location kept only for delivery is never shown to buyers). With search words, only shops
+ * that have them (all of them, or failing that any). The point is used for this query and not kept.
+ */
+export async function nearbyShops(db: Db, lat: number, lng: number, query = "", limit = 10): Promise<DirectoryShop[]> {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return [];
+  const words = query ? searchWords(query) : [];
+  const run = async (mode: "all" | "any") => {
+    const hit = words.length ? hitFragments(words, mode) : null;
+    const res = await db.execute(sql`
+      SELECT * FROM (
+        SELECT ${SHOP_FIELDS},
+          ${hit ? sql`(${hit.shopHit})` : sql`false`} AS name_hit,
+          ${hit ? sql`(SELECT count(*) FROM products p WHERE p."tenantId" = t.id AND p.status = 'active' AND ${hit.productHit})` : sql`0`} AS hits,
+          ${hit ? sql`(SELECT string_agg(n, '|') FROM (
+             SELECT p.name AS n FROM products p WHERE p."tenantId" = t.id AND p.status = 'active' AND ${hit.productHit}
+             ORDER BY p.name LIMIT 3) m)` : sql`NULL`} AS matches,
+          (SELECT min(2 * 6371 * asin(sqrt(
+              power(sin(radians((ml.latitude::float8 - ${lat}) / 2)), 2)
+              + cos(radians(${lat})) * cos(radians(ml.latitude::float8))
+                * power(sin(radians((ml.longitude::float8 - ${lng}) / 2)), 2))))
+           FROM merchant_locations ml WHERE ml.tenant_id = t.id AND ml.discoverable) AS km
+        FROM tenants t WHERE ${LISTED}) s
+      WHERE km IS NOT NULL AND km <= ${nearMaxKm()} ${hit ? sql`AND (name_hit OR hits > 0)` : sql``}
+      ORDER BY km, lower(name)
+      LIMIT ${limit}`);
+    return rowsOf(res).map(toShop);
+  };
+  const all = await run("all");
+  return all.length || words.length <= 1 ? all : run("any");
 }
 
 /** A listed shop whose name or code is exactly what the buyer typed ("lagos fresh market", "adire"). */
@@ -245,11 +316,18 @@ export const LOBBY_MINE = "lobby:mine";
 
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
+/** 0.34 → "340 m", 2.46 → "2.5 km", 18.2 → "18 km". */
+export function formatKm(km: number): string {
+  if (km < 1) return `${Math.max(50, Math.round(km * 20) * 50)} m`;
+  return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
+}
+
 export function shopRow(s: DirectoryShop): { id: string; title: string; description: string } {
   const what = s.matches?.length
     ? s.matches.join(", ")
     : s.categories.length ? s.categories.join(" · ") : `${s.products} product${s.products === 1 ? "" : "s"}`;
-  return { id: `${PICK_PREFIX}${s.code}`, title: cut(s.name, 24), description: cut(what, 72) };
+  const where = s.km == null ? "" : `${formatKm(s.km)} · `;
+  return { id: `${PICK_PREFIX}${s.code}`, title: cut(s.name, 24), description: cut(where + what, 72) };
 }
 
 /** The welcome: a short hello and the three things the buyer can do. "My shops" only once they've visited one. */
@@ -258,7 +336,8 @@ export function welcomePayload(platformName: string, opts: { visited: boolean; a
     ? `Sorry, I didn't quite catch that. 🙂\n\nYou can *browse* the shops on ${platformName}, *search* for something ` +
       `you want (like "rice" or "sneakers"), or type a shop's name.`
     : `Hi! 👋 Welcome to *${platformName}*.\n\nI can help you find a shop and buy from it right here on WhatsApp. ` +
-      `Browse the stores, search for something you want, or just tell me what you're looking for.`;
+      `Browse the stores, search for something you want, or just tell me what you're looking for. ` +
+      `Share your 📍 location to see shops near you.`;
   const buttons = [
     { type: "reply", reply: { id: LOBBY_BROWSE, title: "🛍️ Browse stores" } },
     { type: "reply", reply: { id: LOBBY_SEARCH, title: "🔎 Search" } },
@@ -320,6 +399,47 @@ export function searchPayload(query: string, shops: DirectoryShop[]): Record<str
       type: "list",
       body: { text: `Here's what I found for “${cut(query, 40)}” 🔎\n\nPick a shop to see what they have.` },
       action: { button: "View shops", sections: [{ title: "Shops", rows: shops.slice(0, 10).map(shopRow) }] },
+    },
+  };
+}
+
+/** Ask for the buyer's location with WhatsApp's "Send location" button. */
+export function nearAskPayload(query: string): Record<string, unknown> {
+  const what = query ? ` that sell “${cut(query, 40)}”` : "";
+  return {
+    type: "interactive",
+    interactive: {
+      type: "location_request_message",
+      body: { text: `📍 Share your location and I'll show you shops near you${what}.\n\nTap *Send location* below. ` +
+        `Your location is only used for this search. You can also type *stores* to see every shop.` },
+      action: { name: "send_location" },
+    },
+  };
+}
+
+/** The shops near a shared pin, nearest first, each with its distance. */
+export function nearbyPayload(query: string, shops: DirectoryShop[]): Record<string, unknown> {
+  const what = query ? ` with “${cut(query, 40)}”` : "";
+  if (!shops.length) {
+    return {
+      type: "interactive",
+      interactive: {
+        type: "button",
+        body: { text: `I couldn't find a shop${what} within ${nearMaxKm()} km of you yet. 😕\n\n` +
+          `Not every shop has added its location, so ${query ? "search everywhere or " : ""}browse all the stores.` },
+        action: { buttons: [
+          { type: "reply", reply: { id: LOBBY_BROWSE, title: "🛍️ Browse stores" } },
+          { type: "reply", reply: { id: LOBBY_SEARCH, title: query ? "🔎 Search everywhere" : "🔎 Search" } },
+        ] },
+      },
+    };
+  }
+  return {
+    type: "interactive",
+    interactive: {
+      type: "list",
+      body: { text: `Shops near you${what} 📍\n\nNearest first. Pick one to see what they have.` },
+      action: { button: "View shops", sections: [{ title: "Near you", rows: shops.slice(0, 10).map(shopRow) }] },
     },
   };
 }

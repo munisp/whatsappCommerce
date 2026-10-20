@@ -11,7 +11,7 @@ import { trpc } from "@/lib/trpc";
 // === W48 perf (PERF-FE-2): recharts moved to the lazy DashboardCharts chunk ===
 import { lazy, memo, Suspense } from "react";
 import { AlertTriangle, Building2, Bot, MessageSquare, ShoppingCart, TrendingUp, Users, CheckCircle2 } from "lucide-react";
-import { Siren } from "lucide-react";
+import { MapPin, Siren } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
@@ -70,6 +70,9 @@ export default function Dashboard() {
   const revenueData = revenueTrendQ.data?.points ?? [];
   const convData = convSplitQ.data?.points ?? [];
   const [, setLocation] = useLocation();
+  // A shop with no discoverable location never shows up when buyers ask for shops near them — nudge until it has one.
+  const shopLocationQ = trpc.geo.merchant.getLocation.useQuery(undefined, { enabled: !isPlatformAdmin && !!DEMO_TENANT, retry: false });
+  const needsLocation = shopLocationQ.isSuccess && !shopLocationQ.data?.discoverable;
   const lowStockCount = stockData?.filter((s: { stockStatus: string }) => s.stockStatus === "low_stock").length ?? 0;
   const outOfStockCount = stockData?.filter((s: { stockStatus: string }) => s.stockStatus === "out_of_stock").length ?? 0;
 
@@ -106,6 +109,27 @@ export default function Dashboard() {
             {isPlatformAdmin ? "Real-time metrics across all tenants and services" : "Real-time metrics for your business"}
           </p>
         </div>
+
+        {needsLocation && (
+          <Card className="border border-primary/30 bg-primary/5">
+            <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+              <MapPin className="w-6 h-6 text-primary shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-foreground">
+                  {shopLocationQ.data ? "Let buyers near you find your shop" : "Add your shop's location"}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {shopLocationQ.data
+                    ? "Your location is saved but hidden, so you don't appear when buyers ask for shops near them."
+                    : "Buyers on WhatsApp can ask for shops near them. Without a location, your shop isn't in those results."}
+                </p>
+              </div>
+              <Button size="sm" onClick={() => setLocation("/settings/discovery")}>
+                {shopLocationQ.data ? "Show my shop" : "Add location"}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {/* KPI Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">

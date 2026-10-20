@@ -9,7 +9,7 @@
  * twelve small ones (so the directory pages), and one each hidden, empty and suspended (never listed). The seed store
  * of the simulation world has its own number, so "SHOP sim-store" must send the buyer there.
  */
-import { assert, assertIncludes, bootWorld, type World } from "./world";
+import { assert, assertIncludes, bootWorld, ONBOARDING_PHONE_NUMBER_ID, type World } from "./world";
 import * as payloads from "./payloads";
 import { runOneJourney, writeTranscripts, type Journey } from "./runner";
 
@@ -19,6 +19,9 @@ const PLATFORM = "Runit Technologies";
 
 const MAMA = { id: "shr-mamaput", name: "Mama Put Kitchen", code: "mamaput" };
 const BAYO = { id: "shr-bayo", name: "Bayo Phones", code: "bayo" };
+const IKEJA: [number, number] = [6.6018, 3.3515];
+const LEKKI: [number, number] = [6.4698, 3.5852];
+const ABUJA: [number, number] = [9.0765, 7.3986];
 
 // ── setup ─────────────────────────────────────────────────────────────────────
 
@@ -65,6 +68,18 @@ async function seedShared(world: World): Promise<void> {
   await shop("shr-empty", "Empty Shop", "empty");
   await shop("shr-suspended", "Suspended Shop", "suspended", "suspended");
   await product("shr-suspended", 1, "Suspended Pepsi", "Drinks", "100.00");
+  // Where the shops are: Mama Put in Ikeja, Bayo in Lekki (~27 km away); Small Shop 01 is in Ikeja too but has not
+  // made its location discoverable, and the hidden shop is in Ikeja but not listed — neither may ever show as nearby.
+  await world.db.delete(schema.merchantLocations).where(like(schema.merchantLocations.tenantId, "shr-%"));
+  const { encodeGeohash } = await import("../server/services/geoDiscovery");
+  const at = (tenantId: string, [lat, lng]: [number, number], discoverable = true) =>
+    world.db.insert(schema.merchantLocations).values({
+      tenantId, latitude: lat.toFixed(7), longitude: lng.toFixed(7), geohash: encodeGeohash(lat, lng), discoverable,
+    } as any);
+  await at(MAMA.id, IKEJA);
+  await at(BAYO.id, LEKKI);
+  await at("shr-small-1", IKEJA, false);
+  await at("shr-hidden", IKEJA);
   void sql;
 }
 
@@ -82,6 +97,13 @@ const pick = async (world: World, from: string, id: string, title = id) => {
   await world.inbound(payloads.inbound.listReply(SHARED_PN, from, id, title));
   await world.settle(400);
 };
+const sendPin = async (world: World, from: string, [lat, lng]: [number, number], id?: string, pn = SHARED_PN) => {
+  const env: any = payloads.inbound.location(pn, from, lat, lng);
+  if (id) env.entry[0].changes[0].value.messages[0].id = id;
+  await world.inbound(env);
+  await world.settle(400);
+};
+const isLocationAsk = (c: any) => c?.body?.interactive?.type === "location_request_message";
 /** What the buyer received since `mark` (calls from the shared number only). */
 const repliesSince = (world: World, phone: string, mark: number) =>
   world.outbound.toPhone(phone).slice(mark).filter((c) => c.url.includes(`/${SHARED_PN}/messages`));
@@ -213,13 +235,22 @@ export const journeys: Journey[] = [
     }
   }),
 
-  J("S09", "inside a shop, asking about other stores searches across the stores", async (world) => {
+  J("S09", "inside a shop, asking about other stores searches across the stores (near me: from the buyer's pin)", async (world) => {
     const p = world.newPhone("9");
     await enterShop(world, p, BAYO.code);
     let m = mark(world, p);
+    // "around me" first asks where they are; the pin then lists the shops near with pepsi.
     await send(world, p, "some pepsi can you check stores around me that sell this?");
-    let [r] = one(world, p, m, "pepsi elsewhere");
+    let [r] = one(world, p, m, "pepsi around me");
+    assert(isLocationAsk(r) && textOf(r).includes("pepsi"), `asks for the location to look for pepsi (got ${textOf(r).slice(0, 160)})`);
+    m = mark(world, p);
+    await sendPin(world, p, IKEJA);
+    [r] = one(world, p, m, "pepsi near the pin");
     assert(rowsOf(r).some((x) => x.title === MAMA.name), `lists Mama Put for pepsi (got ${textOf(r).slice(0, 160)})`);
+    m = mark(world, p);
+    await send(world, p, "who else sells pepsi?");
+    [r] = one(world, p, m, "pepsi elsewhere");
+    assert(rowsOf(r).some((x) => x.title === MAMA.name), "without 'near me' it searches every store");
     m = mark(world, p);
     await send(world, p, "which other shops have chargers");
     [r] = one(world, p, m, "chargers elsewhere");
@@ -288,12 +319,18 @@ export const journeys: Journey[] = [
     assert(repliesSince(world, p, m).length === 0, "the same message delivered again is not answered twice");
   }),
 
-  J("S14", "a photo or a location in the lobby gets the welcome", async (world) => {
+  J("S14", "a photo in the lobby gets the welcome; a location shows the shops near it, nearest first", async (world) => {
     const p = world.newPhone("e");
     let m = mark(world, p);
-    await world.inbound(payloads.inbound.location(SHARED_PN, p, 6.45, 3.39, "Home", "Lagos"));
-    await world.settle(400);
-    assert(buttonsOf(one(world, p, m, "location")[0]).some((b) => b.reply.id === "lobby:browse"), "a location gets the welcome");
+    await sendPin(world, p, [6.6000, 3.3500]);
+    const near = one(world, p, m, "location")[0];
+    const rows = rowsOf(near);
+    assertIncludes(textOf(near), "Shops near you", "a pin gets the nearby list");
+    assert(rows[0]?.title === MAMA.name, `the nearest shop comes first (got ${rows.map((r) => r.title).join(", ")})`);
+    assert(/\d+ m|\d(\.\d)? km/.test(rows[0]?.description ?? ""), `each row says how far (got ${rows[0]?.description})`);
+    assert(rows.some((r) => r.title === BAYO.name), "a shop 27 km away is still near enough");
+    assert(!rows.some((r) => r.title === "Small Shop 01"), "a location the shop has not made discoverable never shows");
+    assert(!rows.some((r) => r.title === "Hidden Shop"), "a shop hidden from the directory never shows as nearby");
     m = mark(world, p);
     await world.inbound(payloads.inbound.image(SHARED_PN, p, "media-sim-1", "is this available?"));
     await world.settle(400);
@@ -322,6 +359,96 @@ export const journeys: Journey[] = [
     // directory — a shop's own link must keep working.
     await send(world, p, "SHOP HIDDEN");
     assert((await visitOf(world, p)) === "shr-hidden", "a hidden shop is still reachable by its own code");
+  }),
+
+  J("S17", "'who sells pepsi near me' asks for the location; the pin answers with nearby shops that have it", async (world) => {
+    const p = world.newPhone("h");
+    let m = mark(world, p);
+    await send(world, p, "who sells pepsi near me?");
+    const ask = one(world, p, m, "near me")[0];
+    assert(isLocationAsk(ask), `the buyer is asked for their location (got ${ask?.body?.interactive?.type ?? ask?.body?.type})`);
+    assertIncludes(textOf(ask), "pepsi", "the ask says what will be searched");
+    m = mark(world, p);
+    await sendPin(world, p, LEKKI);
+    const rows = rowsOf(one(world, p, m, "pin")[0]);
+    assert(rows.length === 1 && rows[0].title === MAMA.name, `only shops with pepsi (got ${rows.map((r) => r.title).join(", ")})`);
+    // The question is answered: the next pin is an ordinary lobby pin (every nearby shop), not pepsi again.
+    m = mark(world, p);
+    await sendPin(world, p, LEKKI);
+    assert(rowsOf(one(world, p, m, "second pin")[0]).some((r) => r.title === BAYO.name), "a later pin lists every nearby shop");
+    // "shops near me" with nothing to look for asks too.
+    m = mark(world, p);
+    await send(world, p, "shops near me");
+    assert(isLocationAsk(one(world, p, m, "shops near me")[0]), "'shops near me' asks for the location");
+  }),
+
+  J("S18", "in a shop, 'stores around me that sell this' asks for the location; the pin lists shops, a later pin is the shop's", async (world) => {
+    const p = world.newPhone("i");
+    await send(world, p, "SHOP MAMAPUT");
+    await send(world, p, "YES");
+    let m = mark(world, p);
+    await send(world, p, "do you know stores around me that sell phone chargers?");
+    const ask = one(world, p, m, "around me")[0];
+    assert(isLocationAsk(ask), "asked for the location from inside the shop");
+    assertIncludes(textOf(ask), "charger", "the ask names what will be searched");
+    m = mark(world, p);
+    await sendPin(world, p, IKEJA);
+    const list = one(world, p, m, "pin in shop")[0];
+    assert(rowsOf(list).some((r) => r.title === BAYO.name), "the pin lists the shops near with chargers");
+    assert((await visitOf(world, p)) === MAMA.id, "the buyer is still with their shop");
+    // No open question now: a pin is the shop's (a delivery location), never the platform's nearby list again.
+    m = mark(world, p);
+    await sendPin(world, p, IKEJA);
+    assert(!repliesSince(world, p, m).some((c) => textOf(c).includes("Shops near you")), "a later pin goes to the shop");
+  }),
+
+  J("S19", "far from every shop: none within reach, browse or search instead", async (world) => {
+    const p = world.newPhone("j");
+    await send(world, p, "anyone selling pepsi around here");
+    const m = mark(world, p);
+    await sendPin(world, p, ABUJA);
+    const r = one(world, p, m, "far pin")[0];
+    assertIncludes(textOf(r), "within 50 km", "says nothing is within reach");
+    assert(buttonsOf(r).some((b) => b.reply.id === "lobby:browse") && buttonsOf(r).some((b) => b.reply.id === "lobby:search"),
+      "offers browse and search");
+  }),
+
+  J("S20", "a redelivered pin is answered once and never reaches the shop", async (world) => {
+    const p = world.newPhone("k");
+    await send(world, p, "SHOP MAMAPUT");
+    await send(world, p, "YES");
+    await send(world, p, "which other shops near me have power banks?");
+    const id = `wamid.sim-pin-${Date.now()}`;
+    let m = mark(world, p);
+    await sendPin(world, p, LEKKI, id);
+    assert(repliesSince(world, p, m).length === 1, "the pin is answered once");
+    m = mark(world, p);
+    await sendPin(world, p, LEKKI, id);
+    assert(repliesSince(world, p, m).length === 0, "the redelivery gets nothing — not from the platform, not from the shop");
+  }),
+
+  J("S21", "a shop owner's pin on the onboarding number saves the shop's location as discoverable", async (world) => {
+    const schema = await import("../drizzle/schema");
+    const { eq } = await import("drizzle-orm");
+    const owner = world.newPhone("o");
+    const { normalizeWaPhone } = await import("../server/services/waSender");
+    await world.db.insert(schema.onboardingSessions).values({
+      channel: "whatsapp", phone: normalizeWaPhone(owner), state: "live", tenantId: "shr-small-2",
+    } as any);
+    await sendPin(world, owner, [6.5244, 3.3792], undefined, ONBOARDING_PHONE_NUMBER_ID);
+    const [loc] = await world.db.select().from(schema.merchantLocations).where(eq(schema.merchantLocations.tenantId, "shr-small-2"));
+    assert(!!loc && loc.discoverable === true, "the shop now has a discoverable location");
+    assert(Math.abs(Number(loc.latitude) - 6.5244) < 1e-6, "at the pin");
+    assert(world.outbound.toPhone(owner).some((c) => textOf(c).includes("Saved")), "the owner is told it's saved");
+    // The shop now shows up for a buyer nearby.
+    const b = world.newPhone("l");
+    const m = mark(world, b);
+    await sendPin(world, b, [6.5250, 3.3790]);
+    assert(rowsOf(one(world, b, m, "buyer pin")[0])[0]?.title === "Small Shop 02", "the shop is the nearest for a buyer next door");
+    // A number that set up no shop can't set a location.
+    const stranger = world.newPhone("q");
+    await sendPin(world, stranger, [6.5, 3.4], undefined, ONBOARDING_PHONE_NUMBER_ID);
+    assert(world.outbound.toPhone(stranger).some((c) => textOf(c).includes("can't find a shop")), "a stranger's pin is refused");
   }),
 ];
 

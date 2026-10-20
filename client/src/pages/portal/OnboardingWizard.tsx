@@ -35,6 +35,7 @@ import {
   Trash2,
   AlertCircle,
   XCircle,
+  LocateFixed,
 } from "lucide-react";
 import { Save, RefreshCw } from "lucide-react";
 
@@ -42,7 +43,7 @@ import { Save, RefreshCw } from "lucide-react";
 const STEPS = [
   { id: "whatsapp", label: "WhatsApp", icon: MessageSquare, description: "Connect your business number" },
   { id: "products", label: "Products", icon: Package, description: "Add your first products" },
-  { id: "delivery", label: "Delivery Zones", icon: MapPin, description: "Set your coverage areas" },
+  { id: "delivery", label: "Location & Delivery", icon: MapPin, description: "Where you are and where you deliver" },
   { id: "sla", label: "Escrow SLA", icon: Clock, description: "Configure release deadlines" },
   { id: "review", label: "Go Live", icon: Rocket, description: "Review and launch" },
 ];
@@ -251,9 +252,90 @@ function ProductsStep({ tenantId, onNext, onBack }: { tenantId: string; onNext: 
   );
 }
 
+// ─── Step 3a: Shop location (REAL: geo.merchant.setLocation + setDiscoverable) ─
+// Buyers on WhatsApp can ask for shops near them; only shops with a discoverable location are in those results.
+function ShopLocationSection({ onSaved }: { onSaved: (saved: boolean) => void }) {
+  const utils = trpc.useUtils();
+  const current = trpc.geo.merchant.getLocation.useQuery(undefined, { retry: false });
+  const setLocation = trpc.geo.merchant.setLocation.useMutation();
+  const setDiscoverable = trpc.geo.merchant.setDiscoverable.useMutation();
+  const [lat, setLat] = useState("");
+  const [lng, setLng] = useState("");
+  const [address, setAddress] = useState("");
+  const [locating, setLocating] = useState(false);
+  const saved = !!current.data?.discoverable;
+
+  useEffect(() => { onSaved(saved); }, [saved, onSaved]);
+  useEffect(() => {
+    const loc = current.data;
+    if (!loc) return;
+    setLat(String(loc.latitude)); setLng(String(loc.longitude)); setAddress(loc.addressLine ?? "");
+  }, [current.data]);
+
+  const useMyLocation = () => {
+    if (!navigator.geolocation) { toast.error("This browser can't share a location — enter the coordinates instead."); return; }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setLat(pos.coords.latitude.toFixed(6)); setLng(pos.coords.longitude.toFixed(6)); setLocating(false); },
+      () => { toast.error("Couldn't get your location — allow location access, or enter the coordinates."); setLocating(false); },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  };
+
+  const save = async () => {
+    const la = Number(lat), ln = Number(lng);
+    if (!lat || !lng || !Number.isFinite(la) || !Number.isFinite(ln) || Math.abs(la) > 90 || Math.abs(ln) > 180) {
+      toast.error("Use your current location, or enter a valid latitude and longitude.");
+      return;
+    }
+    try {
+      await setLocation.mutateAsync({ latitude: la, longitude: ln, addressLine: address.trim() || undefined });
+      await setDiscoverable.mutateAsync({ discoverable: true });
+      await utils.geo.merchant.getLocation.invalidate();
+      toast.success("Shop location saved — buyers near you can now find you.");
+    } catch (e) {
+      toast.error(`Could not save your location: ${errMsg(e)}`);
+    }
+  };
+
+  const busy = setLocation.isPending || setDiscoverable.isPending;
+  return (
+    <div className="border rounded-lg p-4 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">Where is your shop?</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Buyers on WhatsApp can ask for shops near them. Add your location so you show up. You can hide it later in Settings → Discovery.
+          </p>
+        </div>
+        {saved && <Badge variant="secondary" className="shrink-0"><CheckCircle2 className="h-3 w-3 mr-1" />Saved</Badge>}
+      </div>
+      <Button variant="outline" size="sm" onClick={useMyLocation} disabled={locating}>
+        <LocateFixed className="h-4 w-4 mr-2" />{locating ? "Finding you…" : "Use my current location"}
+      </Button>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label className="text-xs font-medium mb-1 block">Latitude</label>
+          <Input inputMode="decimal" placeholder="e.g. 6.5244" value={lat} onChange={(e) => setLat(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs font-medium mb-1 block">Longitude</label>
+          <Input inputMode="decimal" placeholder="e.g. 3.3792" value={lng} onChange={(e) => setLng(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs font-medium mb-1 block">Address (shown to buyers)</label>
+          <Input placeholder="e.g. 12 Allen Ave, Ikeja" value={address} onChange={(e) => setAddress(e.target.value)} />
+        </div>
+      </div>
+      <Button size="sm" onClick={save} disabled={busy}>{busy ? "Saving…" : saved ? "Update location" : "Save location"}</Button>
+    </div>
+  );
+}
+
 // ─── Step 3: Delivery Zones (REAL: tenantConfig.setCommerceConfig) ────────────
 function DeliveryZonesStep({ tenantId, onNext, onBack }: { tenantId: string; onNext: () => void; onBack: () => void }) {
   const [zones, setZones] = useState([{ name: "", fee: "", eta: "" }]);
+  const [locationSaved, setLocationSaved] = useState(false);
   const commerceConfig = trpc.tenantConfig.getCommerceConfig.useQuery({ tenantId });
   const setCommerceConfig = trpc.tenantConfig.setCommerceConfig.useMutation();
 
@@ -285,6 +367,7 @@ function DeliveryZonesStep({ tenantId, onNext, onBack }: { tenantId: string; onN
         },
       });
       toast.success(`${newZones.length} delivery zone(s) saved.`);
+      if (!locationSaved) toast.info("No shop location yet — buyers asking for shops near them won't see you. Add it any time in Settings → Discovery.");
       onNext();
     } catch (e) {
       toast.error(`Could not save delivery zones: ${errMsg(e)}`);
@@ -294,11 +377,12 @@ function DeliveryZonesStep({ tenantId, onNext, onBack }: { tenantId: string; onN
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold mb-1">Set your delivery zones</h2>
+        <h2 className="text-xl font-semibold mb-1">Your location and delivery</h2>
         <p className="text-sm text-muted-foreground">
-          Define the areas you deliver to, the delivery fee, and estimated delivery time.
+          Where your shop is, then the areas you deliver to, the delivery fee, and estimated delivery time.
         </p>
       </div>
+      <ShopLocationSection onSaved={setLocationSaved} />
       <div className="space-y-3">
         {zones.map((zone, i) => (
           <div key={i} className="border rounded-lg p-4 space-y-3">

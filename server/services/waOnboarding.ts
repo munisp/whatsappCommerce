@@ -329,6 +329,8 @@ export type InboundOutcomeKind =
   | "unsupported"
   | "malformed_action"
   | "throttled" // === W47 crosscutting (ONB-ABU-1) ===
+  | "location_saved"
+  | "location_no_shop"
   | "error";
 
 export interface InboundOutcome {
@@ -411,6 +413,42 @@ async function deliverTerminalFollowUp(
 ): Promise<void> {
   const msg = terminalStateMessage(state, lang);
   if (msg) await sendOnboardingText(toPhone, msg);
+  // A live shop is asked where it is, so buyers nearby can find it (the shared number's "shops near me").
+  if (state === "live") await sendOnboardingLocationRequest(toPhone, copilotT(lang ?? "en", "locationAsk", { appUrl: appUrl() }));
+}
+
+/** WhatsApp's "Send location" button, from the onboarding number. */
+export async function sendOnboardingLocationRequest(toPhone: string, body: string): Promise<OnboardingSendResult> {
+  return postOnboardingMessage(toPhone, {
+    type: "interactive",
+    interactive: { type: "location_request_message", body: { text: body }, action: { name: "send_location" } },
+  });
+}
+
+/**
+ * A pin from a shop owner: saved as their shop's location. The shop is the one this number onboarded (its latest
+ * WhatsApp onboarding session that created a shop, live or still finishing), so only its owner can set it here.
+ */
+async function handleShopPin(phone: string, message: any): Promise<InboundOutcome> {
+  const { pinFromMessage, saveShopPin } = await import("./shopLocation");
+  const { getDb } = await import("../db");
+  const { onboardingSessions } = await import("../../drizzle/schema");
+  const { and, desc, eq, isNotNull } = await import("drizzle-orm");
+  const db = await getDb();
+  const pin = pinFromMessage(message);
+  if (!db || !pin) return { handled: true, outcome: "error" };
+  const [row] = await db.select({ tenantId: onboardingSessions.tenantId, intake: onboardingSessions.intake })
+    .from(onboardingSessions)
+    .where(and(eq(onboardingSessions.channel, "whatsapp"), eq(onboardingSessions.phone, phone), isNotNull(onboardingSessions.tenantId)))
+    .orderBy(desc(onboardingSessions.createdAt)).limit(1);
+  const lang = intakeLang(row ? ({ intake: row.intake } as any) : null);
+  if (!row?.tenantId) {
+    await sendOnboardingText(phone, copilotT(lang, "locationNoShop"));
+    return { handled: true, outcome: "location_no_shop" };
+  }
+  await saveShopPin(db, row.tenantId, pin);
+  await sendOnboardingText(phone, copilotT(lang, "locationSaved", { appUrl: appUrl() }));
+  return { handled: true, outcome: "location_saved" };
 }
 
 /** Start a fresh onboarding session and send the greeting. */
@@ -480,6 +518,9 @@ async function processInbound(message: any, senderPhone: string): Promise<Inboun
     await deliverTerminalFollowUp(phone, after?.state, intakeLang(after ?? session));
     return { handled: true, outcome: "approve" };
   }
+
+  // ── A pin: the shop's location ────────────────────────────────────────────
+  if (message?.type === "location") return handleShopPin(phone, message);
 
   // ── Voice notes → transcription → same text pipeline ──────────────────────
   let text: string | null = null;

@@ -20,11 +20,12 @@
  */
 import { createHash } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { sharedNumberVisits, tenants } from "../../drizzle/schema";
+import { sharedNumberLobby, sharedNumberVisits, tenants } from "../../drizzle/schema";
 import {
   LOBBY_BROWSE, LOBBY_MINE, LOBBY_SEARCH, MORE_PREFIX, PICK_PREFIX,
-  classifyWithModel, crossShopQuery, directoryPage, directoryPayload, isLeaveShopText, listedShopsById, parseLobbyText,
-  searchPayload, searchPromptText, searchShops, shopNamed, welcomePayload, type LobbyIntent,
+  classifyWithModel, crossShopQuery, directoryPage, directoryPayload, isLeaveShopText, isNearText, listedShopsById,
+  nearAskPayload, nearQueryOf, nearbyPayload, nearbyShops, parseLobbyText, searchPayload, searchPromptText, searchShops,
+  shopNamed, welcomePayload, type LobbyIntent,
 } from "./sharedLobby";
 
 type Db = any;
@@ -179,6 +180,35 @@ async function recentShops(db: Db, buyerPhone: string, limit = 10): Promise<Shop
   return shops;
 }
 
+// ── An open "shops near me" question ────────────────────────────────────────
+// Kept for NEAR_ASK_TTL_MS: a pin after that is a pin like any other (to the current shop, or the lobby's own
+// nearby list). Only the question is stored — the buyer's coordinates never are.
+const NEAR_ASK_TTL_MS = 30 * 60 * 1000;
+
+async function openNearAsk(db: Db, buyerPhone: string, query: string): Promise<void> {
+  const now = new Date();
+  await db.insert(sharedNumberLobby)
+    .values({ buyerPhone, nearQuery: query.slice(0, 60), nearAskedAt: now, updatedAt: now })
+    .onConflictDoUpdate({ target: sharedNumberLobby.buyerPhone, set: { nearQuery: query.slice(0, 60), nearAskedAt: now, updatedAt: now } });
+}
+
+/** The open question's search words ("" for any shop), or null when none is open. Answering closes it. */
+async function takeNearAsk(db: Db, buyerPhone: string): Promise<string | null> {
+  const [row] = await db.select().from(sharedNumberLobby).where(eq(sharedNumberLobby.buyerPhone, buyerPhone)).limit(1);
+  if (!row?.nearAskedAt) return null;
+  await db.update(sharedNumberLobby).set({ nearQuery: null, nearAskedAt: null, updatedAt: new Date() })
+    .where(eq(sharedNumberLobby.buyerPhone, buyerPhone));
+  return Date.now() - new Date(row.nearAskedAt).getTime() <= NEAR_ASK_TTL_MS ? (row.nearQuery ?? "") : null;
+}
+
+/** A WhatsApp location message's point, or null. */
+export function pinOf(msg: any): { lat: number; lng: number } | null {
+  if (msg?.type !== "location") return null;
+  const lat = Number(msg.location?.latitude);
+  const lng = Number(msg.location?.longitude);
+  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+}
+
 // ── Platform's own replies (sent as the platform, not as any shop) ──────────
 
 async function postShared(cfg: SharedNumberConfig, to: string, payload: Record<string, unknown>): Promise<void> {
@@ -298,7 +328,8 @@ export async function routeSharedInbound(db: Db, msg: any, buyerPhone: string): 
         await replyText(cfg, buyerPhone, fallbackText);
       }
     };
-    const lobby = async (intent: LobbyIntent | { kind: "browse"; offset: number } | { kind: "prompt" } | { kind: "again" }): Promise<SharedRoute> => {
+    const lobby = async (intent: LobbyIntent | { kind: "browse"; offset: number } | { kind: "prompt" } | { kind: "again" }
+      | { kind: "near"; query: string } | { kind: "nearby"; lat: number; lng: number; query: string }): Promise<SharedRoute> => {
       switch (intent.kind) {
         case "greet":
         case "again":
@@ -321,6 +352,17 @@ export async function routeSharedInbound(db: Db, msg: any, buyerPhone: string): 
             `No shops are listed on ${cfg.platformName} yet. If a business gave you its shop code, send *SHOP* and the code.`);
           break;
         }
+        case "near":
+          // Ask for the pin; it answers this question wherever the buyer is (lobby or a shop).
+          if (await claimOnce()) {
+            await openNearAsk(db, buyerPhone, intent.query);
+            await postShared(cfg, buyerPhone, nearAskPayload(intent.query))
+              .catch((e: any) => console.error("[shared-number] location request failed:", e?.message));
+          }
+          break;
+        case "nearby":
+          await send(nearbyPayload(intent.query, await nearbyShops(db, intent.lat, intent.lng, intent.query)));
+          break;
         case "search": {
           let query = intent.query;
           let hits = await searchShops(db, query);
@@ -362,7 +404,18 @@ export async function routeSharedInbound(db: Db, msg: any, buyerPhone: string): 
     const code = body ? parseShopCommand(body) : null;
     if (code) return arrive(code);
 
-    // 3. With a shop: everything goes to the shop's own assistant, except asking for the stores again.
+    // 3. A pin answers an open "shops near me" question, wherever the buyer is.
+    const pin = pinOf(msg);
+    if (pin) {
+      // A redelivered pin the platform already answered must not then reach the shop as a delivery location.
+      const { wasClaimed } = await import("./webhookDedupe");
+      if (msg?.id && await wasClaimed(db, sharedClaimId(msg.id))) return { kind: "handled" };
+      const asked = await takeNearAsk(db, buyerPhone);
+      if (asked !== null) return lobby({ kind: "nearby", ...pin, query: asked });
+    }
+
+    // 4. With a shop: everything goes to the shop's own assistant (a pin there is a delivery location), except
+    //    asking for the stores again.
     const current = await currentShop(db, buyerPhone);
     if (current && reachable(current) && !hasOwnNumber(current)) {
       if (body && (isLeaveShopText(body) || isStoresCommand(body))) {
@@ -371,13 +424,18 @@ export async function routeSharedInbound(db: Db, msg: any, buyerPhone: string): 
       }
       // Asking about OTHER shops ("can you check stores around me that sell this?"): the platform searches across
       // the stores; the buyer stays with this shop until they pick another.
+      // Near them ("stores around me that sell this?") — ask for their location first.
       const elsewhere = body ? crossShopQuery(body) : null;
+      if (elsewhere !== null && isNearText(body)) return lobby({ kind: "near", query: nearQueryOf(body) });
       if (elsewhere !== null) return lobby(elsewhere ? { kind: "search", query: elsewhere } : { kind: "browse" });
       return go(current, msg);
     }
 
-    // 4. The lobby: read what the buyer said — the plain phrasings, then a shop's name, then a quick search, then
-    //    the model — and answer like a person would, never with silence.
+    // 5. The lobby: a pin shows the shops near it; "near me" asks for one. Otherwise read what the buyer said — the
+    //    plain phrasings, then a shop's name, then a quick search, then the model — and answer like a person would,
+    //    never with silence.
+    if (pin) return lobby({ kind: "nearby", ...pin, query: "" });
+    if (body && isNearText(body)) return lobby({ kind: "near", query: nearQueryOf(body) });
     if (!body) return lobby({ kind: "greet" });
     const intent = parseLobbyText(body);
     if (intent) return lobby(intent);

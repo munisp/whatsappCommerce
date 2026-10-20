@@ -92,6 +92,17 @@ export async function claimWebhookEvent(
   }
 }
 
+/** Whether an event id was already claimed, without claiming it. False when the ledger can't be read. */
+export async function wasClaimed(db: Db, id: string): Promise<boolean> {
+  try {
+    const rows = await db.select({ id: processedWebhookEvents.id }).from(processedWebhookEvents)
+      .where(eq(processedWebhookEvents.id, ledgerId(id))).limit(1);
+    return rows.length > 0;
+  } catch (err: any) {
+    return isMissingTableError(err) && !isProd ? memoryLedger.has(id) : false;
+  }
+}
+
 /**
  * Delete ledger rows older than `retentionDays` (default 7). Returns the
  * number of rows deleted.

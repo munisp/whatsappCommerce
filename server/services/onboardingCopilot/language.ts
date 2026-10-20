@@ -130,6 +130,12 @@ export interface CopilotTextPack {
   /** The auto-minted owner invite link after go-live ({link}). */
   liveOwnerInvite: string;
   /** ONB-ABU-1: per-phone intake throttle tripped. */
+  /** After go-live: ask for the shop's location ({appUrl}) — sent with the Send location button. */
+  locationAsk: string;
+  /** The shop's location was saved ({appUrl}). */
+  locationSaved: string;
+  /** A pin from a number with no shop set up yet. */
+  locationNoShop: string;
   throttled: string;
 }
 
@@ -227,6 +233,9 @@ const en: CopilotTextPack = {
     "Type *restart* and we'll try again together. 🙏",
   liveOwnerInvite:
     "🔐 Your secure portal login link (valid 24 hours, opens only after a code sent to this phone): {link}",
+  locationAsk: "📍 One last thing: share your shop's location so buyers near you can find you. Tap *Send location* below (send it from your shop, or pick the spot on the map).\n\nYou can change or hide it later in your portal: {appUrl}/settings/discovery",
+  locationSaved: "✅ Saved — buyers near you will now see your shop when they ask for shops nearby.\n\nYou can change or hide it any time: {appUrl}/settings/discovery",
+  locationNoShop: "I can't find a shop set up from this number yet, so I couldn't save that location. Finish setting up your shop first, then share it again.",
   throttled: "You're messaging faster than I can keep up — please wait a little and try again. 🙏",
 };
 
@@ -323,6 +332,9 @@ const fr: CopilotTextPack = {
     "Tapez *restart* et nous réessaierons ensemble. 🙏",
   liveOwnerInvite:
     "🔐 Votre lien de connexion sécurisé au portail (valide 24 h, ne s'ouvre qu'après un code envoyé à ce numéro) : {link}",
+  locationAsk: "📍 Une dernière chose : partagez l'emplacement de votre boutique pour que les acheteurs proches vous trouvent. Touchez *Envoyer la position* ci-dessous (depuis votre boutique, ou choisissez l'endroit sur la carte).\n\nVous pourrez le modifier ou le masquer dans votre portail : {appUrl}/settings/discovery",
+  locationSaved: "✅ Enregistré — les acheteurs proches verront votre boutique quand ils chercheront des boutiques autour d'eux.\n\nModifiable ou masquable à tout moment : {appUrl}/settings/discovery",
+  locationNoShop: "Je ne trouve pas encore de boutique créée depuis ce numéro, je n'ai donc pas pu enregistrer cet emplacement. Terminez d'abord la création de votre boutique, puis partagez-le à nouveau.",
   throttled: "Vous envoyez des messages plus vite que je ne peux suivre — patientez un peu puis réessayez. 🙏",
 };
 
@@ -419,6 +431,9 @@ const ha: CopilotTextPack = {
     "Rubuta *restart* za mu sake gwadawa tare. 🙏",
   liveOwnerInvite:
     "🔐 Hanyar shiga ta sirri zuwa portal (tana aiki awa 24, tana buɗewa ne kawai bayan lambar da aka aika zuwa wannan lambar): {link}",
+  locationAsk: "📍 Abu ɗaya na ƙarshe: aika wurin shagonka domin masu saye da ke kusa su same ka. Danna *Send location* a ƙasa (daga shagonka, ko ka zaɓi wurin a taswira).\n\nZa ka iya canza shi ko ɓoye shi daga baya: {appUrl}/settings/discovery",
+  locationSaved: "✅ An adana — masu saye da ke kusa za su ga shagonka idan suka nemi shaguna kusa da su.\n\nZa ka iya canza shi ko ɓoye shi kowane lokaci: {appUrl}/settings/discovery",
+  locationNoShop: "Ban sami shagon da aka buɗe daga wannan lambar ba tukuna, don haka ban adana wurin ba. Ka gama buɗe shagonka tukuna, sannan ka sake aika shi.",
   throttled: "Kana aika saƙwanni cikin sauri fiye da yadda zan iya bin duka — ka jira kaɗan sannan ka sake gwadawa. 🙏",
 };
 
@@ -515,6 +530,9 @@ const yo: CopilotTextPack = {
     "Tẹ *restart* ká gbìyànjú papọ̀ lẹ́ẹ̀kansi. 🙏",
   liveOwnerInvite:
     "🔐 Ọ̀na asopọ̀ ìwọlé pótà ààbò yín (ó pé fún wákàtí 24, ó máa ṣí lẹ́yìn kóòdù tí a fi ránṣẹ́ sí nọ́ńbà yìí): {link}",
+  locationAsk: "📍 Ohun kan tó kù: ẹ fi ibi tí ìtajà yín wà ránṣẹ́ kí àwọn oníbàárà tó wà nítòsí lè rí yín. Ẹ tẹ *Send location* nísàlẹ̀ (láti ìtajà yín, tàbí ẹ yan ibẹ̀ lórí máàpù).\n\nẸ lè yí i padà tàbí fi pamọ́ nígbà míì: {appUrl}/settings/discovery",
+  locationSaved: "✅ A ti fi pamọ́ — àwọn oníbàárà tó wà nítòsí yóò rí ìtajà yín nígbà tí wọ́n bá ń wá ìtajà nítòsí.\n\nẸ lè yí i padà tàbí fi pamọ́ nígbàkigbà: {appUrl}/settings/discovery",
+  locationNoShop: "Mi ò tíì rí ìtajà tí a ṣí láti nọ́ńbà yìí, nítorí náà mi ò lè fi ibi náà pamọ́. Ẹ parí ṣíṣí ìtajà yín ná, lẹ́yìn náà ẹ tún fi ránṣẹ́.",
   throttled: "Ẹ ń fi ìfiránṣẹ́ ránṣẹ́ jù bí mo ṣe lè tẹ̀le — dúró díẹ̀ kí ẹ sì gbìyànjú lẹ́ẹ̀kansi. 🙏",
 };
 
@@ -611,6 +629,9 @@ const ig: CopilotTextPack = {
     "Dee *restart* ka anyị nwaa ọzọ ọnụ. 🙏",
   liveOwnerInvite:
     "🔐 Njikọ nbanye portal echekwara gị (ọ na-adị irè awa 24, ọ na-emeghe naanị mgbe koodu ezigara nọmba a): {link}",
+  locationAsk: "📍 Otu ihe fọdụrụ: zitere anyị ebe ụlọ ahịa gị dị ka ndị na-azụ ahịa nọ nso wee hụ gị. Pịa *Send location* n'okpuru (site n'ụlọ ahịa gị, ma ọ bụ họrọ ebe ahụ na maapụ).\n\nỊ nwere ike ịgbanwe ma ọ bụ zoo ya ma emechaa: {appUrl}/settings/discovery",
+  locationSaved: "✅ Echekwala — ndị na-azụ ahịa nọ nso ga-ahụ ụlọ ahịa gị mgbe ha chọrọ ụlọ ahịa dị nso.\n\nỊ nwere ike ịgbanwe ma ọ bụ zoo ya oge ọ bụla: {appUrl}/settings/discovery",
+  locationNoShop: "Ahụbeghị m ụlọ ahịa e mepere site na nọmba a, ya mere enweghị m ike ichekwa ebe ahụ. Buru ụzọ mechaa imepe ụlọ ahịa gị, wee zighachi ya.",
   throttled: "Ị na-eziga ozi ngwa ngwa karịa ka m nwere ike iso — chere obere oge wee nwaa ọzọ. 🙏",
 };
 
@@ -707,6 +728,9 @@ const pcm: CopilotTextPack = {
     "Type *restart* make we try again together. 🙏",
   liveOwnerInvite:
     "🔐 Your secure portal login link (e dey valid for 24 hours, e go open only after code wey dem send to dis phone): {link}",
+  locationAsk: "📍 One last thing: send your shop location make buyers wey dey near you fit find you. Tap *Send location* below (send am from your shop, or pick the place for map).\n\nYou fit change am or hide am later for your portal: {appUrl}/settings/discovery",
+  locationSaved: "✅ E don save — buyers wey dey near you go see your shop when dem ask for shops wey dey close.\n\nYou fit change am or hide am anytime: {appUrl}/settings/discovery",
+  locationNoShop: "I never see shop wey dem set up from this number, so I no fit save that location. Finish to set up your shop first, then send am again.",
   throttled: "You dey message pass as I fit follow — abeg wait small and try again. 🙏",
 };
 

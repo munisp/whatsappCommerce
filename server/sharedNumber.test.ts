@@ -117,3 +117,33 @@ describe("ledgerId: the dedupe ledger key fits processed_webhook_events.id (64)"
     expect(ledgerId("wamid.short")).toBe("wamid.short"); // existing rows still match
   });
 });
+
+describe("shared lobby: shops near the buyer", () => {
+  it("reads 'near me' and what is wanted", async () => {
+    const { isNearText, nearQueryOf } = await import("./services/sharedLobby");
+    for (const t of ["who sells pepsi near me?", "shops near me", "any pharmacy around here", "closest phone shop", "stores in my area"]) {
+      expect(isNearText(t), t).toBe(true);
+    }
+    for (const t of ["find red shoes", "do you deliver to Ikeja?", "is it nearly ready", "who sells pepsi"]) {
+      expect(isNearText(t), t).toBe(false);
+    }
+    expect(nearQueryOf("who sells pepsi near me?")).toBe("pepsi");
+    expect(nearQueryOf("shops near me")).toBe("");
+    expect(nearQueryOf("stores around me that sell phone chargers")).toBe("phone chargers");
+    expect(nearQueryOf("rice near me")).toBe("rice");
+  });
+  it("says how far a shop is", async () => {
+    const { formatKm } = await import("./services/sharedLobby");
+    expect(formatKm(0.34)).toBe("350 m");
+    expect(formatKm(0.01)).toBe("50 m");
+    expect(formatKm(2.46)).toBe("2.5 km");
+    expect(formatKm(18.2)).toBe("18 km");
+  });
+  it("reads a WhatsApp pin", async () => {
+    const { pinFromMessage } = await import("./services/shopLocation");
+    expect(pinFromMessage({ type: "location", location: { latitude: 6.5, longitude: 3.4, address: " 12 Allen Ave " } }))
+      .toEqual({ latitude: 6.5, longitude: 3.4, name: null, address: "12 Allen Ave" });
+    expect(pinFromMessage({ type: "location", location: { latitude: 120, longitude: 3.4 } })).toBeNull();
+    expect(pinFromMessage({ type: "text", text: { body: "6.5,3.4" } })).toBeNull();
+  });
+});

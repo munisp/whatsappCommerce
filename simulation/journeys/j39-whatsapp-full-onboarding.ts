@@ -173,6 +173,11 @@ export const journey: Journey = {
       assertIncludes(liveReply, "Congratulations", "congrats message delivered");
       assertIncludes(liveReply, "your store is live", "live confirmation");
       assertIncludes(liveReply, "/settings/whatsapp", "portal connect URL included");
+      // Going live asks for the shop's location (WhatsApp's Send location button), so buyers nearby can find it.
+      assert(
+        world.outbound.toPhone(phone).some((c: any) => c?.body?.interactive?.type === "location_request_message"),
+        "the live shop is asked for its location",
+      );
       const finalTenant = await tenantRowById(world, s4.tenantId!);
       assert(finalTenant?.status === "active", `tenant status active (got ${finalTenant?.status})`);
       assert(

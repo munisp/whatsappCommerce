@@ -168,6 +168,14 @@ export const sharedNumberVisits = pgTable("shared_number_visits", {
   index("shared_number_visits_buyer_active_idx").on(t.buyerPhone, t.lastActiveAt),
 ]);
 export type SharedNumberVisit = typeof sharedNumberVisits.$inferSelect;
+/** A buyer's open "shops near me" question on the shared number (0181): what they were looking for and when they
+ *  were asked for their location. The pin that answers it is used for that one search and never stored. */
+export const sharedNumberLobby = pgTable("shared_number_lobby", {
+  buyerPhone: varchar("buyerPhone", { length: 32 }).primaryKey(),
+  nearQuery: varchar("nearQuery", { length: 60 }),
+  nearAskedAt: timestamp("nearAskedAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
 // ─── Tenant SSO Provisioning (legacy — see W12 tenantMemberships below) ───────
 // One row per TENANT (not per user) — a single linked SSO identity + role.
 // Superseded by tenantMemberships for real multi-user tenant membership;
