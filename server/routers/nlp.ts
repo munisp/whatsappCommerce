@@ -1051,6 +1051,18 @@ const FALLBACK_ERRORS: Record<string, string> = {
 const LOCALE_TO_NLP_LANGUAGE: Partial<Record<string, string>> = {
   yo: "yoruba", ha: "hausa", ig: "igbo", fr: "french", sw: "swahili", am: "amharic", pcm: "pidgin",
 };
+/**
+ * Does the message actually read as English? The detector answers "english" for anything without another
+ * language's signal — "zzz", "1", "ok". On USSD, where nearly every reply is a digit, that answer alone must not
+ * switch a French or Swahili session's menus to English: one "1" used to flip them.
+ */
+const ENGLISH_WORD_RE =
+  /\b(?:the|and|i|i'm|i'd|you|your|my|me|we|want|need|would|like|buy|order|show|see|have|has|is|are|do|does|can|could|please|how|what|where|when|which|price|cost|much|cart|help|thanks|thank|deliver|delivery|send|get|give|check|view|all|products?)\b/i;
+export function readsAsEnglish(text: string): boolean {
+  const words = String(text ?? "").match(/[A-Za-z']{2,}/g) ?? [];
+  return words.length >= 2 && ENGLISH_WORD_RE.test(text);
+}
+
 function detectLanguage(text: string): string {
   const det = detectLocaleDetailed(text);
   if (!det.lowConfidence && det.locale !== "en") {
@@ -1321,7 +1333,11 @@ export const nlpRouter = router({
         // A session already on the sticky locale keeps its own spelling: "pcm" and "pidgin" are both Pidgin but
         // render different USSD greetings (J537), so rewriting "pcm" to "pidgin" here would swap the greeting.
         const alreadyOnSticky = !!stickyLocale && localeFromSessionLanguage(session.language) === stickyLocale;
-        if (!alreadyOnSticky && detectedLang !== session.language) {
+        // On USSD nearly every reply is a menu number, so there a message with no English in it ("1", "zzz") keeps the
+        // session's language (readsAsEnglish). In chat, an unrecognised message still self-corrects to English (J601).
+        const ussdSession = input.ussdMode ?? ((session.context as Record<string, unknown> | null)?.ussdMode === true);
+        const confidentSwitch = !!stickyLocale || detectedLang !== "english" || !ussdSession || readsAsEnglish(input.message);
+        if (!alreadyOnSticky && confidentSwitch && detectedLang !== session.language) {
           await db.update(nlpSessions)
             .set({ language: detectedLang, lastActivityAt: new Date() })
             .where(eq(nlpSessions.id, session.id));

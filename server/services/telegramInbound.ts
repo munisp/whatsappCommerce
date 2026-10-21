@@ -562,6 +562,28 @@ export async function sendTelegramMenu(
  * sends: the order action card after an order confirmation and a product's picture.
  * `gated` — the caller already ran the intake gate for this message.
  */
+/**
+ * The phone a Telegram chat is linked to (telegramIdentities), for the handlers that key on an E.164 phone — stokvel,
+ * insurance, vouchers. A chat that never shared its number keeps its session key ("telegram:<chat id>"), so those
+ * lookups simply find nothing and answer honestly.
+ */
+export async function linkedTelegramPhone(db: Db, tenantId: string, sessionKey: string): Promise<string> {
+  const chatId = sessionKey.startsWith(`${CHANNEL_TELEGRAM}:`) ? sessionKey.slice(CHANNEL_TELEGRAM.length + 1) : null;
+  if (!chatId) return sessionKey;
+  try {
+    const { telegramIdentities } = await import("../../drizzle/schema");
+    const { and: andOp } = await import("drizzle-orm");
+    const [ident] = await db
+      .select({ phone: telegramIdentities.phoneE164 })
+      .from(telegramIdentities)
+      .where(andOp(eq(telegramIdentities.tenantId, tenantId), eq(telegramIdentities.chatId, chatId)))
+      .limit(1);
+    return ident?.phone ?? sessionKey;
+  } catch {
+    return sessionKey;
+  }
+}
+
 async function dispatchToNlp(
   db: Db,
   cfg: TelegramTenantConfig,
@@ -588,15 +610,7 @@ async function dispatchToNlp(
   // phone from telegramIdentities and fall back to the TG session key
   // (read-only lookups then simply find nothing and answer honestly).
   try {
-    const { telegramIdentities } = await import("../../drizzle/schema");
-    const { and: andOp } = await import("drizzle-orm");
-    const [ident] = await db
-      .select({ phone: telegramIdentities.phoneE164 })
-      .from(telegramIdentities)
-      .where(andOp(eq(telegramIdentities.tenantId, cfg.tenantId), eq(telegramIdentities.chatId, ev.chatId)))
-      .limit(1)
-      .catch(() => [] as any[]);
-    const phoneRef: string = ident?.phone ?? sessionKey;
+    const phoneRef = await linkedTelegramPhone(db, cfg.tenantId, sessionKey);
     const { handleSavingsInbound } = await import("./savingsWa");
     const savingsOutcome = await handleSavingsInbound({ db, tenantId: cfg.tenantId, phone: phoneRef, text: message });
     if (savingsOutcome) {

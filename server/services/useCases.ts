@@ -1101,7 +1101,11 @@ export async function handleConversationalInbound(opts: {
   // existing use-case / menu / NLP pipeline unchanged.
   try {
     const { handleSavingsInbound } = await import("./savingsWa");
-    const savingsOutcome = await handleSavingsInbound({ db, tenantId, phone, text });
+    // A Telegram chat reaches here with its session key; the circles, policies and vouchers belong to the phone it
+    // is linked to (the Telegram NLP path resolves it the same way).
+    const { linkedTelegramPhone } = await import("./telegramInbound");
+    const savingsPhone = phone.startsWith("telegram:") ? await linkedTelegramPhone(db, tenantId, phone) : phone;
+    const savingsOutcome = await handleSavingsInbound({ db, tenantId, phone: savingsPhone, text });
     if (savingsOutcome) return savingsOutcome;
   } catch (e: any) {
     console.warn("[useCases] savings inbound handler failed:", e?.message ?? e);
