@@ -30,6 +30,8 @@ import { recorder } from "./transcript";
 // ── Constants ────────────────────────────────────────────────────────────────
 
 export const TENANT_ID = "sim-tenant";
+/** The sim shop's plan: effectively unmetered, so no journey fails on another's message count. */
+const SEED_PLAN = { tier: "growth", limits: { messagesPerMonth: 1_000_000, ordersPerMonth: 1_000_000 } };
 export const TENANT_NAME = "Sim Store";
 export const PHONE_NUMBER_ID = "pn_sim_001";
 export const WABA_ID = "waba_sim_001";
@@ -644,6 +646,21 @@ export async function bootWorld(): Promise<World> {
           }
         } catch { /* world not seeded yet */ }
         // === END W54 disputes ===
+        // Restore the seeded plan. A journey that writes the tenant's settings without `plan` (or with its own) left
+        // the sim shop on the default 1,000-message quota for every journey after it, so late in a full run every
+        // reply became "busy" once the shop's monthly count passed it — failures that were never the journey's.
+        try {
+          const { tenants } = await import("../drizzle/schema");
+          const cur = await world.tenantSettings();
+          const p = (cur?.plan ?? {}) as { tier?: string; limits?: Record<string, unknown> };
+          const same = p.tier === SEED_PLAN.tier && p.limits?.messagesPerMonth === SEED_PLAN.limits.messagesPerMonth
+            && p.limits?.ordersPerMonth === SEED_PLAN.limits.ordersPerMonth; // by value: jsonb reorders the keys
+          if (cur && !same) {
+            await world.db.update(tenants)
+              .set({ settings: { ...cur, plan: SEED_PLAN }, updatedAt: new Date() })
+              .where(eq(tenants.id, TENANT_ID));
+          }
+        } catch { /* world not seeded yet */ }
         // === W54 capabilities: wipe membership tiers between journeys ===
         try {
           const schema = await import("../drizzle/schema");
@@ -1183,7 +1200,7 @@ async function seedWorld(world: World): Promise<void> {
         validatedAt: new Date().toISOString(),
       },
       // === END W47 merger ===
-      plan: { tier: "growth", limits: { messagesPerMonth: 1_000_000, ordersPerMonth: 1_000_000 } },
+      plan: SEED_PLAN,
       whatsapp: { accessToken: WA_ACCESS_TOKEN, wabaId: WABA_ID, displayPhone: DISPLAY_PHONE },
       adminPhone: ADMIN_PHONE,
       promos: [{ code: "SIM10", type: "percent", value: 10 }],
