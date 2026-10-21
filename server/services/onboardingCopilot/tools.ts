@@ -43,6 +43,7 @@ import {
   type ProposalKind,
 } from "./session";
 import { sessionLanguage, t } from "./language";
+import { proposalCardText, useCaseLabel } from "./cardText";
 // === W47 crosscutting (ONB-SM-1) ===
 import { bootstrapTenantOwner } from "./bootstrapTenantOwner";
 // === END W47 crosscutting ===
@@ -352,16 +353,27 @@ export interface ToolResult {
   replies?: CopilotReply[];
 }
 
-function proposalCard(p: Proposal, lang?: string): CopilotReply {
+function proposalCard(p: Proposal, session: OnboardingSession): CopilotReply {
+  const lang = sessionLanguage(session);
   return {
     type: "card",
-    text: `${p.summary}\n\n${JSON.stringify(p.payload, null, 2)}`,
+    text: proposalCardText(p, session.intake.facts), // readable on WhatsApp / Telegram — no JSON (cardText.ts)
     actions: [
       { id: `approve:${p.id}`, label: t(lang, "actionApprove") },
       { id: `edit:${p.id}`, label: t(lang, "actionEdit") },
       { id: `reject:${p.id}`, label: t(lang, "actionReject") },
     ],
   };
+}
+
+/**
+ * A kind already waiting for the owner's decision is not proposed again: a model calling the same tool twice (or
+ * the template fallback after it) sent the owner the same card two or three times. The waiting one stands; an edit
+ * rejects it first, so a revised draft still goes through.
+ */
+function alreadyPending(session: OnboardingSession, kind: Proposal["kind"]): ToolResult | null {
+  const p = session.proposals.find((x) => x.kind === kind && x.status === "pending");
+  return p ? { ok: true, result: { proposalId: p.id, note: `a ${kind} proposal is already waiting for the owner's decision` } } : null;
 }
 
 const handlers: Record<
@@ -379,6 +391,8 @@ const handlers: Record<
   },
 
   async proposeWaMenu(args, session) {
+    const dup = alreadyPending(session, "waMenu");
+    if (dup) return dup;
     const parsed = parseWaMenuConfigSafe(args.menu);
     if (!parsed.ok) {
       // Feed the zod error back to the LLM for regeneration — never persist
@@ -393,24 +407,28 @@ const handlers: Record<
       payload: parsed.menu,
     });
     await auditCopilot(session, "onboarding_copilot.tool", "tool proposeWaMenu", { proposalId: p.id });
-    return { ok: true, result: { proposalId: p.id }, replies: [proposalCard(p, sessionLanguage(session))] };
+    return { ok: true, result: { proposalId: p.id }, replies: [proposalCard(p, session)] };
   },
 
   async proposeUseCases(args, session) {
+    const dup = alreadyPending(session, "useCases");
+    if (dup) return dup;
     const parsed = rankedUseCasesSchema.safeParse(args);
     if (!parsed.success) {
       return { ok: false, result: { error: "invalid ranked use cases", issues: parsed.error.issues } };
     }
     const p = addProposal(session, {
       kind: "useCases",
-      summary: parsed.data.summary || `Suggested use cases: ${parsed.data.ranked.slice(0, 3).join(", ")}`,
+      summary: parsed.data.summary || `Suggested use cases: ${parsed.data.ranked.slice(0, 3).map(useCaseLabel).join(", ")}`,
       payload: { ranked: parsed.data.ranked },
     });
     await auditCopilot(session, "onboarding_copilot.tool", "tool proposeUseCases", { proposalId: p.id });
-    return { ok: true, result: { proposalId: p.id }, replies: [proposalCard(p, sessionLanguage(session))] };
+    return { ok: true, result: { proposalId: p.id }, replies: [proposalCard(p, session)] };
   },
 
   async proposeBranding(args, session) {
+    const dup = alreadyPending(session, "branding");
+    if (dup) return dup;
     const facts = session.intake.facts;
     if (!facts.businessName) {
       return { ok: false, result: { error: "businessName required before branding — run extractIntake first" } };
@@ -429,10 +447,12 @@ const handlers: Record<
       payload: kit,
     });
     await auditCopilot(session, "onboarding_copilot.tool", "tool proposeBranding", { proposalId: p.id });
-    return { ok: true, result: { proposalId: p.id }, replies: [proposalCard(p, sessionLanguage(session))] };
+    return { ok: true, result: { proposalId: p.id }, replies: [proposalCard(p, session)] };
   },
 
   async proposeIntegrations(args, session) {
+    const dup = alreadyPending(session, "integrations");
+    if (dup) return dup;
     const parsed = integrationSuggestionsSchema.safeParse(args);
     if (!parsed.success) {
       return { ok: false, result: { error: "invalid integration suggestions", issues: parsed.error.issues } };
@@ -447,7 +467,7 @@ const handlers: Record<
     await auditCopilot(session, "onboarding_copilot.tool", "tool proposeIntegrations", {
       proposalId: p.id,
     });
-    return { ok: true, result: { proposalId: p.id }, replies: [proposalCard(p, sessionLanguage(session))] };
+    return { ok: true, result: { proposalId: p.id }, replies: [proposalCard(p, session)] };
   },
 
   async applyProposal(args, session) {

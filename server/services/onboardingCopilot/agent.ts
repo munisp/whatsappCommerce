@@ -40,11 +40,13 @@ import {
   addProposal,
   appendTranscript,
   findProposal,
+  isChatChannel,
   type CopilotReply,
   type IntakeFacts,
   type OnboardingSession,
   type ProposalKind,
 } from "./session";
+import { proposalCardText, useCaseLabel } from "./cardText";
 
 const MAX_TOOL_ROUNDS = 4;
 
@@ -75,6 +77,7 @@ interface LoopOutcome {
 export async function runToolLoop(
   session: OnboardingSession,
   instruction: string,
+  maxRounds: number = MAX_TOOL_ROUNDS,
 ): Promise<LoopOutcome> {
   const replies: CopilotReply[] = [];
   const facts = session.intake.facts;
@@ -107,7 +110,7 @@ export async function runToolLoop(
 
   let assistantText: string | null = null;
   try {
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    for (let round = 0; round < maxRounds; round++) {
       const res = await invokeLLM({ messages, tools: COPILOT_TOOL_SCHEMAS, toolChoice: "auto" });
       const msg = res.choices?.[0]?.message;
       if (!msg) break;
@@ -164,27 +167,38 @@ const KNOWN_CITIES = [
   "benin", "jos", "ilorin", "owerri", "accra", "nairobi",
 ];
 
+/** A greeting, a command or a filler word: never a business name, even as a short first message. */
+const NOT_A_NAME_RE =
+  /^(?:hi+|hello+|hey+|hiya|yo|good\s+(?:morning|afternoon|evening|day)|start|sell|menu|help|yes|no|ok(?:ay)?|thanks?|thank\s+you|please|test|hm+)[\s!.,]*$/i;
+
 export function extractFactsFallback(text: string, existing: IntakeFacts): IntakeFacts {
   const facts: IntakeFacts = { ...existing };
   const lower = text.toLowerCase();
 
   if (!facts.businessName) {
     const m =
-      text.match(/(?:called|named|name is|business is|shop is|store is)\s+["']?([A-Za-z0-9'&][A-Za-z0-9'&. ]{1,58}?)["']?(?:[,.!]|$|\s+in\s|\s+we\s|\s+and\s)/i) ??
+      // "name: Tanisty toys", "Business name - X", "Shop: X" on a line of its own
+      text.match(/^\s*(?:business\s+name|company(?:\s+name)?|shop(?:\s+name)?|store(?:\s+name)?|brand(?:\s+name)?|name)\s*[:=\-–]\s*["']?([^\n"']{2,60}?)["']?\s*$/im) ??
+      text.match(/(?:called|named|name is|business is|shop is|store is)\s+["']?([A-Za-z0-9'&][A-Za-z0-9'&. ]{1,58}?)["']?(?:[,.!]|$|\s+in\s|\s+we\s|\s+and\s)/im) ??
       text.match(/(?:i run|i own|we run|we own|i have|we have)\s+(?:a|an|the)?\s*(?:small\s+)?(?:business|shop|store|brand|company)?\s*(?:called\s+)?["']?([A-Za-z0-9'&][A-Za-z0-9'&. ]{1,58}?)["']?(?:[,.!]|$)/i);
     if (m) {
       facts.businessName = m[1].trim().replace(/^(?:called|named)\s+/i, "");
-    } else if (text.trim().length <= 60 && !/[?]/.test(text)) {
+    } else if (text.trim().length <= 60 && !/[?\n]/.test(text.trim()) && !NOT_A_NAME_RE.test(text.trim())) {
       facts.businessName = text.trim();
     }
   }
   if (!facts.industry) {
     const hit = INDUSTRY_KEYWORDS.find((k) => lower.includes(k));
+    // "I sell children toys" → what they sell, in their words
+    const sells = text.match(/\b(?:i|we)\s+sell\s+([^.,!?\n]{2,60})/i);
     if (hit) facts.industry = hit;
+    else if (sells) facts.industry = sells[1].trim();
   }
   if (!facts.city) {
     const city = KNOWN_CITIES.find((c) => lower.includes(c));
+    const based = text.match(/\b(?:based|located)\s+in\s+([A-Za-z][A-Za-z .'-]{1,40}?)(?:[.,!\n]|$)/i);
     if (city) facts.city = city[0].toUpperCase() + city.slice(1);
+    else if (based) facts.city = based[1].trim();
   }
   if (!facts.delivery && /deliver|dispatch|pickup|ship/.test(lower)) {
     facts.delivery = /pickup|pick up/.test(lower) ? "pickup + delivery" : "offers delivery";
@@ -206,16 +220,22 @@ export function extractFactsFallback(text: string, existing: IntakeFacts): Intak
 // ─── Intake ──────────────────────────────────────────────────────────────────
 
 async function handleIntake(session: OnboardingSession, text: string): Promise<CopilotReply[]> {
-  // 1) Extract facts — LLM tool loop first, regex fallback after.
+  // 1) Extract facts — LLM tool loop first, regex fallback after. On WhatsApp / Telegram the owner is waiting on a
+  // phone for each reply, so one model call reads the facts and the proposals come from the templates (below):
+  // several rounds on a slow model kept them waiting minutes for an answer.
+  const chat = isChatChannel(session.channel);
   const loop = await runToolLoop(
     session,
-    "Extract any business facts from the latest user message with extractIntake. " +
-      "If you already know the business name, also propose setup (see instructions). " +
-      "Otherwise reply asking for the business name and what they sell.",
+    chat
+      ? "Extract any business facts from the latest user message with extractIntake. Do not propose anything yet."
+      : "Extract any business facts from the latest user message with extractIntake. " +
+          "If you already know the business name, also propose setup (see instructions). " +
+          "Otherwise reply asking for the business name and what they sell.",
+    chat ? 1 : MAX_TOOL_ROUNDS,
   );
-  if (!loop.usedLlm) {
-    session.intake.facts = extractFactsFallback(text, session.intake.facts);
-  }
+  // The matcher fills whatever the model did not (it only sets missing facts): a model that answers without calling
+  // the tool — or is down — must not leave a plain "name: X" unread and ask for it again.
+  session.intake.facts = extractFactsFallback(text, session.intake.facts);
 
   const facts = session.intake.facts;
   if (!facts.businessName) {
@@ -239,7 +259,7 @@ async function generateProposals(session: OnboardingSession, llmAvailable: boole
   await transition(session, "proposing");
   const replies: CopilotReply[] = [];
 
-  if (llmAvailable) {
+  if (llmAvailable && !isChatChannel(session.channel)) { // chat channels: the templates, at once (see handleIntake)
     const loop = await runToolLoop(
       session,
       "Propose the full setup now: call proposeWaMenu, proposeUseCases, proposeBranding and " +
@@ -263,7 +283,7 @@ async function generateProposals(session: OnboardingSession, llmAvailable: boole
     const ranked = buildRankedUseCases(session.intake.facts);
     const p = addProposal(session, {
       kind: "useCases",
-      summary: t(lang, "summaryUseCases", { list: ranked.slice(0, 3).join(", ") }),
+      summary: t(lang, "summaryUseCases", { list: ranked.slice(0, 3).map(useCaseLabel).join(", ") }),
       payload: { ranked },
     });
     replies.push(cardFor(p.id, session));
@@ -280,7 +300,7 @@ async function generateProposals(session: OnboardingSession, llmAvailable: boole
     const providers = buildIntegrationSuggestions(session.intake.facts);
     const p = addProposal(session, {
       kind: "integrations",
-      summary: t(lang, "summaryIntegrations", { list: providers.map((x) => x.provider).join(", ") }),
+      summary: t(lang, "summaryIntegrations", { list: providers.map((x) => x.provider[0].toUpperCase() + x.provider.slice(1)).join(", ") }),
       payload: { providers },
     });
     replies.push(cardFor(p.id, session));
@@ -301,7 +321,7 @@ function cardFor(proposalId: string, session: OnboardingSession): CopilotReply {
   const lang = sessionLanguage(session);
   return {
     type: "card",
-    text: `${p.summary}\n\n${JSON.stringify(p.payload, null, 2)}`,
+    text: proposalCardText(p, session.intake.facts), // readable on WhatsApp / Telegram — no JSON (cardText.ts)
     actions: [
       { id: `approve:${p.id}`, label: t(lang, "actionApprove") },
       { id: `edit:${p.id}`, label: t(lang, "actionEdit") },

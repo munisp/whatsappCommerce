@@ -364,9 +364,10 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     messages: messages.map(normalizeMessage),
   };
 
-  if (model) {
-    payload.model = model;
-  }
+  // Every request names a model: an OpenAI-compatible server (Ollama here) refuses one without ("model is
+  // required"), which silently sent the onboarding assistant to its fallbacks. LLM_MODEL overrides the default,
+  // the name the shop assistant already uses.
+  payload.model = model || process.env.LLM_MODEL || "gpt-5-mini";
 
   if (tools && tools.length > 0) {
     payload.tools = tools;

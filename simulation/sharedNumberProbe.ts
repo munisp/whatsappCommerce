@@ -42,7 +42,9 @@ async function main() {
     // A real model answers in seconds with nothing else happening meanwhile, so settle() alone would move on early:
     // wait for the first reply (or 60s), then for the rest of the burst.
     const t0 = Date.now();
-    while (world.outbound.toPhone(phone).length === before && Date.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 200));
+    const wait = Number(process.env.SIM_PROBE_WAIT_MS) || 60000; // a slow CPU model needs longer
+    while (world.outbound.toPhone(phone).length === before && Date.now() - t0 < wait) await new Promise((r) => setTimeout(r, 200));
+    if (process.env.SIM_PROBE_WAIT_MS) console.log(`   (first reply after ${((Date.now() - t0) / 1000).toFixed(1)}s)`);
     await world.settle(1500, 90000);
     const replies = world.outbound.toPhone(phone).slice(before);
     console.log(`\n👤 ${msg}`);
