@@ -22,8 +22,9 @@ import { createHash } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { sharedNumberLobby, sharedNumberVisits, tenants } from "../../drizzle/schema";
 import {
-  LOBBY_BROWSE, LOBBY_MINE, LOBBY_SEARCH, MORE_PREFIX, PICK_PREFIX,
-  classifyWithModel, crossShopQuery, directoryPage, directoryPayload, isLeaveShopText, isNearText, isSellText, listedShopsById,
+  LOBBY_BROWSE, LOBBY_MINE, LOBBY_SEARCH, LOBBY_SELL, MORE_PREFIX, PICK_PREFIX, SWITCH_TIP,
+  classifyWithModel, crossShopQuery, directoryPage, directoryPayload, isBuyText, isLeaveShopText, isNearText, isSellText,
+  isSwitchText, listedShopsById, switchPayload,
   nearAskPayload, nearQueryOf, nearbyPayload, nearbyShops, parseLobbyText, searchPayload, searchPromptText, searchShops,
   shopNamed, welcomePayload, type LobbyIntent,
 } from "./sharedLobby";
@@ -363,8 +364,17 @@ export async function routeSharedInbound(db: Db, msg: any, buyerPhone: string): 
       }
     };
     const lobby = async (intent: LobbyIntent | { kind: "browse"; offset: number } | { kind: "prompt" } | { kind: "again" }
-      | { kind: "near"; query: string } | { kind: "nearby"; lat: number; lng: number; query: string }): Promise<SharedRoute> => {
+      | { kind: "near"; query: string } | { kind: "nearby"; lat: number; lng: number; query: string } | { kind: "switch" }): Promise<SharedRoute> => {
       switch (intent.kind) {
+        case "switch": {
+          // Where they are, where they've been, everywhere else, and their own shop's setup.
+          const { activeOnboardingName } = await import("./waOnboarding");
+          const cur = await currentShop(db, buyerPhone);
+          const recent = await listedShopsById(db, (await recentIds()).slice(0, 5));
+          const current = cur && reachable(cur) && !hasOwnNumber(cur) ? recent.find((s) => s.id === cur.id) ?? null : null;
+          await send(switchPayload(cfg.platformName, { current, recent, setupName: await activeOnboardingName(buyerPhone) }));
+          break;
+        }
         case "greet":
         case "again":
           await send(welcomePayload(cfg.platformName, { visited: (await recentIds()).length > 0, again: intent.kind === "again" }));
@@ -430,13 +440,26 @@ export async function routeSharedInbound(db: Db, msg: any, buyerPhone: string): 
       return { kind: "handled" };
     };
     const { handleInbound: onboardingInbound, hasActiveOnboarding, startOrResumeOnboarding } = await import("./waOnboarding");
-    const backToShopping = !!body && (isLeaveShopText(body) || isStoresCommand(body) || !!parseShopCommand(body));
-    if (body && isSellText(body, cfg.platformName)) {
+    const switching = !!body && isSwitchText(body);
+    const backToShopping = !!body && (isLeaveShopText(body) || isStoresCommand(body) || !!parseShopCommand(body) || isBuyText(body));
+    // SELL (or "Sell here" / "My shop setup" in the Switch menu) starts or resumes the setup; the first time, it says
+    // how to get back out.
+    const sell = async (): Promise<SharedRoute> => {
+      const resuming = await hasActiveOnboarding(buyerPhone);
       await setSelling(db, buyerPhone, true);
-      return onboarding(() => startOrResumeOnboarding(buyerPhone));
-    }
+      return onboarding(async () => {
+        await startOrResumeOnboarding(buyerPhone);
+        if (!resuming) await replyText(cfg, buyerPhone, SWITCH_TIP);
+      });
+    };
+    if (body && isSellText(body, cfg.platformName)) return sell();
+    if (reply?.id === LOBBY_SELL) return sell();
     if (reply?.id.startsWith("onb_")) return onboarding(() => onboardingInbound(msg, buyerPhone));
     if (await isSelling(db, buyerPhone)) {
+      if (switching) {
+        await setSelling(db, buyerPhone, false); // the setup stays saved; "My shop setup" picks it up again
+        return lobby({ kind: "switch" });
+      }
       if (backToShopping) {
         await setSelling(db, buyerPhone, false);
       } else if (await hasActiveOnboarding(buyerPhone)) {
@@ -480,6 +503,7 @@ export async function routeSharedInbound(db: Db, msg: any, buyerPhone: string): 
     //    asking for the stores again.
     const current = await currentShop(db, buyerPhone);
     if (current && reachable(current) && !hasOwnNumber(current)) {
+      if (switching) return lobby({ kind: "switch" });
       if (body && (isLeaveShopText(body) || isStoresCommand(body))) {
         const intent = parseLobbyText(body);
         return lobby(intent?.kind === "mine" ? intent : { kind: "browse" });
@@ -499,6 +523,7 @@ export async function routeSharedInbound(db: Db, msg: any, buyerPhone: string): 
     if (pin) return lobby({ kind: "nearby", ...pin, query: "" });
     if (body && isNearText(body)) return lobby({ kind: "near", query: nearQueryOf(body) });
     if (!body) return lobby({ kind: "greet" });
+    if (switching) return lobby({ kind: "switch" });
     const intent = parseLobbyText(body);
     if (intent) return lobby(intent);
     const named = await shopNamed(db, body);

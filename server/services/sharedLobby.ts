@@ -337,6 +337,52 @@ export const MORE_PREFIX = "shared_more:";
 export const LOBBY_BROWSE = "lobby:browse";
 export const LOBBY_SEARCH = "lobby:search";
 export const LOBBY_MINE = "lobby:mine";
+export const LOBBY_SELL = "lobby:sell";
+
+/**
+ * "Where am I / take me somewhere else", read the same in a shop, in the lobby and while setting up a shop: it opens
+ * the Switch menu. Deliberately not "back", "menu" or "start over" — a shop's own assistant uses those — and "leave
+ * shop" / "exit" / "stores" still go straight to the store directory (isLeaveShopText).
+ */
+export function isSwitchText(text: string): boolean {
+  return /^(?:switch|switch (?:shop|store|shops|stores)|change|change (?:shop|store)|exit setup|leave setup|home|main menu|where am i|options)$/i
+    .test(clean(text));
+}
+
+/**
+ * Plainly buying ("I want to buy 4 palm oil", "buy rice", "where can I get pepsi"): while a shop is being set up, this
+ * is the owner shopping, not describing their business — it goes back to shopping.
+ */
+export function isBuyText(text: string): boolean {
+  return /^(?:i\s*(?:want|need|wanna|would like|'d like)\s+to\s+(?:buy|order|purchase)|i\s+(?:want|need)\s+\d+|buy|where\s+can\s+i\s+(?:buy|get|find))\b/i
+    .test(clean(text).replace(/^!\s*/, "i "));
+}
+
+/** The one line that tells a buyer, or an owner in setup, how to get anywhere else. */
+export const SWITCH_TIP = "Tip: type *SWITCH* any time to change shop, browse the stores or set up your own shop.";
+
+/**
+ * The Switch menu: carry on where you were, a recent shop, all the stores, search, or your own shop's setup (carry
+ * on with it, or start one). One list, wherever the buyer is.
+ */
+export function switchPayload(platformName: string, o: { current: DirectoryShop | null; recent: DirectoryShop[]; setupName: string | null }): Record<string, unknown> {
+  const rows: { id: string; title: string; description: string }[] = [];
+  if (o.current) rows.push({ id: `${PICK_PREFIX}${o.current.code}`, title: cut(`Back to ${o.current.name}`, 24), description: "Carry on shopping where you were" });
+  for (const s of o.recent.filter((x) => x.id !== o.current?.id).slice(0, 4)) rows.push(shopRow(s));
+  rows.push({ id: LOBBY_BROWSE, title: "🛍️ All stores", description: `Every shop on ${cut(platformName, 50)}` });
+  rows.push({ id: LOBBY_SEARCH, title: "🔎 Search", description: "Find a product or a shop" });
+  rows.push(o.setupName !== null
+    ? { id: LOBBY_SELL, title: "🏪 My shop setup", description: cut(o.setupName ? `Carry on setting up ${o.setupName}` : "Carry on setting up your shop", 72) }
+    : { id: LOBBY_SELL, title: "🏪 Sell here", description: cut(`Open your own shop on ${platformName}`, 72) });
+  return {
+    type: "interactive",
+    interactive: {
+      type: "list",
+      body: { text: o.setupName !== null && !o.current ? "Where to? Your shop setup is saved — you can come back to it any time." : "Where to? 🙂" },
+      action: { button: "Choose", sections: [{ title: "Go to", rows: rows.slice(0, 10) }] },
+    },
+  };
+}
 
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
@@ -361,7 +407,8 @@ export function welcomePayload(platformName: string, opts: { visited: boolean; a
       `you want (like "rice" or "sneakers"), or type a shop's name.`
     : `Hi! 👋 Welcome to *${platformName}*.\n\nI can help you find a shop and buy from it right here on WhatsApp. ` +
       `Browse the stores, search for something you want, or just tell me what you're looking for. ` +
-      `Share your 📍 location to see shops near you.\n\nOwn a business? Type *SELL* to open your shop here.`;
+      `Share your 📍 location to see shops near you.\n\nOwn a business? Type *SELL* to open your shop here. ` +
+      `Type *SWITCH* any time to change shop.`;
   const buttons = [
     { type: "reply", reply: { id: LOBBY_BROWSE, title: "🛍️ Browse stores" } },
     { type: "reply", reply: { id: LOBBY_SEARCH, title: "🔎 Search" } },

@@ -488,6 +488,75 @@ export const journeys: Journey[] = [
     assert(!textOf(one(world, b, m, "who sells")[0]).includes("onboarding assistant"), "'who sells rice' is a search");
   }),
 
+  J("S24", "SWITCH from a shop, into the setup and back: one menu everywhere, the setup kept", async (world) => {
+    const p = world.newPhone("w");
+    await send(world, p, "SHOP MAMAPUT");
+    await send(world, p, "YES");
+    let m = mark(world, p);
+    await send(world, p, "switch");
+    let menu = one(world, p, m, "switch in a shop")[0];
+    let rows = rowsOf(menu);
+    assert(rows[0]?.title === "Back to Mama Put Kitchen", `first, back to the shop they're in (got ${JSON.stringify(rows.map((r) => r.title))})`);
+    assert(rows.some((r) => r.id === "lobby:browse") && rows.some((r) => r.id === "lobby:search"), "all stores and search");
+    assert(rows.some((r) => r.id === "lobby:sell" && r.title.includes("Sell here")), "and selling, for a phone with no setup");
+    // Into the setup from the menu: the assistant, and once, how to get back out.
+    m = mark(world, p);
+    await pick(world, p, "lobby:sell", "🏪 Sell here");
+    const into = repliesSince(world, p, m);
+    assertIncludes(textOf(into[0]), "onboarding assistant", "'Sell here' starts the setup");
+    assert(into.some((c) => textOf(c).includes("SWITCH")), "the setup says how to switch back");
+    await send(world, p, "I run Ada's Fabrics in Enugu, ankara and lace");
+    // SWITCH from the setup: the same menu, now with "My shop setup".
+    m = mark(world, p);
+    await send(world, p, "switch");
+    rows = rowsOf(one(world, p, m, "switch in setup")[0]);
+    assert(rows.some((r) => r.id === "lobby:sell" && r.title.includes("My shop setup")), `the setup is offered back (got ${JSON.stringify(rows.map((r) => r.title))})`);
+    // Back to the shop…
+    const back = rows.find((r) => String(r.title).startsWith("Back to") || String(r.id).endsWith("mamaput"));
+    await pick(world, p, back.id, back.title);
+    assert((await visitOf(world, p)) === MAMA.id, "back with Mama Put");
+    m = mark(world, p);
+    await send(world, p, "menu");
+    assert(!repliesSince(world, p, m).some((c) => textOf(c).includes("onboarding assistant")), "the shop has the chat again, not the setup");
+    // …and into the same setup again.
+    await send(world, p, "switch");
+    m = mark(world, p);
+    await pick(world, p, "lobby:sell", "🏪 My shop setup");
+    const again = repliesSince(world, p, m);
+    assertIncludes(textOf(again[0]), "Welcome back", "the saved setup resumes");
+    assert(!again.some((c) => textOf(c).includes("Tip: type *SWITCH*")), "the tip is said once, not on every resume");
+  }),
+
+  J("S25", "buying while a shop is being set up goes back to shopping; describing the business stays in setup", async (world) => {
+    const p = world.newPhone("x");
+    const { normalizeWaPhone } = await import("../server/services/waSender");
+    const turns = async () => {
+      const res = await world.pg.query(`select jsonb_array_length(transcript) n from onboarding_sessions where phone=$1 order by created_at desc limit 1`, [normalizeWaPhone(p)]);
+      return Number((Array.isArray(res) ? res : res.rows)[0]?.n ?? 0);
+    };
+    await send(world, p, "SELL");
+    await send(world, p, "We sell rice and beans in Ibadan");
+    let n = await turns();
+    let m = mark(world, p);
+    await send(world, p, "! want to buy 4 palm oil");
+    assert((await turns()) === n, "the buying message did not go to the setup");
+    assert(!repliesSince(world, p, m).some((c) => textOf(c).includes("onboarding assistant")), "answered as a buyer");
+    // The owner describing their own business is never taken for buying.
+    await send(world, p, "SELL");
+    n = await turns();
+    await send(world, p, "I sell children toys");
+    assert((await turns()) > n, "'I sell…' is the business, kept in the setup");
+  }),
+
+  J("S26", "SWITCH in the lobby, before any shop: stores, search and selling", async (world) => {
+    const p = world.newPhone("y");
+    const m = mark(world, p);
+    await send(world, p, "SWITCH");
+    const rows = rowsOf(one(world, p, m, "switch in the lobby")[0]);
+    assert(!rows.some((r) => String(r.title).startsWith("Back to")), "no shop to go back to yet");
+    assert(rows.map((r) => r.id).join(",") === "lobby:browse,lobby:search,lobby:sell", `stores, search, sell (got ${JSON.stringify(rows.map((r) => r.id))})`);
+  }),
+
   J("S23", "the platform Telegram bot: own contact first, then the same onboarding; another's contact is refused", async (world) => {
     const { tg } = await import("./metaMock");
     process.env.TELEGRAM_PLATFORM_BOT_TOKEN = "sim-platform-bot";

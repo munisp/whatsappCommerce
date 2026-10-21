@@ -648,6 +648,17 @@ export async function startOrResumeOnboarding(senderPhone: string): Promise<Inbo
 }
 
 /** Whether this phone has an onboarding conversation under way (any channel). */
+/** The business being set up from this phone ("" before it has a name), or null when no setup is open. */
+export async function activeOnboardingName(senderPhone: string): Promise<string | null> {
+  try {
+    const copilot = await loadCopilot();
+    const s = await copilot.findActiveSessionByPhone(normalizeWaPhone(senderPhone ?? ""));
+    return s ? String((s.intake as { facts?: { businessName?: unknown } } | undefined)?.facts?.businessName ?? "").trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function hasActiveOnboarding(senderPhone: string): Promise<boolean> {
   try {
     const copilot = await loadCopilot();

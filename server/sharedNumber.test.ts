@@ -170,3 +170,29 @@ describe("chat onboarding", () => {
     expect((loc?.replyMarkup as any)?.keyboard?.[0]?.[0]?.request_location).toBe(true);
   });
 });
+
+describe("shared number: switching", () => {
+  it("reads SWITCH and its plain phrasings, never a shop's own words", async () => {
+    const { isSwitchText } = await import("./services/sharedLobby");
+    for (const t of ["switch", "SWITCH", "change shop", "options", "exit setup", "home", "main menu", "where am I?"]) expect(isSwitchText(t)).toBe(true);
+    for (const t of ["back", "menu", "start over", "leave shop", "switch on the light", "I want to change my order"]) expect(isSwitchText(t)).toBe(false);
+  });
+
+  it("tells buying from describing the business", async () => {
+    const { isBuyText } = await import("./services/sharedLobby");
+    for (const t of ["I want to buy 4 palm oil", "! want to buy 4 palm oil", "buy rice", "where can I get pepsi", "I need 2 crates"]) expect(isBuyText(t)).toBe(true);
+    for (const t of ["I sell children toys", "order tracking please", "do you have delivery options?", "We deliver in Lagos"]) expect(isBuyText(t)).toBe(false);
+  });
+
+  it("the menu: back to the current shop first, recent shops, stores, search, then the setup", async () => {
+    const { switchPayload } = await import("./services/sharedLobby");
+    const shop = (id: string, name: string) => ({ id, code: id, name, categories: [], products: 3 }) as any;
+    const p: any = switchPayload("Market", { current: shop("a", "Ada Fabrics"), recent: [shop("a", "Ada Fabrics"), shop("b", "Bayo Phones")], setupName: "Tanisty toys" });
+    const rows = p.interactive.action.sections[0].rows;
+    expect(rows.map((r: any) => r.title)).toEqual(["Back to Ada Fabrics", "Bayo Phones", "🛍️ All stores", "🔎 Search", "🏪 My shop setup"]);
+    expect(rows.at(-1).description).toBe("Carry on setting up Tanisty toys");
+    expect(rows.every((r: any) => r.title.length <= 24 && r.description.length <= 72)).toBe(true);
+    const none: any = switchPayload("Market", { current: null, recent: [], setupName: null });
+    expect(none.interactive.action.sections[0].rows.at(-1).title).toBe("🏪 Sell here");
+  });
+});
