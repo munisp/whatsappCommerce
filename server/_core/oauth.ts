@@ -27,6 +27,12 @@ import {
 } from "./auth";
 
 const SESSION_COOKIE = "wa_session";
+/**
+ * Keycloak's ID token from the login, kept only so sign-out can pass it as `id_token_hint`: with it Keycloak ends the
+ * SSO session and returns straight to the app; without it, Keycloak first asks “Do you want to log out?”. httpOnly,
+ * and only ever sent to /api/auth.
+ */
+const ID_TOKEN_COOKIE = "wa_idt";
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 function readCookie(req: Request, name: string): string | undefined {
   for (const part of (req.headers.cookie ?? "").split(";")) {
@@ -125,6 +131,7 @@ export function registerOAuthRoutes(app: Express) {
       const sessionToken = signSessionToken({ id: String(user?.id ?? 0), openId: claims.sub, email: claims.email ?? null, name: claims.name ?? null, role: (user?.role as "admin" | "user") ?? "user", tenantId: user?.tenantId ?? null, loginMethod: "keycloak" });
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(SESSION_COOKIE, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      if (tokens.idToken) res.cookie(ID_TOKEN_COOKIE, tokens.idToken, { ...cookieOptions, path: "/api/auth", maxAge: ONE_YEAR_MS });
       // Fire-and-forget — a failed welcome email must never block login.
       if (isNewUser && claims.email) {
         sendWelcomeEmail(claims.email, claims.name ?? claims.preferred_username ?? null).catch(err =>
@@ -203,6 +210,36 @@ export function registerOAuthRoutes(app: Express) {
     }
     res.clearCookie(SESSION_COOKIE, { path: "/" });
     res.json({ ok: true });
+  });
+
+  // 6. Sign out — the whole of it, from the server: revoke this session, clear its cookies, then end the Keycloak SSO
+  // session and come back to the app. The browser used to build the Keycloak logout URL from build-time VITE_ values;
+  // a build with those set but empty produced "/realms//protocol/openid-connect/logout", the navigation threw, and
+  // Keycloak's session stayed alive — so the next sign-in went straight back in without a password. The server knows
+  // the real Keycloak address at run time. A form POST (same-origin, CSRF-checked) so another site can't sign you out.
+  app.post("/api/auth/sign-out", async (req: Request, res: Response) => {
+    const token = readCookie(req, SESSION_COOKIE) ?? readCookie(req, "session");
+    try {
+      const payload = token ? verifySessionToken(token) : null;
+      if (payload?.jti) {
+        const { revokeSessionJti } = await import("./sdk");
+        await revokeSessionJti(payload.jti, payload.uid ?? null, payload.exp ? new Date(payload.exp * 1000) : new Date(Date.now() + ONE_YEAR_MS));
+      }
+    } catch (err) {
+      console.warn("[Auth] Sign-out revocation failed:", (err as Error)?.message); // never block signing out
+    }
+    const idToken = readCookie(req, ID_TOKEN_COOKIE);
+    const cookieOptions = getSessionCookieOptions(req);
+    res.clearCookie(SESSION_COOKIE, { ...cookieOptions, maxAge: undefined });
+    res.clearCookie(SESSION_COOKIE, { path: "/" });
+    res.clearCookie("app_session_id", { ...cookieOptions, maxAge: undefined });
+    res.clearCookie(ID_TOKEN_COOKIE, { ...cookieOptions, path: "/api/auth", maxAge: undefined });
+    const back = new URL(safeReturnTo((req.body as Record<string, unknown> | undefined)?.redirect ?? req.query.redirect), ENV.appUrl).toString();
+    const logout = new URL(`${ENV.keycloakUrl}/realms/${ENV.keycloakRealm}/protocol/openid-connect/logout`);
+    logout.searchParams.set("client_id", ENV.keycloakClientId);
+    logout.searchParams.set("post_logout_redirect_uri", back);
+    if (idToken) logout.searchParams.set("id_token_hint", idToken);
+    res.redirect(303, logout.toString());
   });
 
   // Legacy Manus OAuth callback redirect

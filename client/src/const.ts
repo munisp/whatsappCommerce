@@ -62,18 +62,19 @@ export const isLoggingOut = () => loggingOut;
  * simply not working.
  */
 export const startLogout = () => {
-  const keycloakUrl = import.meta.env.VITE_KEYCLOAK_URL ?? "http://localhost:8080";
-  const keycloakRealm = import.meta.env.VITE_KEYCLOAK_REALM ?? "wacommerce";
-  const clientId = import.meta.env.VITE_KEYCLOAK_CLIENT_ID ?? "wacommerce-app";
-  // Land back in whichever app (legacy "/", tenant-portal, platform-admin)
-  // the user was actually signing out of, not always the bare origin.
-  const postLogoutUri = `${window.location.origin}${import.meta.env.BASE_URL}`;
-
-  const logoutUrl = new URL(
-    `${keycloakUrl}/realms/${keycloakRealm}/protocol/openid-connect/logout`
-  );
-  logoutUrl.searchParams.set("client_id", clientId);
-  logoutUrl.searchParams.set("post_logout_redirect_uri", postLogoutUri);
-
-  window.location.href = logoutUrl.toString();
+  // The server does all of it (/api/auth/sign-out, server/_core/oauth.ts): revokes the session, clears the cookies
+  // and sends the browser to Keycloak's logout with the Keycloak address it knows at run time. Building that URL here
+  // from VITE_ build-time values broke when they were set but empty: "/realms//protocol/…" threw, and the Keycloak
+  // session survived. A form POST, so it passes the CSRF origin check. Lands back in whichever app (legacy "/",
+  // tenant-portal, platform-admin) the user signed out of.
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = "/api/auth/sign-out";
+  const back = document.createElement("input");
+  back.type = "hidden";
+  back.name = "redirect";
+  back.value = import.meta.env.BASE_URL || "/";
+  form.appendChild(back);
+  document.body.appendChild(form);
+  form.submit();
 };
