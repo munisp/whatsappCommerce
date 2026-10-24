@@ -71,6 +71,13 @@ export const SCHEDULE = [
   { path: "/api/scheduled/proactive-nudges", intervalMin: 60 },
   { path: "/api/scheduled/recs-refresh", intervalMin: 1440 },
   // === END W64 intelligence ===
+  // === W66 learning === R8 incremental lakehouse export (nightly), R6
+  // restock/buyer-reorder sweep (daily), R8(d) zero-result demand digest
+  // (fires daily; ISO-week claim sends at most one digest per week).
+  { path: "/api/scheduled/lakehouse-export", intervalMin: 1440 },
+  { path: "/api/scheduled/restock-sweep", intervalMin: 1440 },
+  { path: "/api/scheduled/demand-digest", intervalMin: 1440 },
+  // === END W66 learning ===
   // F14: the two /api/cron/* platform-ops sweeps are scheduler-invoked too
   // (they verify the same cron JWT). Previously they had NO production
   // invoker at all — no allowlist entry and no k8s CronJob (audit W61

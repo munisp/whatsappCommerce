@@ -1,7 +1,7 @@
 {
   "statements": [
     {
-      "id": "a55f62bf-0fbd-4085-9230-16aa3541ef80",
+      "id": "3aea959d-0759-460f-803c-53b7c37ba581",
       "walletId": "wal-w58-587",
       "periodStart": "2025-08-01",
       "periodEnd": "2025-09-01",
@@ -9,11 +9,11 @@
       "openingCents": 200000,
       "closingCents": 675000,
       "txCount": 3,
-      "generatedAt": "2026-10-24T18:48:38.201Z",
+      "generatedAt": "2026-10-24T21:43:45.822Z",
       "deliveries": []
     },
     {
-      "id": "c7e7e6ed-a63e-4356-a2b4-e5aed2ba5f04",
+      "id": "fb21e45f-fdbf-4582-9a25-cff7ce286b67",
       "walletId": "wal-w58-587",
       "periodStart": "2026-09-01",
       "periodEnd": "2026-10-01",
@@ -21,7 +21,7 @@
       "openingCents": 675000,
       "closingCents": 675000,
       "txCount": 0,
-      "generatedAt": "2026-10-24T18:48:39.851Z",
+      "generatedAt": "2026-10-24T21:43:47.539Z",
       "deliveries": []
     }
   ]

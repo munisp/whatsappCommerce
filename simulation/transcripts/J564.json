@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348019687566",
-      "profileName": "Sim User 7566",
+      "phone": "2348017417596",
+      "profileName": "Sim User 7596",
       "inboundId": "wamid.sim.in.text.00628",
-      "at": 1792867706282,
+      "at": 1792879679764,
       "kind": "text",
       "text": "wallet balance"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00628",
-      "at": 1792867706289
+      "at": 1792879679773
     },
     {
       "dir": "out",
-      "phone": "2348019687566",
+      "phone": "2348017417596",
       "wamid": "wamid.sim.001300",
       "statuses": [
         "sent"
       ],
-      "at": 1792867706319,
+      "at": 1792879679806,
       "kind": "text",
       "body": "👛 Wallet balance: NGN 2,500.00.\nRecent wallet activity:\n+NGN 2,500.00 — merchant_goodwill (2026-10-24)"
     },
     {
       "dir": "in",
-      "phone": "2348013181640",
-      "profileName": "Sim User 1640",
+      "phone": "2348016675427",
+      "profileName": "Sim User 5427",
       "inboundId": "wamid.sim.in.text.00629",
-      "at": 1792867706829,
+      "at": 1792879680312,
       "kind": "text",
       "text": "wallet"
     },
@@ -44,50 +44,50 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00629",
-      "at": 1792867706836
+      "at": 1792879680324
     },
     {
       "dir": "out",
-      "phone": "2348013181640",
+      "phone": "2348016675427",
       "wamid": "wamid.sim.001301",
       "statuses": [
         "sent"
       ],
-      "at": 1792867706863,
+      "at": 1792879680358,
       "kind": "text",
       "body": "👛 You don't have a wallet with this store yet — refunds and store credit land here."
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348014308705",
-      "sessionId": "w55-j564-1792867707475",
+      "phone": "2348018987361",
+      "sessionId": "w55-j564-1792879680947",
       "text": "(dial)",
-      "at": 1792867707842
+      "at": 1792879681256
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348014308705",
-      "sessionId": "w55-j564-1792867707475",
+      "phone": "2348018987361",
+      "sessionId": "w55-j564-1792879680947",
       "text": "CON Big menu — pick one:\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n4. Extra Service 1\n5. Extra Service 2\n6. Extra Service 3\n7. Extra Service 4\n8. Extra Service 5\n9. Extra Service 6\n10. Extra Service 7\n11. Extra Service 8",
-      "at": 1792867707843
+      "at": 1792879681257
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348014308705",
-      "sessionId": "w55-j564-1792867707475",
+      "phone": "2348018987361",
+      "sessionId": "w55-j564-1792879680947",
       "text": "wallet",
-      "at": 1792867708153
+      "at": 1792879681565
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348014308705",
-      "sessionId": "w55-j564-1792867707475",
+      "phone": "2348018987361",
+      "sessionId": "w55-j564-1792879680947",
       "text": "END 👛 Wallet balance: NGN 100.00.",
-      "at": 1792867708154
+      "at": 1792879681566
     }
   ]
 }

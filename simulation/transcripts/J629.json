@@ -1,0 +1,20 @@
+{
+  "id": "J629",
+  "title": "restock sweep drafts PO from depletion, idempotent re-run, claim-first confirm",
+  "feature": "W66 R6 restock & procurement intelligence",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348062900001",
+      "wamid": "wamid.sim.001409",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792879721386,
+      "kind": "text",
+      "body": "📦 *J629 Beans 50kg* — stock runs out in ~3 day(s). I drafted a PO for 18 units. Confirm: http://localhost:4173/procurement?confirmPo=4a2b5309-8853-404b-bf6d-d61da14b081d"
+    }
+  ]
+}

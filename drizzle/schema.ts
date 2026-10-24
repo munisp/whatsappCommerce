@@ -7731,3 +7731,72 @@ export const proactiveNudges = pgTable("proactive_nudges", {
 export type ProactiveNudge = typeof proactiveNudges.$inferSelect;
 export type NewProactiveNudge = typeof proactiveNudges.$inferInsert;
 // === END W64 intelligence ===
+
+
+// === W66 learning ===
+// R8 intent-miss loop: low-confidence / unmatched NLP messages land here for
+// admin review; approved corrections are appended to the in-repo few-shot
+// examples file consumed by nlp prompts (activeLearning → Label Studio
+// pattern, kept in-repo).
+export const intentMisses = pgTable("intent_misses", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  sessionId: varchar("session_id", { length: 64 }),
+  channel: varchar("channel", { length: 16 }),
+  message: text("message").notNull(),
+  /** Intent the classifier returned ("unknown" on fallback). */
+  detectedIntent: varchar("detected_intent", { length: 64 }),
+  confidence: real("confidence"),
+  language: varchar("language", { length: 16 }),
+  /** pending | approved | rejected — review workflow status. */
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  /** Reviewer correction: the intent this message SHOULD have matched. */
+  correctedIntent: varchar("corrected_intent", { length: 64 }),
+  reviewerNotes: text("reviewer_notes"),
+  reviewedBy: varchar("reviewed_by", { length: 128 }),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("intent_misses_tenant_status_idx").on(t.tenantId, t.status),
+  index("intent_misses_created_idx").on(t.createdAt),
+]);
+export type IntentMiss = typeof intentMisses.$inferSelect;
+export type NewIntentMiss = typeof intentMisses.$inferInsert;
+
+// R8 dispute outcomes → risk features: one additive feature row per resolved
+// dispute, consumed by creditScoring / antiGaming as an extra signal.
+export const disputeOutcomeFeatures = pgTable("dispute_outcome_features", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  disputeId: varchar("dispute_id", { length: 64 }).notNull(),
+  orderId: varchar("order_id", { length: 64 }),
+  escrowTxId: varchar("escrow_tx_id", { length: 64 }),
+  raisedBy: varchar("raised_by", { length: 16 }),
+  reason: varchar("reason", { length: 64 }),
+  resolution: varchar("resolution", { length: 40 }),
+  /** resolved_merchant | resolved_buyer */
+  outcome: varchar("outcome", { length: 24 }),
+  /** Integer cents (fail-closed money discipline). */
+  escrowAmountCents: bigint("escrow_amount_cents", { mode: "number" }),
+  refundAmountCents: bigint("refund_amount_cents", { mode: "number" }),
+  /** Whole days from raise to resolution. */
+  daysToResolve: integer("days_to_resolve"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("dispute_outcome_features_dispute_uniq").on(t.disputeId),
+  index("dispute_outcome_features_tenant_idx").on(t.tenantId),
+]);
+export type DisputeOutcomeFeature = typeof disputeOutcomeFeatures.$inferSelect;
+export type NewDisputeOutcomeFeature = typeof disputeOutcomeFeatures.$inferInsert;
+
+// R8 lakehouse broadening: per-table incremental export watermark (max
+// updated_at exported) so scheduled exports are incremental + idempotent.
+export const lakehouseExportWatermarks = pgTable("lakehouse_export_watermarks", {
+  tableName: varchar("table_name", { length: 64 }).primaryKey(),
+  watermark: timestamp("watermark").notNull(),
+  rowsExported: integer("rows_exported").notNull().default(0),
+  lastRunAt: timestamp("last_run_at").defaultNow().notNull(),
+});
+export type LakehouseExportWatermark = typeof lakehouseExportWatermarks.$inferSelect;
+// === END W66 learning ===

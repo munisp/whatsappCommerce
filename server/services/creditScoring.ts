@@ -410,6 +410,12 @@ export async function computeAndStoreSubjectScore(
   const capped = applyNewIdentityCeiling(core.score, signals.tenureDays);
   const score = capped.score;
   const grade = gradeForScore(score);
+  // === W66 learning (R8b) === additive dispute-outcome signal: resolved
+  // dispute outcomes (0184 dispute_outcome_features) are attached as a
+  // factors entry so scoring consumers can weight them. Fail-open: the
+  // lookup erroring or the table being empty leaves the score untouched.
+  const { disputeRiskSignal } = await import("./disputeOutcomeFeatures");
+  const disputeOutcomes = await disputeRiskSignal(db, tenantId).catch(() => null);
   const factors = {
     ...core.factors,
     identityVelocity: {
@@ -417,6 +423,7 @@ export async function computeAndStoreSubjectScore(
       tenureDaysThreshold: NEW_IDENTITY_TENURE_DAYS,
       applied: capped.capped,
     },
+    ...(disputeOutcomes ? { disputeOutcomes } : {}),
   } as unknown as SubjectScoreFactors;
 
   if (opts.persist !== false) {

@@ -1,7 +1,7 @@
 {
   "statements": [
     {
-      "id": "5bcc01da-ebda-4831-aad8-57d3b4beed73",
+      "id": "22bb5630-a2a1-45c1-b834-666dfb8c5fbc",
       "walletId": "wal-w58-589-1",
       "periodStart": "2026-09-01",
       "periodEnd": "2026-10-01",
@@ -9,11 +9,11 @@
       "openingCents": 0,
       "closingCents": 100000,
       "txCount": 1,
-      "generatedAt": "2026-10-24T18:48:39.306Z",
+      "generatedAt": "2026-10-24T21:43:46.965Z",
       "deliveries": [
         {
           "channel": "email",
-          "at": "2026-10-24T18:48:39.317Z",
+          "at": "2026-10-24T21:43:46.975Z",
           "messageId": null,
           "target": "merchant589@sim.local"
         }

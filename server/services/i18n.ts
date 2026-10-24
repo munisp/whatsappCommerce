@@ -902,7 +902,10 @@ export type MessageKey =
   // === W65 conversational === R7 command bar + R10 smart defaults (web + WA/TG-ready)
   | "cmdUnknown" | "cmdConfirmPrompt" | "cmdExecuted" | "cmdFailed"
   | "cmdMissingFields" | "cmdAdminOnly"
-  | "defaultSuggested" | "defaultCorrectionThanks";
+  | "defaultSuggested" | "defaultCorrectionThanks"
+  // === W66 learning === R6 restock drafts + buyer reorder nudges, R8(d)
+  // zero-result demand digest (WA+TG parity, weekly-idempotent)
+  | "restockDraftNudge" | "reorderNudge" | "demandDigest";
 
 export type MessageCatalog = Record<MessageKey, string>;
 
@@ -1086,6 +1089,10 @@ const EN_CATALOG: MessageCatalog = {
   cmdAdminOnly: "🔒 That command is admin-only.",
   defaultSuggested: "💡 Suggested: {value} — {basis}.",
   defaultCorrectionThanks: "Noted — thanks, I'll learn from that.",
+  // === W66 learning ===
+  restockDraftNudge: "📦 *{product}* — stock runs out in ~{days} day(s). I drafted a PO for {qty} units. Confirm: {url}",
+  reorderNudge: "🔁 Running low on *{product}*? Reply REORDER and I'll rebuild your cart from your last order.",
+  demandDigest: "📈 Demand signals this week: buyers searched {count} time(s) and found nothing. Top: {queries}. Stock them if you can.",
   // === END W65 conversational ===
 };
 
@@ -1134,6 +1141,10 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     cmdAdminOnly: "🔒 Commande réservée aux administrateurs.",
     defaultSuggested: "💡 Suggestion : {value} — {basis}.",
     defaultCorrectionThanks: "C'est noté — merci, j'en tiendrai compte.",
+    // === W66 learning ===
+    restockDraftNudge: "📦 *{product}* — rupture dans ~{days} jour(s). J'ai préparé un brouillon de BC de {qty}. Confirmez : {url}",
+    reorderNudge: "🔁 *{product}* bientôt épuisé ? Répondez REORDER et je reconstruis votre panier depuis votre dernière commande.",
+    demandDigest: "📈 Signaux de demande cette semaine : {count} recherche(s) sans résultat. Top : {queries}. Stockez-les si possible.",
     // === W51 PROMOS ===
     promoSpotlightBody: "🔥 {title} — {discount} avec le code {code}",
     promoShopNow: "🛍️ Acheter",
@@ -1311,6 +1322,10 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     cmdAdminOnly: "🔒 Wannan umarni na admin ne kawai.",
     defaultSuggested: "💡 Shawara: {value} — {basis}.",
     defaultCorrectionThanks: "An lura — na gode, zan koya daga gare shi.",
+    // === W66 learning ===
+    restockDraftNudge: "📦 *{product}* — kayayyaki zai ƙare cikin kwana {days}. Na shirya daftarin PO na {qty}. Tabbatar: {url}",
+    reorderNudge: "🔁 *{product}* yana ƙarewa? Amsa REORDER in sake ginawa kwandonka daga oda ta ƙarshe.",
+    demandDigest: "📈 Alamun buƙata na wannan mako: masu saye sun nema {count} sau ba tare da samun komai ba. Manyan: {queries}. Sayi idan kana da shi.",
     // === W51 PROMOS ===
     promoSpotlightBody: "🔥 {title} — {discount} da lambar {code}",
     promoShopNow: "🛍️ Yi sayayya",
@@ -1488,6 +1503,10 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     cmdAdminOnly: "🔒 Àṣẹ yìí fún admin nìkan.",
     defaultSuggested: "💡 Àbá: {value} — {basis}.",
     defaultCorrectionThanks: "Mo ti kọ ọ́ sílẹ̀ — ẹ ṣeun, ma a kọ́ lọ́gbọ́n.",
+    // === W66 learning ===
+    restockDraftNudge: "📦 *{product}* — ẹ̀rọjà yóò parí nínú ọjọ́ {days}. Mo ti kọ àkópọ̀ PO fún {qty}. Jẹ́ kí ó fìdí múlẹ̀: {url}",
+    reorderNudge: "🔁 Ṣe *{product}* ń kù díẹ̀? Dáhùn REORDER kí n tún àpò rẹ ṣe láti àṣẹ tó kẹ́yìn.",
+    demandDigest: "📈 Àmì ìbéèrè ọ̀sẹ̀ yìí: àwọn olùra wá {count} ìgbà láìrí ohun kankan. Àwọn tó ga: {queries}. Ṣọ̀ọ́kì rẹ tí o bá níí.",
     // === W51 PROMOS ===
     promoSpotlightBody: "🔥 {title} — {discount} pẹ̀lú kóòdù {code}",
     promoShopNow: "🛍️ Ra níṣìí",
@@ -1668,6 +1687,10 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     cmdAdminOnly: "🔒 Iwu a bụ nke admin naanị.",
     defaultSuggested: "💡 Atụmatụ: {value} — {basis}.",
     defaultCorrectionThanks: "Edetoola — daalụ, aga m amụta ya.",
+    // === W66 learning ===
+    restockDraftNudge: "📦 *{product}* — ngwaahịa ga-agwụ n'ụbọchị {days}. M dere draft PO maka {qty}. Kwenye: {url}",
+    reorderNudge: "🔁 *{product}* na-ebelata? Zaa REORDER ka m wughachi cart gị site na ọrụ gị ikpeazụ.",
+    demandDigest: "📈 Mgbaàmà chọrọ izu a: ndị zụtara chọrọ {count} oge enweghị ihe ha chọtara. Kacha elu: {queries}. Jide ya ọ bụrụ na ị nwere.",
     // === W51 PROMOS ===
     promoSpotlightBody: "🔥 {title} — {discount} site na koodu {code}",
     promoShopNow: "🛍️ Zụta ugbu a",
@@ -1845,6 +1868,10 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     cmdAdminOnly: "🔒 Amri hii ni ya msimamizi pekee.",
     defaultSuggested: "💡 Pendekezo: {value} — {basis}.",
     defaultCorrectionThanks: "Nimekurekodisha — asante, nitajifunza.",
+    // === W66 learning ===
+    restockDraftNudge: "📦 *{product}* — hisa itaisha kwa siku {days}. Nimeandaa rasimu ya PO ya {qty}. Thibitisha: {url}",
+    reorderNudge: "🔁 Unaishiwa na *{product}*? Jibu REORDER nitengeneze tena kikapu kutoka oda yako ya mwisho.",
+    demandDigest: "📈 Ishara za mahitaji wiki hii: wanunuzi walitafuta {count} bila kupata. Bora: {queries}. Weka hisa ukiwa nayo.",
     // === W51 PROMOS ===
     promoSpotlightBody: "🔥 {title} — {discount} kwa msimbo {code}",
     promoShopNow: "🛍️ Nunua sasa",
@@ -2159,6 +2186,10 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     cmdAdminOnly: "🔒 ይህ ትእዛዝ ለአስተዳዳሪ ብቻ ነው።",
     defaultSuggested: "💡 ምክር: {value} — {basis}.",
     defaultCorrectionThanks: "ተመዝግቧል — አመሰግናለሁ፣ እማራለሁ።",
+    // === W66 learning ===
+    restockDraftNudge: "📦 *{product}* — ክምችት በግምት {days} ቀን(ቀናት) ይጨርሳል። ለ{qty} ነጥቦች የግዢ ትዕዛዝ ረቂቅ አዘጋጅቻለሁ። ያረጋግጡ: {url}",
+    reorderNudge: "🔁 *{product}* እየካሰዎ ነው? REORDER ብለው ይመልሱ — ከመጨረሻ ትዕዛዝዎ ጋራዎን እዘጥጃለሁ።",
+    demandDigest: "📈 የዚህ ሳምንት የፍላጎት ምልክት: ገዢዎች {count} ጊዜ ፈልገው ምንም አላገኙም። ከፍተኛዎቹ: {queries}። ካለዎት ያቅርቡ።",
   },
   // === W49 I18N-PCM === full catalog (all 27 MessageKeys — complete).
   // W55 parity (PARITY-7): ig/am paymentPending filled too — every locale
@@ -2205,6 +2236,10 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     cmdAdminOnly: "🔒 Na admin only fit run dat one.",
     defaultSuggested: "💡 Suggestion: {value} — {basis}.",
     defaultCorrectionThanks: "I don note am — thanks, I go learn from am.",
+    // === W66 learning ===
+    restockDraftNudge: "📦 *{product}* — stock go finish in about {days} day(s). I don draft PO for {qty} units. Confirm am here: {url}",
+    reorderNudge: "🔁 You dey run low on *{product}*? Reply REORDER make I rebuild your cart from your last order.",
+    demandDigest: "📈 Demand signal this week: buyers search {count} time(s) wey dem find nothing. Top: {queries}. Abeg stock am if you get am.",
     // === W51 PROMOS ===
     promoSpotlightBody: "🔥 {title} — {discount} with code {code}",
     promoShopNow: "🛍️ Shop now",

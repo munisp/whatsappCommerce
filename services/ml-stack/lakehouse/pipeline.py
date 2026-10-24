@@ -234,6 +234,107 @@ def run_etl(tenant_id: Optional[str] = None) -> dict:
     return {"status": "completed", "records": records, "duration_ms": duration_ms}
 
 
+# ── W66 learning (R8): broadened bronze export ────────────────────────────────
+# Beyond payment_intents (handled above), export the wider transactional
+# surface so the learning loops have bronze data: wallets, clickstream,
+# search, disputes + outcome features, POS sessions, agent CICO, NLP
+# sessions/intent logs, and the intent-miss review queue. Incremental via the
+# shared lakehouse_export_watermarks table (watermark = max updated_at /
+# created_at exported); date-partitioned parquet with a JSON fallback.
+
+W66_EXPORT_TABLES = [
+    # (table, watermark_column, tenant_column_or_none)
+    ("wallet_transactions", "created_at", "tenant_id"),
+    ("ui_events", "created_at", "tenant_id"),
+    ("search_queries", "created_at", "tenant_id"),
+    ("escrow_disputes", "updated_at", "tenant_id"),
+    ("dispute_outcome_features", "created_at", "tenant_id"),
+    ("pos_payment_sessions", '"updatedAt"', '"tenantId"'),
+    ("agent_cico_transactions", '"createdAt"', '"agentTenantId"'),
+    ("nlp_sessions", '"lastActivityAt"', '"tenantId"'),
+    ("intent_misses", "updated_at", "tenant_id"),
+]
+
+
+def _read_watermark(cur, table: str) -> str:
+    cur.execute(
+        "SELECT watermark FROM lakehouse_export_watermarks WHERE table_name = %s LIMIT 1",
+        (table,),
+    )
+    row = cur.fetchone()
+    if row and row.get("watermark"):
+        wm = row["watermark"]
+        return wm.isoformat() if isinstance(wm, datetime) else str(wm)
+    return "1970-01-01T00:00:00+00:00"
+
+
+def _write_watermark(cur, table: str, watermark: str, rows: int):
+    cur.execute(
+        """INSERT INTO lakehouse_export_watermarks (table_name, watermark, rows_exported, last_run_at)
+           VALUES (%s, %s::timestamp, %s, NOW())
+           ON CONFLICT (table_name) DO UPDATE SET
+             watermark = EXCLUDED.watermark,
+             rows_exported = lakehouse_export_watermarks.rows_exported + EXCLUDED.rows_exported,
+             last_run_at = NOW()""",
+        (table, watermark, rows),
+    )
+
+
+def run_bronze_export(tenant_id: Optional[str] = None) -> dict:
+    """Incremental date-partitioned export of the W66 bronze registry."""
+    run_id = log_run_start("etl", "bronze_export")
+    conn = get_db()
+    if not conn:
+        if run_id:
+            log_run_complete(run_id, "failed", error_msg="no_db_connection")
+        return {"status": "failed", "error": "no_db_connection"}
+    results = []
+    total = 0
+    try:
+        cur = conn.cursor()
+        for table, wm_col, tenant_col in W66_EXPORT_TABLES:
+            try:
+                since = _read_watermark(cur, table)
+                query = f"SELECT * FROM {table} WHERE {wm_col} > %s::timestamp"
+                params = [since]
+                if tenant_id and tenant_col:
+                    query += f" AND {tenant_col} = %s"
+                    params.append(tenant_id)
+                query += f" ORDER BY {wm_col} ASC LIMIT 5000"
+                cur.execute(query, params)
+                rows = [dict(r) for r in cur.fetchall()]
+                if not rows:
+                    results.append({"table": table, "rows": 0})
+                    continue
+                wm_raw = rows[-1][wm_col.strip('"')]
+                wm_dt = wm_raw if isinstance(wm_raw, datetime) else _parse_ts(wm_raw)
+                day = wm_dt.strftime("%Y-%m-%d")
+                out_dir = DATA_DIR / "bronze" / table / f"dt={day}"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    import pandas as pd
+                    out_path = out_dir / f"batch-{int(wm_dt.timestamp())}.parquet"
+                    pd.DataFrame(rows).to_parquet(str(out_path), index=False)
+                except ImportError:
+                    out_path = out_dir / f"batch-{int(wm_dt.timestamp())}.json"
+                    with open(out_path, "w") as f:
+                        json.dump(rows, f, default=str)
+                _write_watermark(cur, table, wm_dt.isoformat(), len(rows))
+                conn.commit()
+                total += len(rows)
+                results.append({"table": table, "rows": len(rows), "file": str(out_path)})
+            except Exception as e:  # fail-open per table
+                conn.rollback()
+                log.warning("bronze export failed for %s: %s", table, e)
+                results.append({"table": table, "rows": 0, "error": str(e)})
+    finally:
+        conn.close()
+    status = "completed" if not any(r.get("error") for r in results) else "partial"
+    if run_id:
+        log_run_complete(run_id, status, records_extracted=total, records_loaded=total)
+    return {"status": status, "tables": results, "total_rows": total}
+
+
 # ── Feature Engineering Stage ─────────────────────────────────────────────────
 
 def run_feature_engineering() -> dict:
@@ -671,6 +772,10 @@ def _run_full_pipeline_body(tenant_id: Optional[str] = None) -> dict:
     results["etl"] = etl
     if etl["status"] == "failed":
         return {"status": "failed", "stage": "etl", "results": results}
+
+    # === W66 learning (R8) === broadened bronze export (watermark-incremental)
+    results["bronze_export"] = run_bronze_export(tenant_id)
+    # === END W66 learning ===
 
     fe = run_feature_engineering()
     results["feature_engineering"] = fe

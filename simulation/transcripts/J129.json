@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348014154671",
-      "profileName": "Sim User 4671",
+      "phone": "2348014488104",
+      "profileName": "Sim User 8104",
       "inboundId": "wamid.sim.in.text.00338",
-      "at": 1792867212597,
+      "at": 1792879183112,
       "kind": "text",
-      "text": "REJECT a5f56374"
+      "text": "REJECT 9e213c0c"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00338",
-      "at": 1792867212606
+      "at": 1792879183118
     },
     {
       "dir": "out",
-      "phone": "2348014154671",
+      "phone": "2348014488104",
       "wamid": "wamid.sim.000599",
       "statuses": [
         "sent"
       ],
-      "at": 1792867212640,
+      "at": 1792879183154,
       "kind": "text",
       "body": "🗑️ Draft \"Groundnut Oil 5L\" discarded."
     }

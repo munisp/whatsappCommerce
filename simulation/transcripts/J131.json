@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017306760",
-      "profileName": "Sim User 6760",
+      "phone": "2348016032453",
+      "profileName": "Sim User 2453",
       "inboundId": "wamid.sim.in.text.00339",
-      "at": 1792867213933,
+      "at": 1792879184436,
       "kind": "text",
       "text": "digest on weekly"
     },
@@ -18,36 +18,36 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00339",
-      "at": 1792867213940
+      "at": 1792879184442
     },
     {
       "dir": "out",
-      "phone": "2348017306760",
+      "phone": "2348016032453",
       "wamid": "wamid.sim.000600",
       "statuses": [
         "sent"
       ],
-      "at": 1792867213955,
+      "at": 1792879184462,
       "kind": "text",
       "body": "🔔 Sales digest ON (weekly). You'll get your weekly summary here on WhatsApp. Reply \"digest off\" to stop."
     },
     {
       "dir": "out",
-      "phone": "2348017306760",
+      "phone": "2348016032453",
       "wamid": "wamid.sim.000601",
       "statuses": [
         "sent"
       ],
-      "at": 1792867214491,
+      "at": 1792879184997,
       "kind": "text",
       "body": "📊 You made ₦127,300 this week, up 237% vs last week (15 orders). Reply \"export\" for a tax-ready report."
     },
     {
       "dir": "in",
-      "phone": "2348017306760",
-      "profileName": "Sim User 6760",
+      "phone": "2348016032453",
+      "profileName": "Sim User 2453",
       "inboundId": "wamid.sim.in.text.00340",
-      "at": 1792867215344,
+      "at": 1792879185852,
       "kind": "text",
       "text": "sales summary"
     },
@@ -55,16 +55,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00340",
-      "at": 1792867215352
+      "at": 1792879185859
     },
     {
       "dir": "out",
-      "phone": "2348017306760",
+      "phone": "2348016032453",
       "wamid": "wamid.sim.000602",
       "statuses": [
         "sent"
       ],
-      "at": 1792867215368,
+      "at": 1792879185875,
       "kind": "text",
       "body": "📊 You made ₦127,300 this week, up 237% vs last week (15 orders). Reply \"export\" for a tax-ready report.\nExpenses this week: ₦0."
     }
