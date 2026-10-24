@@ -113,6 +113,10 @@ export default function Dashboard() {
               </div>
             </CardContent>
           </Card>
+
+          {/* === W66 learning === R8(d) demand signals: buyers searched,
+              found nothing — catalog-gap insight card. */}
+          <DemandSignalsCard tenantId={DEMO_TENANT} />
         </div>
 
         {/* Supply-chain: supplier credit position + PO approvals inbox */}
@@ -261,3 +265,36 @@ export default function Dashboard() {
     </DashboardLayout>
   );
 }
+
+// === W66 learning === R8(d) zero-result demand insight card:
+// "buyers searched X, found nothing" — top unmet-demand queries (7d).
+function DemandSignalsCard({ tenantId }: { tenantId: string }) {
+  const [, setLocation] = useLocation();
+  const { data: signals } = trpc.learning.demandSummary.useQuery({ tenantId });
+  const top = (signals ?? []).slice(0, 3);
+  const total = (signals ?? []).reduce((s, x) => s + x.count, 0);
+  return (
+    <Card
+      className={`border cursor-pointer transition-colors hover:bg-accent/30 ${top.length > 0 ? "border-sky-500/40 bg-sky-500/5" : "bg-card border-border"}`}
+      onClick={() => setLocation("/analytics")}
+    >
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between">
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground">Demand Signals (7d)</p>
+            <p className={`text-2xl font-bold mt-1 ${top.length > 0 ? "text-sky-400" : "text-muted-foreground"}`}>{total}</p>
+            {top.length > 0 ? (
+              <p className="text-xs text-muted-foreground mt-1 truncate">
+                Buyers searched {top.map((s) => `“${s.query}”`).join(", ")} — found nothing
+              </p>
+            ) : (
+              <span className="text-xs text-green-400">no unmet demand</span>
+            )}
+          </div>
+          <TrendingUp className="w-8 h-8 opacity-50 mt-1 text-sky-400" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+// === END W66 learning ===

@@ -7,53 +7,53 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018049750",
-      "profileName": "Sim User 9750",
-      "inboundId": "wamid.j441-1792867591532-hello",
-      "at": 1792867591535,
+      "phone": "2348017327196",
+      "profileName": "Sim User 7196",
+      "inboundId": "wamid.j441-1792879564147-hello",
+      "at": 1792879564151,
       "kind": "text",
       "text": "hello"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.j441-1792867591532-hello",
-      "at": 1792867591543
+      "wamid": "wamid.j441-1792879564147-hello",
+      "at": 1792879564159
     },
     {
       "dir": "out",
-      "phone": "2348018049750",
+      "phone": "2348017327196",
       "wamid": "wamid.sim.001122",
       "statuses": [
         "sent"
       ],
-      "at": 1792867591550,
+      "at": 1792879564166,
       "kind": "text",
       "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
     },
     {
       "dir": "in",
-      "phone": "2348018049750",
-      "profileName": "Sim User 9750",
-      "inboundId": "wamid.j441-1792867591532",
-      "at": 1792867592080,
+      "phone": "2348017327196",
+      "profileName": "Sim User 7196",
+      "inboundId": "wamid.j441-1792879564147",
+      "at": 1792879564694,
       "kind": "text",
       "text": "YES"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.j441-1792867591532",
-      "at": 1792867592087
+      "wamid": "wamid.j441-1792879564147",
+      "at": 1792879564701
     },
     {
       "dir": "out",
-      "phone": "2348018049750",
+      "phone": "2348017327196",
       "wamid": "wamid.sim.001123",
       "statuses": [
         "sent"
       ],
-      "at": 1792867592099,
+      "at": 1792879564713,
       "kind": "text",
       "body": "Thank you! You've opted in to order updates on WhatsApp.\n\nWelcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n\nReply with a number to choose an option."
     }

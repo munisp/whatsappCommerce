@@ -12,9 +12,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1792867674294,
+      "at": 1792879647621,
       "kind": "text",
-      "body": "🚨 *Payment dispute* (open): paystack ref w54-j547-pxxtn5ym for 1250.00 NGN on order ord-j547-pxxtn5ym. The order is flagged; review the dispute in your PSP dashboard."
+      "body": "🚨 *Payment dispute* (open): paystack ref w54-j547-7sdqfvbv for 1250.00 NGN on order ord-j547-7sdqfvbv. The order is flagged; review the dispute in your PSP dashboard."
     },
     {
       "dir": "out",
@@ -23,9 +23,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1792867674301,
+      "at": 1792879647630,
       "kind": "text",
-      "body": "🔒 Escrow on order ord-j547-pxxtn5ym is FROZEN (dispute_raised) — payout is blocked while the dispute (w54-j547-pxxtn5ym) is open."
+      "body": "🔒 Escrow on order ord-j547-7sdqfvbv is FROZEN (dispute_raised) — payout is blocked while the dispute (w54-j547-7sdqfvbv) is open."
     },
     {
       "dir": "out",
@@ -34,9 +34,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1792867674740,
+      "at": 1792879648082,
       "kind": "text",
-      "body": "🚨 *Payment dispute* (open): paystack ref w54-j547-pxxtn5ym for 1250.00 NGN on order ord-j547-pxxtn5ym. The order is flagged; review the dispute in your PSP dashboard."
+      "body": "🚨 *Payment dispute* (open): paystack ref w54-j547-7sdqfvbv for 1250.00 NGN on order ord-j547-7sdqfvbv. The order is flagged; review the dispute in your PSP dashboard."
     },
     {
       "dir": "out",
@@ -45,9 +45,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1792867675182,
+      "at": 1792879648523,
       "kind": "text",
-      "body": "🚨 *Payment dispute* (lost): paystack ref w54-j547-pxxtn5ym for 1250.00 NGN on order ord-j547-pxxtn5ym. The order is flagged; review the dispute in your PSP dashboard."
+      "body": "🚨 *Payment dispute* (lost): paystack ref w54-j547-7sdqfvbv for 1250.00 NGN on order ord-j547-7sdqfvbv. The order is flagged; review the dispute in your PSP dashboard."
     },
     {
       "dir": "out",
@@ -56,9 +56,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1792867675189,
+      "at": 1792879648530,
       "kind": "text",
-      "body": "🧾 *Chargeback lost* on order ord-j547-pxxtn5ym (w54-j547-pxxtn5ym) — a recovery entry of 1250.00 NGN was recorded for ops follow-up."
+      "body": "🧾 *Chargeback lost* on order ord-j547-7sdqfvbv (w54-j547-7sdqfvbv) — a recovery entry of 1250.00 NGN was recorded for ops follow-up."
     },
     {
       "dir": "out",
@@ -67,9 +67,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1792867675632,
+      "at": 1792879648969,
       "kind": "text",
-      "body": "🚨 *Payment dispute* (lost): paystack ref w54-j547-pxxtn5ym for 1250.00 NGN on order ord-j547-pxxtn5ym. The order is flagged; review the dispute in your PSP dashboard."
+      "body": "🚨 *Payment dispute* (lost): paystack ref w54-j547-7sdqfvbv for 1250.00 NGN on order ord-j547-7sdqfvbv. The order is flagged; review the dispute in your PSP dashboard."
     },
     {
       "dir": "out",
@@ -78,9 +78,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1792867675638,
+      "at": 1792879648976,
       "kind": "text",
-      "body": "🧾 *Chargeback lost* on order ord-j547-pxxtn5ym (w54-j547-pxxtn5ym) — a recovery entry of 1250.00 NGN was recorded for ops follow-up."
+      "body": "🧾 *Chargeback lost* on order ord-j547-7sdqfvbv (w54-j547-7sdqfvbv) — a recovery entry of 1250.00 NGN was recorded for ops follow-up."
     }
   ]
 }

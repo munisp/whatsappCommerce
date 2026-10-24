@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-24T18:49:29.843Z",
+  "generatedAt": "2026-10-24T22:09:06.090Z",
   "businessName": "Simply Green (simulated tenant)",
   "allPass": true,
   "journeys": [
@@ -4692,12 +4692,60 @@
       "messageCount": 0
     },
     {
+      "id": "J625",
+      "title": "lakehouse export: incremental watermark, date-partitioned output, idempotent re-run",
+      "feature": "W66 R8 lakehouse broadening",
+      "pass": true,
+      "file": "J625.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J626",
+      "title": "intent-miss capture, dedupe, admin review → few-shot prompt examples",
+      "feature": "W66 R8(a) NLP intent-miss loop",
+      "pass": true,
+      "file": "J626.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J627",
+      "title": "dispute outcome feature row: idempotent write + tenant risk signal aggregation",
+      "feature": "W66 R8(b) dispute outcomes → risk features",
+      "pass": true,
+      "file": "J627.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J628",
+      "title": "zero-result demand summary + weekly digest idempotent per ISO week",
+      "feature": "W66 R8(d) demand signals",
+      "pass": true,
+      "file": "J628.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J629",
+      "title": "restock sweep drafts PO from depletion, idempotent re-run, claim-first confirm",
+      "feature": "W66 R6 restock & procurement intelligence",
+      "pass": true,
+      "file": "J629.json",
+      "messageCount": 1
+    },
+    {
       "id": "J63",
       "title": "mandate charge failure fallback",
       "feature": "declined mandate charge → dunning + payment-link fallback",
       "pass": true,
       "file": "J63.json",
       "messageCount": 1
+    },
+    {
+      "id": "J630",
+      "title": "buyer reorder nudge from cadence; weekly idempotency",
+      "feature": "W66 R6 buyer-side proactive reorder",
+      "pass": true,
+      "file": "J630.json",
+      "messageCount": 7
     },
     {
       "id": "J64",

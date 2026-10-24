@@ -2213,6 +2213,56 @@ async function startServer() {
   });
   // === END W64 intelligence ===
 
+  // === W66 learning === R8 lakehouse broadening: nightly incremental export
+  // of the extended bronze sources (wallet_transactions, ui_events,
+  // search_queries, disputes + outcome features, POS sessions, agent CICO,
+  // nlp sessions, intent misses). Watermark-incremental + idempotent.
+  // After deploy: manus-heartbeat create --name lakehouse-export --cron "0 0 1 * * *" --path /api/scheduled/lakehouse-export
+  app.post("/api/scheduled/lakehouse-export", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const { runLakehouseExport } = await import("../services/lakehouseExport");
+      const run = await runLakehouseExport({ tenantId: req.body?.tenantId });
+      return res.json({ ok: run.status !== "failed", run });
+    } catch (e: any) {
+      console.error("[lakehouse-export] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "lakehouse-export failed" });
+    }
+  });
+  // R6 restock & procurement intelligence: daily depletion scan drafts
+  // restock POs (merchant confirms) + buyer "running low?" reorder nudges.
+  // After deploy: manus-heartbeat create --name restock-sweep --cron "0 0 6 * * *" --path /api/scheduled/restock-sweep
+  app.post("/api/scheduled/restock-sweep", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const { runRestockSweep, runBuyerReorderNudges } = await import("../services/restockIntel");
+      const restock = await runRestockSweep();
+      const reorder = await runBuyerReorderNudges();
+      return res.json({ ok: true, restock, reorder });
+    } catch (e: any) {
+      console.error("[restock-sweep] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "restock-sweep failed" });
+    }
+  });
+  // R8(d) zero-result search → demand signals: weekly merchant digest.
+  // Fires daily; the digest claim buckets by ISO week so it sends once/week.
+  // After deploy: manus-heartbeat create --name demand-digest --cron "0 0 8 * * *" --path /api/scheduled/demand-digest
+  app.post("/api/scheduled/demand-digest", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const { runDemandDigest } = await import("../services/demandSignals");
+      const run = await runDemandDigest();
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[demand-digest] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "demand-digest failed" });
+    }
+  });
+  // === END W66 learning ===
+
   // ── Scheduled: DLQ drain + replay (every ~10 min) ───────────────────────
   // W61 audit CRITICAL #4 + HIGH #7: drains the durable Redis DLQ lists
   // (mp:dlq:events, hermes:dlq, notifications.dlq spill) into fluvio_event_log

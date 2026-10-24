@@ -410,6 +410,9 @@ export const appRouter = router({
   commandBar: commandBarRouter,
   smartDefaults: smartDefaultsRouter,
   // === END W65 conversational ===
+  // === W66 learning ===
+  learning: learningRouter,
+  // === END W66 learning ===
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
@@ -423,6 +426,9 @@ import { onboardingChatRouter } from "./routers/onboardingChat";
 import { commandBarRouter } from "./routers/commandBar";
 import { smartDefaultsRouter } from "./routers/smartDefaults";
 // === END W65 conversational ===
+// === W66 learning ===
+import { learningRouter } from "./routers/learning";
+// === END W66 learning ===
 import { temporalRouter } from "./routers/temporal";
 import { orchestratorRouter } from "./routers/orchestrator";
 // === W27 catalog-ai ===

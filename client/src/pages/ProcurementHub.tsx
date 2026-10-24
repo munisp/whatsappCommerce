@@ -27,6 +27,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useActiveTenant } from "@/contexts/TenantContext";
+// === W66 learning ===
+import { trpc } from "@/lib/trpc";
+// === END W66 learning ===
 import { useB2bUtils, useCancelPo, useCreditAccounts, usePos, useRequestCreditAccount, useSuppliers, useTenantNames } from "@/lib/b2b";
 import {
   dueCountdown, formatDate, formatNaira, paidViaCreditLabel, type PoStatus, type PurchaseOrder, type SupplierSummary,
@@ -122,6 +125,8 @@ export default function ProcurementHub() {
           <TabsList>
             <TabsTrigger value="pos">My POs</TabsTrigger>
             <TabsTrigger value="build">Build PO</TabsTrigger>
+            {/* === W66 learning === R6 restock intelligence + hermes copilot */}
+            <TabsTrigger value="restock">Restock AI</TabsTrigger>
           </TabsList>
 
           {/* ── My POs ─────────────────────────────────────────────────── */}
@@ -271,6 +276,13 @@ export default function ProcurementHub() {
               </div>
             )}
           </TabsContent>
+
+          {/* === W66 learning === R6: restock signals, auto-drafted POs with
+              one-tap confirm, and the hermes procurement copilot (free text →
+              structured PO draft via the W65 command bar; confirm executes). */}
+          <TabsContent value="restock" className="space-y-4 mt-4">
+            <RestockIntelPanel tenantId={tenantId} />
+          </TabsContent>
         </Tabs>
       </div>
 
@@ -312,3 +324,155 @@ export default function ProcurementHub() {
     </DashboardLayout>
   );
 }
+
+// === W66 learning === R6 restock intelligence panel: depletion signals,
+// auto-drafted restock POs (merchant confirms — drafts never auto-submit),
+// and the hermes procurement copilot (NL text → structured PO draft via the
+// W65 command bar's restock_po intent; confirm executes the real mutation).
+function RestockIntelPanel({ tenantId }: { tenantId: string }) {
+  const utils = trpc.useUtils();
+  const { data: signals } = trpc.learning.restockSignals.useQuery({ tenantId });
+  const { data: drafts, refetch: refetchDrafts } = trpc.learning.restockDrafts.useQuery({ tenantId });
+  const confirm = trpc.learning.confirmRestockDraft.useMutation({
+    onSuccess: (r) => {
+      toast.success(`PO ${r.poNumber} submitted to supplier`);
+      refetchDrafts();
+      utils.procurement.listPos.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  // Hermes copilot: draft PO text → structured PO via the command bar.
+  const [copilotText, setCopilotText] = useState("");
+  const [copilotDraft, setCopilotDraft] = useState<{ summary: string; missingFields: string[]; confirmToken: string | null } | null>(null);
+  const parse = trpc.commandBar.parse.useMutation({
+    onSuccess: (d: any) => setCopilotDraft({ summary: d.summary, missingFields: d.missingFields ?? [], confirmToken: d.confirmToken }),
+    onError: (e) => toast.error(`Copilot parse failed: ${e.message}`),
+  });
+  const execute = trpc.commandBar.execute.useMutation({
+    onSuccess: (r: any) => {
+      toast.success(`Done: ${r.summary}`);
+      setCopilotDraft(null);
+      setCopilotText("");
+      refetchDrafts();
+      utils.procurement.listPos.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <h3 className="font-semibold text-foreground">Low-cover products</h3>
+          {(signals ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">No products below the days-of-cover threshold right now.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Product</TableHead>
+                  <TableHead>Stock</TableHead>
+                  <TableHead>Sold (30d)</TableHead>
+                  <TableHead>Days of cover</TableHead>
+                  <TableHead>Suggested qty</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(signals ?? []).map((s) => (
+                  <TableRow key={s.productId}>
+                    <TableCell className="font-medium">{s.productName}</TableCell>
+                    <TableCell>{s.stockQuantity}</TableCell>
+                    <TableCell>{s.soldQtyWindow}</TableCell>
+                    <TableCell><Badge variant="outline">{s.daysOfCover}d</Badge></TableCell>
+                    <TableCell>{s.suggestedQty}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <h3 className="font-semibold text-foreground">Auto-drafted restock POs</h3>
+          {(drafts ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">No restock drafts pending confirmation.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>PO</TableHead>
+                  <TableHead>Supplier</TableHead>
+                  <TableHead>Subtotal</TableHead>
+                  <TableHead>Note</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(drafts ?? []).map((d) => (
+                  <TableRow key={d.id}>
+                    <TableCell className="font-medium">{d.poNumber}</TableCell>
+                    <TableCell className="text-muted-foreground">{d.supplierTenantId.slice(0, 8)}…</TableCell>
+                    <TableCell>{formatNaira(d.subtotalCents / 100)}</TableCell>
+                    <TableCell className="text-muted-foreground max-w-[280px] truncate">{d.notes}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        disabled={confirm.isPending}
+                        onClick={() => confirm.mutate({ tenantId, poId: d.id })}
+                      >
+                        {confirm.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm & submit"}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <h3 className="font-semibold text-foreground">Procurement copilot</h3>
+          <p className="text-xs text-muted-foreground">
+            Describe the PO in plain language, e.g. “restock 120 bags of rice from supplier &lt;id&gt;”. The copilot drafts a structured PO — nothing is sent until you confirm.
+          </p>
+          <div className="flex gap-2">
+            <input
+              className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm"
+              value={copilotText}
+              onChange={(e) => setCopilotText(e.target.value)}
+              placeholder="restock 120 × Basmati rice from supplier …"
+            />
+            <Button
+              variant="outline"
+              disabled={parse.isPending || copilotText.trim().length < 4}
+              onClick={() => parse.mutate({ text: `restock ${copilotText}` })}
+            >
+              {parse.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Draft"}
+            </Button>
+          </div>
+          {copilotDraft && (
+            <div className="rounded-md border border-border p-3 space-y-2">
+              <p className="text-sm">{copilotDraft.summary}</p>
+              {copilotDraft.missingFields.length > 0 && (
+                <p className="text-xs text-amber-400">Missing: {copilotDraft.missingFields.join(", ")} — include them in the text and re-draft.</p>
+              )}
+              <Button
+                size="sm"
+                disabled={execute.isPending || !copilotDraft.confirmToken || copilotDraft.missingFields.length > 0}
+                onClick={() => copilotDraft.confirmToken && execute.mutate({ confirmToken: copilotDraft.confirmToken })}
+              >
+                {execute.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm draft PO"}
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+// === END W66 learning ===

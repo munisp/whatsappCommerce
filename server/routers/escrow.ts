@@ -1849,6 +1849,30 @@ export const escrowDisputeRouter = router({
       }
       // === END W54 disputes ===
 
+      // === W66 learning (R8b) === dispute outcome → additive risk feature
+      // row (idempotent on dispute_id; fail-open — never touches the money
+      // outcome computed above). Integer cents only.
+      {
+        const { recordDisputeOutcome } = await import("../services/disputeOutcomeFeatures");
+        const refundCents = moneyOutcome.kind === "refund" && typeof moneyOutcome.amount === "number"
+          ? Math.round(moneyOutcome.amount * 100) : null;
+        await recordDisputeOutcome(db, {
+          tenantId: dispute.tenantId,
+          disputeId: dispute.id,
+          orderId: dispute.orderId,
+          escrowTxId: dispute.escrowTxId,
+          raisedBy: dispute.raisedBy,
+          reason: dispute.reason,
+          resolution: input.resolution,
+          outcome: input.resolution.includes("merchant") ? "resolved_merchant" : "resolved_buyer",
+          escrowAmountCents: escrowRow?.amount != null ? Math.round(Number(escrowRow.amount) * 100) : null,
+          refundAmountCents: refundCents,
+          disputeCreatedAt: dispute.createdAt,
+          resolvedAt: new Date(),
+        }).catch((e: any) => console.warn("[escrow.review] dispute outcome feature failed (fail-open):", e?.message));
+      }
+      // === END W66 learning ===
+
       const [updated] = await db.select().from(escrowDisputes).where(eq(escrowDisputes.id, input.disputeId));
       // Fire-and-forget: notify merchant of dispute resolution
       emitNotification({

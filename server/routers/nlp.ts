@@ -3553,7 +3553,12 @@ export const nlpRouter = router({
         }
       }
       // === END W54 disputes ===
-     const systemPrompt = buildSystemPrompt(session.language, tenantProducts, input.tenantId);
+     // === W66 learning (R8a) === human-reviewed corrections from the
+     // intent-miss loop are injected as few-shot examples (fail-open: no
+     // file → empty block).
+     const { buildFewShotPromptBlock } = await import("../services/intentMisses");
+     const systemPrompt = buildSystemPrompt(session.language, tenantProducts, input.tenantId)
+       + buildFewShotPromptBlock(input.tenantId);
       const cartSummary = cartItemsList.length > 0
         ? `\nCURRENT CART:\n${cartItemsList.map(i => `- ${i.productName} x${i.quantity} @ ${i.currency} ${i.unitPrice}`).join("\n")}\nCart total: ${cartItemsList.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0).toFixed(2)}`
         : "\nCURRENT CART: empty";
@@ -3587,6 +3592,25 @@ export const nlpRouter = router({
           extractedAddress: null, confidence: 0,
         };
       }
+
+      // === W66 learning (R8a) === capture low-confidence / unmatched
+      // messages into the intent-miss review queue (fail-open, deduped per
+      // tenant+message+day). Never blocks the reply path.
+      {
+        const { isIntentMiss, captureIntentMiss } = await import("../services/intentMisses");
+        if (isIntentMiss(llmResult.intent, llmResult.confidence)) {
+          captureIntentMiss(db, {
+            tenantId: input.tenantId,
+            sessionId: session.id,
+            channel: input.channel ?? "whatsapp",
+            message: input.message,
+            detectedIntent: llmResult.intent,
+            confidence: llmResult.confidence,
+            language: session.language,
+          }).catch(() => {});
+        }
+      }
+      // === END W66 learning ===
 
       // 6. Act on intent
       const ctx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};

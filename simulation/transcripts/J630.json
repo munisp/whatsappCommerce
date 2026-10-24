@@ -1,0 +1,86 @@
+{
+  "id": "J630",
+  "title": "buyer reorder nudge from cadence; weekly idempotency",
+  "feature": "W66 R6 buyer-side proactive reorder",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348063000001",
+      "wamid": "wamid.sim.001410",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792879721807,
+      "kind": "text",
+      "body": "🔁 Running low on *J630 Milk*? Reply REORDER and I'll rebuild your cart from your last order."
+    },
+    {
+      "dir": "out",
+      "phone": "624",
+      "wamid": "wamid.sim.001411",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792879721821,
+      "kind": "text",
+      "body": "🔁 Running low on *J624 Cadence Rice*? Reply REORDER and I'll rebuild your cart from your last order."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016241433",
+      "wamid": "wamid.sim.001412",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792879721826,
+      "kind": "text",
+      "body": "🔁 Running low on *Recharge PIN Pack J351*? Reply REORDER and I'll rebuild your cart from your last order."
+    },
+    {
+      "dir": "out",
+      "phone": "2348019125649",
+      "wamid": "wamid.sim.001413",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792879721831,
+      "kind": "text",
+      "body": "🔁 Running low on *W43 Restock Widget*? Reply REORDER and I'll rebuild your cart from your last order."
+    },
+    {
+      "dir": "out",
+      "phone": "2348015956880",
+      "wamid": "wamid.sim.001414",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792879721837,
+      "kind": "text",
+      "body": "🔁 Running low on *Jollof Rice*? Reply REORDER and I'll rebuild your cart from your last order."
+    },
+    {
+      "dir": "out",
+      "phone": "2348018053429",
+      "wamid": "wamid.sim.001415",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792879721842,
+      "kind": "text",
+      "body": "🔁 Running low on *Jollof Rice*? Reply REORDER and I'll rebuild your cart from your last order."
+    },
+    {
+      "dir": "out",
+      "phone": "2348063000001",
+      "wamid": "wamid.sim.001416",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792879721847,
+      "kind": "text",
+      "body": "🔁 Running low on *J630 Milk*? Reply REORDER and I'll rebuild your cart from your last order."
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 {
   "statements": [
     {
-      "id": "0cd94bd8-77e2-405f-b4e5-c9354651b632",
+      "id": "5b692400-68c4-46e5-bd70-b3c038dc65b4",
       "walletId": "wal-w58-589-0",
       "periodStart": "2026-09-01",
       "periodEnd": "2026-10-01",
@@ -9,13 +9,13 @@
       "openingCents": 0,
       "closingCents": 100000,
       "txCount": 1,
-      "generatedAt": "2026-10-24T18:48:39.276Z",
+      "generatedAt": "2026-10-24T21:43:46.935Z",
       "deliveries": [
         {
           "channel": "whatsapp",
-          "at": "2026-10-24T18:48:39.281Z",
+          "at": "2026-10-24T21:43:46.941Z",
           "messageId": "wamid.sim.001308",
-          "target": "2348016324382"
+          "target": "2348016230413"
         }
       ]
     }

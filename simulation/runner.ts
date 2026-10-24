@@ -808,6 +808,14 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j623-command-bar"),
     import("./journeys/j624-smart-defaults"),
     // === END W65 conversational ===
+    // === W66 learning ===
+    import("./journeys/j625-lakehouse-export"),
+    import("./journeys/j626-intent-miss"),
+    import("./journeys/j627-dispute-outcome"),
+    import("./journeys/j628-demand-signals"),
+    import("./journeys/j629-restock-intel"),
+    import("./journeys/j630-buyer-reorder"),
+    // === END W66 learning ===
     // === END W55 parity ===
     // === END W54 CAPABILITIES ===
     // === END W51 PROMOS ===

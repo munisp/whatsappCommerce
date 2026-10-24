@@ -955,6 +955,67 @@ export default function MLOpsDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* === W66 learning === R8(a) intent-miss review queue (admin):
+          approve a correction → appended to the few-shot examples consumed
+          by the NLP classifier prompt; reject dismisses. */}
+      <IntentMissReviewCard />
     </DashboardLayout>
   );
 }
+
+// === W66 learning === R8(a) admin intent-miss review card.
+function IntentMissReviewCard() {
+  const missesQ = trpc.learning.intentMisses.useQuery({ status: "pending", limit: 20 });
+  const [corrections, setCorrections] = useState<Record<string, string>>({});
+  const review = trpc.learning.reviewIntentMiss.useMutation({
+    onSuccess: (_d, v) => {
+      toast.success(v.decision === "approved" ? "Correction approved — added to few-shot examples" : "Miss rejected");
+      missesQ.refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const misses = missesQ.data ?? [];
+  return (
+    <Card className="bg-white/5 border-white/10 mt-6">
+      <CardHeader>
+        <CardTitle className="text-white text-base">NLP Intent-Miss Review ({misses.length} pending)</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {misses.length === 0 && <p className="text-white/50 text-sm">No intent misses pending review.</p>}
+        {misses.map((m) => (
+          <div key={m.id} className="rounded-md border border-white/10 p-3 space-y-2">
+            <p className="text-sm text-white">“{m.message}”</p>
+            <p className="text-xs text-white/50">
+              detected: {m.detectedIntent ?? "unknown"} · confidence: {m.confidence ?? 0} · tenant: {m.tenantId.slice(0, 8)}…
+            </p>
+            <div className="flex gap-2">
+              <Input
+                className="bg-white/5 border-white/10 text-white text-xs h-8"
+                placeholder="correct intent (e.g. add_to_cart)"
+                value={corrections[m.id] ?? ""}
+                onChange={(e) => setCorrections((p) => ({ ...p, [m.id]: e.target.value }))}
+              />
+              <Button
+                size="sm"
+                className="bg-green-700 hover:bg-green-600 text-white"
+                disabled={review.isPending || !(corrections[m.id] ?? "").trim()}
+                onClick={() => review.mutate({ id: m.id, decision: "approved", correctedIntent: (corrections[m.id] ?? "").trim() })}
+              >
+                Approve
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={review.isPending}
+                onClick={() => review.mutate({ id: m.id, decision: "rejected" })}
+              >
+                Reject
+              </Button>
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+// === END W66 learning ===

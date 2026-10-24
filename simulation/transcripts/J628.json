@@ -1,0 +1,20 @@
+{
+  "id": "J628",
+  "title": "zero-result demand summary + weekly digest idempotent per ISO week",
+  "feature": "W66 R8(d) demand signals",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348062800001",
+      "wamid": "wamid.sim.001408",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792879720953,
+      "kind": "text",
+      "body": "📈 Demand signals this week: buyers searched 3 time(s) and found nothing. Top: \"j628 garri\" ×3. Stock them if you can."
+    }
+  ]
+}

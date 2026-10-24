@@ -12,9 +12,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1792867411465,
+      "at": 1792879382376,
       "kind": "text",
-      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J288-1792867411419\n\n\n*Total paid: ₦600.00*\nPayment ref: bipcap:eccc30f3-f822-441f-906d-275ac9e07661:2\n\n🔎 Track your order: http://localhost:4173/track/j288-order-1792867411416.eGEQ3jmS1msJCWPjHM5xtcVy"
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J288-1792879382337\n\n\n*Total paid: ₦600.00*\nPayment ref: bipcap:025f5b76-b989-4c06-ade5-05f6cbe81c3f:2\n\n🔎 Track your order: http://localhost:4173/track/j288-order-1792879382334.pRjysjfqmhxm0fkv4BMcsieS"
     },
     {
       "dir": "out",
@@ -23,11 +23,11 @@
       "statuses": [
         "sent"
       ],
-      "at": 1792867411474,
+      "at": 1792879382385,
       "kind": "document",
       "mediaKind": "document",
-      "caption": "🧾 Receipt for order J288-1792867411419",
-      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-J288-1792867411419.pdf"
+      "caption": "🧾 Receipt for order J288-1792879382337",
+      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-J288-1792879382337.pdf"
     },
     {
       "dir": "out",
@@ -36,7 +36,7 @@
       "statuses": [
         "sent"
       ],
-      "at": 1792867411482,
+      "at": 1792879382392,
       "kind": "text",
       "body": "✅ Installment 1 of 2 received (₦200.00)."
     },
@@ -47,9 +47,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1792867411511,
+      "at": 1792879382426,
       "kind": "text",
-      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J288-1792867411419\n\n\n*Total paid: ₦600.00*\nPayment ref: bipcap:eccc30f3-f822-441f-906d-275ac9e07661:3\n\n🔎 Track your order: http://localhost:4173/track/j288-order-1792867411416.eGEQ3jmS1msJCWPjHM5xtcVy"
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J288-1792879382337\n\n\n*Total paid: ₦600.00*\nPayment ref: bipcap:025f5b76-b989-4c06-ade5-05f6cbe81c3f:3\n\n🔎 Track your order: http://localhost:4173/track/j288-order-1792879382334.pRjysjfqmhxm0fkv4BMcsieS"
     },
     {
       "dir": "out",
@@ -58,11 +58,11 @@
       "statuses": [
         "sent"
       ],
-      "at": 1792867411520,
+      "at": 1792879382434,
       "kind": "document",
       "mediaKind": "document",
-      "caption": "🧾 Receipt for order J288-1792867411419",
-      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-J288-1792867411419.pdf"
+      "caption": "🧾 Receipt for order J288-1792879382337",
+      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-J288-1792879382337.pdf"
     }
   ]
 }

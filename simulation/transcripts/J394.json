@@ -12,17 +12,17 @@
       "statuses": [
         "sent"
       ],
-      "at": 1792867576575,
+      "at": 1792879548779,
       "kind": "interactive",
-      "body": "📦 PO-20261024-HLLA from Sim Store — ₦2,000.00 — pay now",
+      "body": "📦 PO-20261024-R224 from Sim Store — ₦2,000.00 — pay now",
       "footer": "Approve to accept this purchase order.",
       "buttons": [
         {
-          "id": "po_approve:2b623785-fe89-4e96-8c2c-4fcbb361fa9a",
+          "id": "po_approve:cd00d482-3480-492f-a5fb-7279f80a43fb",
           "title": "Approve"
         },
         {
-          "id": "po_reject:2b623785-fe89-4e96-8c2c-4fcbb361fa9a",
+          "id": "po_reject:cd00d482-3480-492f-a5fb-7279f80a43fb",
           "title": "Reject"
         }
       ]
@@ -34,9 +34,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1792867576588,
+      "at": 1792879548797,
       "kind": "text",
-      "body": "🚨 A payment dispute on your wholesale order ord-w45-j394-mvmr2br6 was routed to the supplier for response (dispute a71b7afd-821b-4fb1-82ce-d35f0b5c0cd2)."
+      "body": "🚨 A payment dispute on your wholesale order ord-w45-j394-mvmy6xke was routed to the supplier for response (dispute e68a4f7f-5eb2-467f-b47f-acb01432ca32)."
     }
   ]
 }
