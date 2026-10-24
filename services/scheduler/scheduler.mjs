@@ -64,6 +64,16 @@ export const SCHEDULE = [
   { path: "/api/scheduled/dlq-drain", intervalMin: 10 },
   { path: "/api/scheduled/fluvio-event-sweep", intervalMin: 15 },
   // === END W61 dataloss ===
+  // === W62 findings === F9 email_outbox retry sweep.
+  { path: "/api/scheduled/email-send-retry", intervalMin: 5 },
+  // F14: the two /api/cron/* platform-ops sweeps are scheduler-invoked too
+  // (they verify the same cron JWT). Previously they had NO production
+  // invoker at all — no allowlist entry and no k8s CronJob (audit W61
+  // backend-notes #14). J178's scheduledRoutes() regex was extended to
+  // cover /api/cron/* so parity stays enforced.
+  { path: "/api/cron/webhook-dedupe-sweep", intervalMin: 1440 },
+  { path: "/api/cron/orphan-tenant-sweep", intervalMin: 1440 },
+  // === END W62 findings ===
   { path: "/api/scheduled/inventory-sync", intervalMin: 5 },
   { path: "/api/scheduled/reconciliation-alert", intervalMin: 60 },
   { path: "/api/scheduled/forecast-snapshot", intervalMin: 1440 },

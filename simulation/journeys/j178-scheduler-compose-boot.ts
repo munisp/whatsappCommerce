@@ -33,7 +33,9 @@ function requiredByEnvKeys(): string[] {
 
 function scheduledRoutes(): string[] {
   const src = fs.readFileSync(path.join(ROOT, "server/_core/index.ts"), "utf-8");
-  return [...src.matchAll(/app\.post\("(\/api\/scheduled\/[a-z0-9-]+)"/g)].map((m) => m[1]);
+  // W62 F14: parity now covers /api/cron/* ops sweeps as well — they are
+  // scheduler-invoked and must stay in the allowlist too.
+  return [...src.matchAll(/app\.post\("(\/api\/(?:scheduled|cron)\/[a-z0-9-]+)"/g)].map((m) => m[1]);
 }
 
 export const journey: Journey = {

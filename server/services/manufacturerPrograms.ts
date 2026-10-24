@@ -47,6 +47,7 @@ export type TxHandle = Pick<DbHandle, "select" | "insert" | "update" | "execute"
 
 // ─── Tables (mirror migration 0059) ─────────────────────────────────────────
 
+// W62 F11 WRITER: this file (manufacturerPrograms.ts line ~221 insert) is the sole writer.
 export const manufacturerCreditPrograms = pgTable("manufacturer_credit_programs", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: varchar("tenant_id", { length: 36 }).notNull(), // manufacturer tenant

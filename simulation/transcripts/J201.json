@@ -8,13 +8,35 @@
     {
       "dir": "out",
       "phone": "2348012010001",
+      "wamid": "wamid.sim.000772",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790989721661,
+      "kind": "text",
+      "body": "Recurring payment of NGN 50000.00 is above your auto-pay limit and needs approval. Approve in the dashboard under Approvals (ref ca09b311) and it pays immediately."
+    },
+    {
+      "dir": "out",
+      "phone": "2348012010001",
+      "wamid": "wamid.sim.000773",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790989722111,
+      "kind": "text",
+      "body": "Reminder: your Scheduled payment — scheduled ad-hoc payment of NGN 50000.00 is scheduled within the next 24 hours and will be paid automatically from your wallet. Ensure your balance covers it."
+    },
+    {
+      "dir": "out",
+      "phone": "2348012010001",
       "wamid": "wamid.sim.000774",
       "statuses": [
         "sent"
       ],
-      "at": 1790980230238,
+      "at": 1790989722555,
       "kind": "text",
-      "body": "Recurring payment of NGN 50000.00 is above your auto-pay limit and needs approval. Approve in the dashboard under Approvals (ref 0c081901) and it pays immediately."
+      "body": "Your scheduled_payment of 50000.00 was approved and executed. Ref ca09b311."
     },
     {
       "dir": "out",
@@ -23,31 +45,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790980230690,
+      "at": 1790989723018,
       "kind": "text",
-      "body": "Reminder: your Scheduled payment — scheduled ad-hoc payment of NGN 50000.00 is scheduled within the next 24 hours and will be paid automatically from your wallet. Ensure your balance covers it."
-    },
-    {
-      "dir": "out",
-      "phone": "2348012010001",
-      "wamid": "wamid.sim.000776",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790980231135,
-      "kind": "text",
-      "body": "Your scheduled_payment of 50000.00 was approved and executed. Ref 0c081901."
-    },
-    {
-      "dir": "out",
-      "phone": "2348012010001",
-      "wamid": "wamid.sim.000777",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790980231594,
-      "kind": "text",
-      "body": "Recurring payment of NGN 50000.00 is above your auto-pay limit and needs approval. Approve in the dashboard under Approvals (ref 5aeb91f3) and it pays immediately."
+      "body": "Recurring payment of NGN 50000.00 is above your auto-pay limit and needs approval. Approve in the dashboard under Approvals (ref caf1836b) and it pays immediately."
     }
   ]
 }

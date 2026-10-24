@@ -14,6 +14,8 @@
 //!
 //! Kafka topics produced:
 //!   hermes.events.outbound — Hermes responses destined for the platform
+//!   (W62 F8: DORMANT — produced here, no platform consumer; see
+//!   docs/event-topology.md)
 //!   hermes.events.dlq      — undeliverable events after max retries
 
 use anyhow::Result;

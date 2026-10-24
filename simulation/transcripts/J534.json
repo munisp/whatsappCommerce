@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348019716625",
-      "profileName": "Sim User 6625",
-      "inboundId": "wamid.sim.in.text.00581",
-      "at": 1790980550579,
+      "phone": "2348012918197",
+      "profileName": "Sim User 8197",
+      "inboundId": "wamid.sim.in.text.00579",
+      "at": 1790990041024,
       "kind": "text",
-      "text": "DEAL DEAL34 REF REF-JQKHLH"
+      "text": "DEAL DEAL34 REF REF-EZVANT"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00581",
-      "at": 1790980550586
+      "wamid": "wamid.sim.in.text.00579",
+      "at": 1790990041030
     },
     {
       "dir": "out",
-      "phone": "2348019716625",
-      "wamid": "wamid.sim.001188",
+      "phone": "2348012918197",
+      "wamid": "wamid.sim.001186",
       "statuses": [
         "sent"
       ],
-      "at": 1790980550615,
+      "at": 1790990041064,
       "kind": "text",
       "body": "Sorry — you can't use your own referral code. Share it with a friend instead!"
     }

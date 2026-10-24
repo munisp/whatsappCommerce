@@ -8,13 +8,13 @@
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.001104",
+      "wamid": "wamid.sim.001102",
       "statuses": [
         "sent"
       ],
-      "at": 1790980459265,
+      "at": 1790989950441,
       "kind": "text",
-      "body": "⚠️ Inventory expiry alert: 1 batch(es) EXPIRED, 1 expiring within 7 days.\n• W46 Product j416 batch OLD: 3 unit(s), expiry 2026-10-01\n• W46 Product j416 batch NEAR: 4 unit(s), expiry 2026-10-04"
+      "body": "⚠️ Inventory expiry alert: 1 batch(es) EXPIRED, 1 expiring within 7 days.\n• W46 Product j416 batch OLD: 3 unit(s), expiry 2026-10-02\n• W46 Product j416 batch NEAR: 4 unit(s), expiry 2026-10-05"
     }
   ]
 }

@@ -348,11 +348,29 @@ export async function publishEvents(events: KafkaEvent[]): Promise<void> {
 }
 
 /** Publish a single typed platform event. */
+// === W62 findings (F8) ===
+// Dormant-pipe guard: topics inventoried with no consumer (audit W61 MEDIUM
+// #8) are kept but env-gated. Returns true (publish allowed) only when
+// DORMANT_TOPICS_ENABLED=true; otherwise logs once per topic and no-ops.
+const dormantWarned = new Set<string>();
+export function dormantTopicsEnabled(topic: string): boolean {
+  const on = (process.env.DORMANT_TOPICS_ENABLED ?? "").trim().toLowerCase() === "true";
+  if (!on && !dormantWarned.has(topic)) {
+    dormantWarned.add(topic);
+    console.info(`[Kafka] dormant topic ${topic} publish skipped (DORMANT_TOPICS_ENABLED!=true; see docs/event-topology.md)`);
+  }
+  return on;
+}
+// === END W62 findings ===
 export async function publishOrderEvent(orderId: string, tenantId: string, status: string, meta?: Record<string, unknown>) {
   await publishEvents([{ topic: "wacommerce.orders", key: orderId, value: { orderId, tenantId, status, ...meta } }]);
 }
 
 export async function publishPaymentEvent(paymentId: string, tenantId: string, status: string, meta?: Record<string, unknown>) {
+  // === W62 findings (F8) === DORMANT TOPIC: wacommerce.payments has no
+  // platform consumer (audit W61 MEDIUM #8). Env-gated keep: publishes only
+  // when DORMANT_TOPICS_ENABLED=true. See docs/event-topology.md.
+  if (!dormantTopicsEnabled("wacommerce.payments")) return;
   await publishEvents([{ topic: "wacommerce.payments", key: paymentId, value: { paymentId, tenantId, status, ...meta } }]);
 }
 
@@ -361,10 +379,16 @@ export async function publishConversationEvent(conversationId: string, tenantId:
 }
 
 export async function publishInventoryEvent(productId: string, tenantId: string, delta: number, meta?: Record<string, unknown>) {
+  // === W62 findings (F8) === DORMANT TOPIC (no consumer) — env-gated, see
+  // publishPaymentEvent above and docs/event-topology.md.
+  if (!dormantTopicsEnabled("wacommerce.inventory")) return;
   await publishEvents([{ topic: "wacommerce.inventory", key: productId, value: { productId, tenantId, delta, ...meta } }]);
 }
 
 export async function publishHermesPOEvent(poId: string, tenantId: string, status: string, meta?: Record<string, unknown>) {
+  // === W62 findings (F8) === DORMANT TOPIC (no consumer) — env-gated, see
+  // publishPaymentEvent above and docs/event-topology.md.
+  if (!dormantTopicsEnabled("wacommerce.hermes.po")) return;
   await publishEvents([{ topic: "wacommerce.hermes.po", key: poId, value: { poId, tenantId, status, ...meta } }]);
 }
 

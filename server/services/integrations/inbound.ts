@@ -147,6 +147,25 @@ export async function handleIntegrationWebhook(
 
   // ── Record the inbound event (audit trail; origin='external') ────────────
   const entityId = String(payload.data?.id ?? payload.id ?? payload.data?.product_id ?? "");
+
+  // === W62 findings (F12) === insert-first dedupe claim against the
+  // processed_webhook_events ledger: Medusa/Twenty/Odoo retry a delivery
+  // until 200, and a replay previously re-applied the payload. The claim id
+  // is sha256(system+tenant+rawBody), so only an IDENTICAL redelivery is
+  // deduped — distinct updates to the same entity still apply. Fail-closed
+  // in production via claimWebhookEvent's ledger policy.
+  try {
+    const { claimWebhookEvent } = await import("../webhookDedupe");
+    const claimId = crypto.createHash("sha256").update(`integration:${system}:${tenantId}:`).update(rawBody).digest("hex");
+    const claim = await claimWebhookEvent(db, { id: claimId, tenantId, type: `integration:${system}:${entity}` });
+    if (claim === "duplicate") {
+      return { status: 200, body: { ok: true, applied: "duplicate" } };
+    }
+  } catch (e: any) {
+    if (deps.isProduction) throw e; // fail-closed ledger policy
+    console.warn("[integrations-webhook] dedupe claim failed (non-prod, proceeding):", e?.message);
+  }
+
   await db.insert(integrationEvents).values({
     tenantId,
     system,

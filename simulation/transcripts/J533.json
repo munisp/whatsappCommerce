@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018086121",
-      "profileName": "Sim User 6121",
-      "inboundId": "wamid.sim.in.text.00580",
-      "at": 1790980549629,
+      "phone": "2348016504110",
+      "profileName": "Sim User 4110",
+      "inboundId": "wamid.sim.in.text.00578",
+      "at": 1790990040089,
       "kind": "text",
-      "text": "DEAL DEAL33 REF REF-2RXE6B"
+      "text": "DEAL DEAL33 REF REF-8KBPY8"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00580",
-      "at": 1790980549640
+      "wamid": "wamid.sim.in.text.00578",
+      "at": 1790990040096
     },
     {
       "dir": "out",
-      "phone": "2348018086121",
-      "wamid": "wamid.sim.001187",
+      "phone": "2348016504110",
+      "wamid": "wamid.sim.001185",
       "statuses": [
         "sent"
       ],
-      "at": 1790980549700,
+      "at": 1790990040137,
       "kind": "text",
       "body": "✅ Deal DEAL33 locked in — it applies automatically at checkout. Happy shopping!"
     }

@@ -405,14 +405,19 @@ export async function runMonthlyStatementSweep(db: Db, opts: { now?: Date } = {}
         out.deliveredWa += 1;
         out.details.push({ tenantId: wallet.tenantId, outcome: "delivered-wa" });
       } else if (typeof email === "string" && email.includes("@")) {
-        const { sendEmail } = await import("./email/resend");
+        // === W62 findings (F9) === durable outbox enqueue, idempotency-keyed
+        // per (statement, recipient) — replaces fire-and-forget sendEmail.
+        const { enqueueEmail } = await import("./emailOutbox");
         const { publicMediaUrl } = await import("./richMedia");
         const link = publicMediaUrl(`/api/uc-docs/${record.pdfPath}`) ?? `/api/uc-docs/${record.pdfPath}`;
-        const ok = await sendEmail({
+        const ok = await enqueueEmail({
+          tenantId: wallet.tenantId,
+          idempotencyKey: `wallet-statement:${record.id}:${email}`,
+          kind: "wallet_statement",
           to: email,
           subject: `Wallet statement ${record.periodStart} .. ${record.periodEnd}`,
           html: `<p>Your wallet statement for ${record.periodStart} .. ${record.periodEnd} is ready.</p><p><a href="${link}">Download statement PDF</a></p>`,
-        } as any);
+        });
         // sendEmail returns false when SIMULATED (no RESEND_API_KEY) — the
         // delivery is still recorded (channel 'email') so the sweep stays
         // idempotent per (wallet, period) in every environment.

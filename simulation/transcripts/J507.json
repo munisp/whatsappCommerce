@@ -8,82 +8,82 @@
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348016145320",
-      "sessionId": "ussd-w50-1790980533076",
+      "phone": "2348019506912",
+      "sessionId": "ussd-w50-1790990023797",
       "text": "near me",
-      "at": 1790980533385
+      "at": 1790990024105
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348016145320",
-      "sessionId": "ussd-w50-1790980533076",
+      "phone": "2348019506912",
+      "sessionId": "ussd-w50-1790990023797",
       "text": "CON 📍 Reply with your area or nearest landmark (e.g. \"Wuse 2\") to find businesses near you.",
-      "at": 1790980533386
+      "at": 1790990024106
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348016145320",
-      "sessionId": "ussd-w50-1790980533076",
+      "phone": "2348019506912",
+      "sessionId": "ussd-w50-1790990023797",
       "text": "near me*wuse",
-      "at": 1790980533695
+      "at": 1790990024418
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348016145320",
-      "sessionId": "ussd-w50-1790980533076",
+      "phone": "2348019506912",
+      "sessionId": "ussd-w50-1790990023797",
       "text": "END Businesses near you:\n1. Sim Store (j471) — 12 Aminu Kano Crescent, Wuse 2",
-      "at": 1790980533696
+      "at": 1790990024419
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348012057389",
-      "sessionId": "ussd-w50-1790980533076-b",
+      "phone": "2348016150952",
+      "sessionId": "ussd-w50-1790990023797-b",
       "text": "food near me in aminu kano",
-      "at": 1790980534007
+      "at": 1790990024727
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348012057389",
-      "sessionId": "ussd-w50-1790980533076-b",
+      "phone": "2348016150952",
+      "sessionId": "ussd-w50-1790990023797-b",
       "text": "END Businesses near you:\n1. Sim Store (j471) — 12 Aminu Kano Crescent, Wuse 2",
-      "at": 1790980534008
+      "at": 1790990024728
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348018237909",
-      "sessionId": "ussd-w50-1790980533076-c",
+      "phone": "2348014149795",
+      "sessionId": "ussd-w50-1790990023797-c",
       "text": "near me",
-      "at": 1790980534315
+      "at": 1790990025033
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348018237909",
-      "sessionId": "ussd-w50-1790980533076-c",
+      "phone": "2348014149795",
+      "sessionId": "ussd-w50-1790990023797-c",
       "text": "CON 📍 Reply with your area or nearest landmark (e.g. \"Wuse 2\") to find businesses near you.",
-      "at": 1790980534316
+      "at": 1790990025034
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348018237909",
-      "sessionId": "ussd-w50-1790980533076-c",
+      "phone": "2348014149795",
+      "sessionId": "ussd-w50-1790990023797-c",
       "text": "near me*zzzz nowhere",
-      "at": 1790980534624
+      "at": 1790990025345
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348018237909",
-      "sessionId": "ussd-w50-1790980533076-c",
+      "phone": "2348014149795",
+      "sessionId": "ussd-w50-1790990023797-c",
       "text": "END No businesses found near you yet — try a different location.",
-      "at": 1790980534625
+      "at": 1790990025346
     }
   ]
 }

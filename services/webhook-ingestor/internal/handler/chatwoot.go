@@ -201,6 +201,8 @@ func (h *Handler) HandleChatwoot(c *gin.Context) {
 	}
 
 	// Publish to Kafka topic: prd.eu1.chat.message.received.v1
+	// W62 F8: DORMANT — chat.message.received.v1 is produced here but has no
+	// consumer (audit W61 MEDIUM #8). See docs/event-topology.md.
 	topic := fmt.Sprintf("chat.message.received.v1")
 	if !h.publishOrFail(c, topic, tenant.ID.String(), envelope) {
 		// Roll back the dedup claim so Chatwoot's retry is not swallowed.

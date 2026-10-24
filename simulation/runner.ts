@@ -789,6 +789,13 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j610-paystack-raw-persist"),
     import("./journeys/j611-fluvio-event-sweep"),
     // === END W61 dataloss ===
+    // === W62 findings ===
+    import("./journeys/j612-email-outbox-retry"),
+    import("./journeys/j613-idempotency-ttl"),
+    import("./journeys/j614-wa-dead-alert"),
+    import("./journeys/j615-cron-allowlist-parity"),
+    import("./journeys/j616-integration-webhook-dedupe"),
+    // === END W62 findings ===
     // === END W55 parity ===
     // === END W54 CAPABILITIES ===
     // === END W51 PROMOS ===

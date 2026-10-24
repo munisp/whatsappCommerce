@@ -7,143 +7,143 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017361853",
-      "profileName": "Sim User 1853",
-      "inboundId": "wamid.sim.in.text.00520",
-      "at": 1790980368563,
+      "phone": "2348018379045",
+      "profileName": "Sim User 9045",
+      "inboundId": "wamid.sim.in.text.00518",
+      "at": 1790989860126,
       "kind": "text",
       "text": "I'll pay 4500 for W44 Preorder j345"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00520",
-      "at": 1790980368569
+      "wamid": "wamid.sim.in.text.00518",
+      "at": 1790989860138
     },
     {
       "dir": "out",
-      "phone": "2348011963071",
-      "wamid": "wamid.sim.000940",
+      "phone": "2348018041804",
+      "wamid": "wamid.sim.000938",
       "statuses": [
         "sent"
       ],
-      "at": 1790980368606,
+      "at": 1790989860178,
       "kind": "interactive",
-      "body": "🤝 Offer c253a48f: a customer offers ₦4,500.00 for 1 × W44 Preorder j345. Accept, reject, or counter (OFFER COUNTER c253a48f <amount>).",
+      "body": "🤝 Offer 58a34fba: a customer offers ₦4,500.00 for 1 × W44 Preorder j345. Accept, reject, or counter (OFFER COUNTER 58a34fba <amount>).",
       "buttons": [
         {
-          "id": "offer:accept:c253a48f-dab1-4fd9-908a-27110c47af18",
+          "id": "offer:accept:58a34fba-f565-4bcd-b69c-19441e3eaedf",
           "title": "✅ Accept"
         },
         {
-          "id": "offer:reject:c253a48f-dab1-4fd9-908a-27110c47af18",
+          "id": "offer:reject:58a34fba-f565-4bcd-b69c-19441e3eaedf",
           "title": "❌ Reject"
         },
         {
-          "id": "offer:counter:c253a48f-dab1-4fd9-908a-27110c47af18",
+          "id": "offer:counter:58a34fba-f565-4bcd-b69c-19441e3eaedf",
           "title": "💬 Counter"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348017361853",
-      "wamid": "wamid.sim.000941",
+      "phone": "2348018379045",
+      "wamid": "wamid.sim.000939",
       "statuses": [
         "sent"
       ],
-      "at": 1790980368609,
+      "at": 1790989860181,
       "kind": "text",
-      "body": "🤝 Got it — your offer of ₦4,500.00 for 1 × W44 Preorder j345 is with the store (ref c253a48f). We'll message you here as soon as they respond."
+      "body": "🤝 Got it — your offer of ₦4,500.00 for 1 × W44 Preorder j345 is with the store (ref 58a34fba). We'll message you here as soon as they respond."
     },
     {
       "dir": "in",
-      "phone": "2348017361853",
-      "profileName": "Sim User 1853",
-      "inboundId": "wamid.sim.in.text.00521",
-      "at": 1790980369113,
+      "phone": "2348018379045",
+      "profileName": "Sim User 9045",
+      "inboundId": "wamid.sim.in.text.00519",
+      "at": 1790989860670,
       "kind": "text",
       "text": "I'll pay 4600 for W44 Preorder j345"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00521",
-      "at": 1790980369120
+      "wamid": "wamid.sim.in.text.00519",
+      "at": 1790989860678
     },
     {
       "dir": "out",
-      "phone": "2348017361853",
+      "phone": "2348018379045",
+      "wamid": "wamid.sim.000940",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790989860705,
+      "kind": "text",
+      "body": "You already have an open offer for W44 Preorder j345 (ref 58a34fba) — wait for the store to respond."
+    },
+    {
+      "dir": "in",
+      "phone": "2348018041804",
+      "profileName": "Sim User 1804",
+      "inboundId": "wamid.sim.in.btn.00520",
+      "at": 1790989861214,
+      "kind": "button_reply",
+      "text": "✅ Accept",
+      "payloadId": "offer:accept:58a34fba-f565-4bcd-b69c-19441e3eaedf"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.btn.00520",
+      "at": 1790989861224
+    },
+    {
+      "dir": "out",
+      "phone": "2348018379045",
+      "wamid": "wamid.sim.000941",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790989861266,
+      "kind": "text",
+      "body": "🎉 Your offer of ₦4,500.00 for 1 × W44 Preorder j345 was ACCEPTED. Tap below to pay — this price is held until the offer expires.\n💳 Pay: https://checkout.paystack.com/sim/OFR-1790989861244-F821F28A"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018041804",
       "wamid": "wamid.sim.000942",
       "statuses": [
         "sent"
       ],
-      "at": 1790980369147,
+      "at": 1790989861268,
       "kind": "text",
-      "body": "You already have an open offer for W44 Preorder j345 (ref c253a48f) — wait for the store to respond."
+      "body": "Offer 58a34fba accepted — the customer got a priced checkout link."
     },
     {
       "dir": "in",
-      "phone": "2348011963071",
-      "profileName": "Sim User 3071",
-      "inboundId": "wamid.sim.in.btn.00522",
-      "at": 1790980369658,
+      "phone": "2348018041804",
+      "profileName": "Sim User 1804",
+      "inboundId": "wamid.sim.in.btn.00521",
+      "at": 1790989861764,
       "kind": "button_reply",
-      "text": "✅ Accept",
-      "payloadId": "offer:accept:c253a48f-dab1-4fd9-908a-27110c47af18"
+      "text": "❌ Reject",
+      "payloadId": "offer:reject:58a34fba-f565-4bcd-b69c-19441e3eaedf"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.btn.00522",
-      "at": 1790980369668
+      "wamid": "wamid.sim.in.btn.00521",
+      "at": 1790989861771
     },
     {
       "dir": "out",
-      "phone": "2348017361853",
+      "phone": "2348018041804",
       "wamid": "wamid.sim.000943",
       "statuses": [
         "sent"
       ],
-      "at": 1790980369720,
-      "kind": "text",
-      "body": "🎉 Your offer of ₦4,500.00 for 1 × W44 Preorder j345 was ACCEPTED. Tap below to pay — this price is held until the offer expires.\n💳 Pay: https://checkout.paystack.com/sim/OFR-1790980369693-46B44E51"
-    },
-    {
-      "dir": "out",
-      "phone": "2348011963071",
-      "wamid": "wamid.sim.000944",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790980369723,
-      "kind": "text",
-      "body": "Offer c253a48f accepted — the customer got a priced checkout link."
-    },
-    {
-      "dir": "in",
-      "phone": "2348011963071",
-      "profileName": "Sim User 3071",
-      "inboundId": "wamid.sim.in.btn.00523",
-      "at": 1790980370205,
-      "kind": "button_reply",
-      "text": "❌ Reject",
-      "payloadId": "offer:reject:c253a48f-dab1-4fd9-908a-27110c47af18"
-    },
-    {
-      "dir": "out",
-      "kind": "read_receipt",
-      "wamid": "wamid.sim.in.btn.00523",
-      "at": 1790980370216
-    },
-    {
-      "dir": "out",
-      "phone": "2348011963071",
-      "wamid": "wamid.sim.000945",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790980370232,
+      "at": 1790989861784,
       "kind": "text",
       "body": "Could not update that offer: offer is already accepted"
     }

@@ -2155,6 +2155,28 @@ async function startServer() {
     }
   });
 
+  // === W62 findings (F9) ===
+  // ── Scheduled: email_outbox failed-send retry + dead-letter (every ~5 min) ─
+  // W61 audit MEDIUM #9: emails were fire-and-forget; the ban-circuit admin
+  // alert email could be lost silently. emailOutbox.enqueueEmail persists
+  // durably with an idempotency key; this sweep drives the claim-first
+  // retry/backoff and dead-letter admin alert.
+  // After deploy: manus-heartbeat create --name email-send-retry --cron "0 */5 * * * *" --path /api/scheduled/email-send-retry
+  app.post("/api/scheduled/email-send-retry", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const { runEmailSendRetries } = await import("../services/emailOutbox");
+      const limit = Number(req.body?.limit) > 0 ? Number(req.body.limit) : undefined;
+      const run = await runEmailSendRetries({ limit });
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[email-send-retry] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "email-send-retry failed" });
+    }
+  });
+  // === END W62 findings ===
+
   // ── Scheduled: DLQ drain + replay (every ~10 min) ───────────────────────
   // W61 audit CRITICAL #4 + HIGH #7: drains the durable Redis DLQ lists
   // (mp:dlq:events, hermes:dlq, notifications.dlq spill) into fluvio_event_log
@@ -3185,6 +3207,10 @@ async function startServer() {
       }
 
       if (status === "settled") {
+        // W62 F12 verified: idempotency here is the claim-first state
+        // transition below (state='release_instructed' guard) plus the
+        // already-settled early return — a replayed delivery cannot settle
+        // twice, so no processed_webhook_events row is needed.
         if (escrow.state === "settled") {
           return res.status(200).json({ received: true, action: "already-settled" });
         }
@@ -5142,6 +5168,11 @@ async function startServer() {
         console.warn(`[medusa-catalog-webhook] no tenant mapping for event ${event} product=${data?.id}`);
         return res.status(422).json({ error: "tenant-not-resolved" });
       }
+      // === W62 findings (F12) verified: replay-safety comes from the
+      // upsert in handleMedusaProductEvent keyed by metadata.medusaId —
+      // identical redeliveries converge (J159 asserts replay→update, no dup
+      // row). No ledger claim needed; adding one would break legitimate
+      // same-body re-syncs. ===
       const result = await handleMedusaProductEvent(db, tenantId, event, data as any);
       console.log(`[medusa-catalog-webhook] ${event} product=${data?.id} tenant=${tenantId} → ${result.action}`);
       return res.json({ ok: true, ...result });
@@ -5170,6 +5201,10 @@ async function startServer() {
       const medusaOrderId = (data?.id ?? data?.order_id) as string | undefined;
       if (!medusaOrderId) return res.json({ ok: true, action: "no-order-id" });
 
+      // === W62 findings (F12) verified: applyMedusaFulfillment converges —
+      // status set is idempotent and the escrow advance is guarded to
+      // escrow_held ("replays and out-of-order events are no-ops",
+      // orderBridge.ts). No ledger claim needed. ===
       const { applyMedusaFulfillment } = await import("../services/medusa/orderBridge");
       const result = await applyMedusaFulfillment(db, medusaOrderId, event);
       console.log(`[medusa-fulfillment-webhook] ${event} medusaOrder=${medusaOrderId} → ${result.action}${result.newStatus ? ` (${result.newStatus})` : ""}`);
@@ -5289,7 +5324,19 @@ async function startServer() {
           await db.update(waWebhookEvents)
             .set({ status: newStatus, retryCount: newRetryCount, lastError: e?.message ?? "unknown", nextRetryAt: nextRetry, updatedAt: now })
             .where(eq(waWebhookEvents.id, evt.id));
-          if (newStatus === "dead") dead++;
+          if (newStatus === "dead") {
+            dead++;
+            // === W62 findings (F13) === rows reaching status='dead' after 3
+            // retries previously stopped silently (audit W61 LOW #11). Alert
+            // the tenant admin (fail-open telemetry — alert failure must
+            // never crash the sweep). Money path untouched.
+            try {
+              const { alertTenantAdminWaWebhookDead } = await import("../services/waDeadAlert");
+              await alertTenantAdminWaWebhookDead(db, evt, e?.message ?? "unknown");
+            } catch (alertErr: any) {
+              console.warn("[wa-webhook-retry] dead-row admin alert failed:", alertErr?.message);
+            }
+          }
         }
       }
       return res.json({ ok: true, retried, dead, checked: due.length });
@@ -5992,6 +6039,8 @@ function drawBbox(img,id){
   // ── Scheduled: webhook dedupe ledger sweep (platform ops, cron-only) ──────
   // Retention for the webhook idempotency ledger — deletes claim rows older
   // than 7 days. Meta never retries deliveries older than that.
+  // W62 F14: scheduler-invoked via SCHEDULE allowlist (daily) — J178 parity.
+  // After deploy: manus-heartbeat create --name webhook-dedupe-sweep --cron "0 0 3 * * *" --path /api/cron/webhook-dedupe-sweep
   app.post("/api/cron/webhook-dedupe-sweep", async (req, res) => {
     try {
       const user = await sdk.authenticateRequest(req);
@@ -6010,6 +6059,8 @@ function drawBbox(img,id){
   // === W47 crosscutting (ONB-SM-3): orphan-tenant sweep (cron-only) =======
   // Trial tenants with no membership and no onboarding session older than
   // ONB_ORPHAN_SWEEP_DAYS (default 7) are marked churned + audited.
+  // W62 F14: scheduler-invoked via SCHEDULE allowlist (daily) — J178 parity.
+  // After deploy: manus-heartbeat create --name orphan-tenant-sweep --cron "0 0 4 * * *" --path /api/cron/orphan-tenant-sweep
   app.post("/api/cron/orphan-tenant-sweep", async (req, res) => {
     try {
       const user = await sdk.authenticateRequest(req);
@@ -6195,6 +6246,8 @@ function drawBbox(img,id){
       const quoteId = req.params.id;
       const body = req.body as { transferAmount?: { amount: string; currency: string }; condition?: string };
       console.log(`[mojaloop-quote-callback] quote ${quoteId} amount=${body.transferAmount?.amount} ${body.transferAmount?.currency}`);
+      // W62 F12 verified: this callback is a read-only stub (no writes), so
+      // replays are naturally idempotent — no dedupe ledger row needed.
       // In production: store quote response and trigger transfer initiation
       return res.status(200).json({ ok: true, quoteId });
     } catch (err: any) {

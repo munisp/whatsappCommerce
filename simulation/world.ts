@@ -609,6 +609,14 @@ export async function bootWorld(): Promise<World> {
           const schema = await import("../drizzle/schema");
           await world.db.delete(schema.waSuppressionList);
         } catch { /* W45 table not migrated yet */ }
+        // W45 ban circuit (MSG-25): the in-memory/Redis circuit for the seeded
+        // sender (pn_sim_001) is tripped by ban-signal journeys and otherwise
+        // stays open for the whole run (6h TTL), silently suppressing later
+        // sends (e.g. J614's dead-row admin alert). Clear it per journey.
+        try {
+          const { clearBanCircuit } = await import("../server/services/banCircuitBreaker");
+          await clearBanCircuit(PHONE_NUMBER_ID);
+        } catch { /* circuit store absent — fine */ }
         // === END W45 messaging-services ===
         // === W46 uc-docs === wipe statement/proforma/agent tables so
         // J402–J406 never leak rows (statements, commission bindings) into
@@ -645,6 +653,13 @@ export async function bootWorld(): Promise<World> {
               .set({ settings: { ...cur, adminPhone: ADMIN_PHONE }, updatedAt: new Date() })
               .where(eq(tenants.id, TENANT_ID));
           }
+          // W48 lookup cache: drop cached tenant rows so a row cached while a
+          // journey had settings patched (adminPhone etc.) is never served to
+          // later journeys (J614 full-run failure root cause).
+          try {
+            const { __clearWaTenantLookupCache } = await import("../server/services/waTenantLookup");
+            __clearWaTenantLookupCache();
+          } catch { /* lookup module absent — fine */ }
         } catch { /* world not seeded yet */ }
         // === END W54 disputes ===
         // === W54 capabilities: wipe membership tiers between journeys ===

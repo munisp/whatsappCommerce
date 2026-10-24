@@ -8,13 +8,37 @@
     {
       "dir": "out",
       "phone": "2348000000288",
+      "wamid": "wamid.sim.000807",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790989801694,
+      "kind": "text",
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J288-1790989801649\n\n\n*Total paid: ₦600.00*\nPayment ref: bipcap:6e07ed4e-9abb-4750-a805-384408da9fe9:2\n\n🔎 Track your order: http://localhost:4173/track/j288-order-1790989801646.YyJKLyIengek_O7TOx8NtpZ1"
+    },
+    {
+      "dir": "out",
+      "phone": "2348000000288",
+      "wamid": "wamid.sim.000808",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790989801703,
+      "kind": "document",
+      "mediaKind": "document",
+      "caption": "🧾 Receipt for order J288-1790989801649",
+      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-J288-1790989801649.pdf"
+    },
+    {
+      "dir": "out",
+      "phone": "2348000000288",
       "wamid": "wamid.sim.000809",
       "statuses": [
         "sent"
       ],
-      "at": 1790980310115,
+      "at": 1790989801711,
       "kind": "text",
-      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J288-1790980310076\n\n\n*Total paid: ₦600.00*\nPayment ref: bipcap:d2fc7993-d82b-4e9d-a19c-6bcab46f9534:2\n\n🔎 Track your order: http://localhost:4173/track/j288-order-1790980310068.Lq7lI1CPz9YIaixqlS3tTB8V"
+      "body": "✅ Installment 1 of 2 received (₦200.00)."
     },
     {
       "dir": "out",
@@ -23,11 +47,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790980310124,
-      "kind": "document",
-      "mediaKind": "document",
-      "caption": "🧾 Receipt for order J288-1790980310076",
-      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-J288-1790980310076.pdf"
+      "at": 1790989801742,
+      "kind": "text",
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J288-1790989801649\n\n\n*Total paid: ₦600.00*\nPayment ref: bipcap:6e07ed4e-9abb-4750-a805-384408da9fe9:3\n\n🔎 Track your order: http://localhost:4173/track/j288-order-1790989801646.YyJKLyIengek_O7TOx8NtpZ1"
     },
     {
       "dir": "out",
@@ -36,33 +58,11 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790980310131,
-      "kind": "text",
-      "body": "✅ Installment 1 of 2 received (₦200.00)."
-    },
-    {
-      "dir": "out",
-      "phone": "2348000000288",
-      "wamid": "wamid.sim.000812",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790980310159,
-      "kind": "text",
-      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J288-1790980310076\n\n\n*Total paid: ₦600.00*\nPayment ref: bipcap:d2fc7993-d82b-4e9d-a19c-6bcab46f9534:3\n\n🔎 Track your order: http://localhost:4173/track/j288-order-1790980310068.Lq7lI1CPz9YIaixqlS3tTB8V"
-    },
-    {
-      "dir": "out",
-      "phone": "2348000000288",
-      "wamid": "wamid.sim.000813",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790980310167,
+      "at": 1790989801754,
       "kind": "document",
       "mediaKind": "document",
-      "caption": "🧾 Receipt for order J288-1790980310076",
-      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-J288-1790980310076.pdf"
+      "caption": "🧾 Receipt for order J288-1790989801649",
+      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-J288-1790989801649.pdf"
     }
   ]
 }
