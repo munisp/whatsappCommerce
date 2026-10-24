@@ -8,21 +8,21 @@
     {
       "dir": "out",
       "phone": "2348099911111",
-      "wamid": "wamid.sim.001111",
+      "wamid": "wamid.sim.001113",
       "statuses": [
         "sent"
       ],
-      "at": 1790989967360,
+      "at": 1792858926360,
       "kind": "interactive",
-      "body": "📦 PO-20261003-EEXN from Sim Store — ₦2,000.00 — pay now",
+      "body": "📦 PO-20261024-JPWE from Sim Store — ₦2,000.00 — pay now",
       "footer": "Approve to accept this purchase order.",
       "buttons": [
         {
-          "id": "po_approve:ac0fd03b-8aee-437e-852c-c60a361a4ddd",
+          "id": "po_approve:e682e623-080d-4706-b2c3-cdcea5d01a11",
           "title": "Approve"
         },
         {
-          "id": "po_reject:ac0fd03b-8aee-437e-852c-c60a361a4ddd",
+          "id": "po_reject:e682e623-080d-4706-b2c3-cdcea5d01a11",
           "title": "Reject"
         }
       ]
@@ -30,13 +30,13 @@
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.001112",
+      "wamid": "wamid.sim.001114",
       "statuses": [
         "sent"
       ],
-      "at": 1790989967373,
+      "at": 1792858926374,
       "kind": "text",
-      "body": "🚨 A payment dispute on your wholesale order ord-w45-j394-murp6n7o was routed to the supplier for response (dispute 2907c6bf-2182-40c7-9715-f6bcbdf3dd76)."
+      "body": "🚨 A payment dispute on your wholesale order ord-w45-j394-mvmlwx7g was routed to the supplier for response (dispute 2a9a63b8-4f79-4b0a-a30c-9e1e43cf19e4)."
     }
   ]
 }

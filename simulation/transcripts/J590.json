@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348015415380",
-      "profileName": "Sim User 5380",
-      "inboundId": "wamid.sim.in.text.00628",
-      "at": 1790990111819,
+      "phone": "2348013424488",
+      "profileName": "Sim User 4488",
+      "inboundId": "wamid.sim.in.text.00630",
+      "at": 1792859071066,
       "kind": "text",
       "text": "statement"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00628",
-      "at": 1790990111826
+      "wamid": "wamid.sim.in.text.00630",
+      "at": 1792859071073
     },
     {
       "dir": "out",
-      "phone": "2348015415380",
-      "wamid": "wamid.sim.001308",
+      "phone": "2348013424488",
+      "wamid": "wamid.sim.001310",
       "statuses": [
         "sent"
       ],
-      "at": 1790990111851,
+      "at": 1792859071110,
       "kind": "document",
       "mediaKind": "document",
       "caption": "Your wallet statement 2026-09-01 .. 2026-10-01",
@@ -35,38 +35,38 @@
     },
     {
       "dir": "out",
-      "phone": "2348015415380",
-      "wamid": "wamid.sim.001309",
+      "phone": "2348013424488",
+      "wamid": "wamid.sim.001311",
       "statuses": [
         "sent"
       ],
-      "at": 1790990111854,
+      "at": 1792859071113,
       "kind": "text",
       "body": "📄 Wallet statement 2026-09-01 .. 2026-10-01: opening NGN 0.00, closing NGN 5,000.00. The PDF is on its way as a document."
     },
     {
       "dir": "in",
-      "phone": "2348015750755",
-      "profileName": "Sim User 0755",
-      "inboundId": "wamid.sim.in.text.00629",
-      "at": 1790990112366,
+      "phone": "2348015604076",
+      "profileName": "Sim User 4076",
+      "inboundId": "wamid.sim.in.text.00631",
+      "at": 1792859071613,
       "kind": "text",
       "text": "statement"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00629",
-      "at": 1790990112380
+      "wamid": "wamid.sim.in.text.00631",
+      "at": 1792859071620
     },
     {
       "dir": "out",
-      "phone": "2348015750755",
-      "wamid": "wamid.sim.001310",
+      "phone": "2348015604076",
+      "wamid": "wamid.sim.001312",
       "statuses": [
         "sent"
       ],
-      "at": 1790990112415,
+      "at": 1792859071671,
       "kind": "text",
       "body": "Sorry, I didn't quite get that — type 'menu' to see options."
     }

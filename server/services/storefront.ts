@@ -103,6 +103,8 @@ export interface StorefrontProductView {
 
 export interface StorefrontPublicView {
   slug: string;
+  /** W64 intelligence (R1): tenant id for public recs lookups (recs.forProduct). */
+  tenantId: string;
   businessName: string;
   heroText: string | null;
   themeColor: string;
@@ -223,6 +225,7 @@ export async function getStorefrontPublicView(
 
   return {
     slug: sf.slug,
+    tenantId: sf.tenantId,
     businessName: tenant.name,
     heroText: sf.heroText,
     themeColor: sf.themeColor,

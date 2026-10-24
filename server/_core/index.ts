@@ -2177,6 +2177,42 @@ async function startServer() {
   });
   // === END W62 findings ===
 
+  // === W64 intelligence ===
+  // R9 proactive push ops sweep (hourly): low-stock restock nudges, aging
+  // pending-order reminders, payment-due reminders, purchase-time credit
+  // offers. Idempotent per day+type+subject (proactive_nudges claim).
+  // After deploy: manus-heartbeat create --name proactive-nudges --cron "0 0 * * * *" --path /api/scheduled/proactive-nudges
+  app.post("/api/scheduled/proactive-nudges", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const { runProactiveNudges } = await import("../services/proactive");
+      const run = await runProactiveNudges();
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[proactive-nudges] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "proactive-nudges failed" });
+    }
+  });
+  // R1 recsys: nightly co-purchase pair refresh from order_items.
+  // After deploy: manus-heartbeat create --name recs-refresh --cron "0 0 3 * * *" --path /api/scheduled/recs-refresh
+  app.post("/api/scheduled/recs-refresh", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const { getDb } = await import("../db");
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db unavailable" });
+      const { refreshCoPurchasePairs } = await import("../services/recsService");
+      const run = await refreshCoPurchasePairs(db);
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[recs-refresh] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "recs-refresh failed" });
+    }
+  });
+  // === END W64 intelligence ===
+
   // ── Scheduled: DLQ drain + replay (every ~10 min) ───────────────────────
   // W61 audit CRITICAL #4 + HIGH #7: drains the durable Redis DLQ lists
   // (mp:dlq:events, hermes:dlq, notifications.dlq spill) into fluvio_event_log

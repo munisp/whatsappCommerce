@@ -796,6 +796,13 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j615-cron-allowlist-parity"),
     import("./journeys/j616-integration-webhook-dedupe"),
     // === END W62 findings ===
+    // === W64 intelligence ===
+    import("./journeys/j617-recs-copurchase"),
+    import("./journeys/j618-photo-listing"),
+    import("./journeys/j619-kyc-prefill"),
+    import("./journeys/j620-clickstream-friction"),
+    import("./journeys/j621-proactive-nudges"),
+    // === END W64 intelligence ===
     // === END W55 parity ===
     // === END W54 CAPABILITIES ===
     // === END W51 PROMOS ===

@@ -1,0 +1,955 @@
+{
+  "id": "J621",
+  "title": "proactive nudges: 4 types sent, second sweep idempotent, scheduler allowlist parity",
+  "feature": "W64 intelligence R9: proactive push ops sweep",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001322",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094153,
+      "kind": "text",
+      "body": "⚠️ Low stock: *J621 Low Stock Soap* — 2 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j621-low"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001323",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094186,
+      "kind": "text",
+      "body": "⚠️ Low stock: *J520 Force Item* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j520"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001324",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094193,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Upload Item* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j520-up"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001325",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094200,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Medusa Item* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j520-med"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001326",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094207,
+      "kind": "text",
+      "body": "⚠️ Low stock: *WA Photo Item* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j520-wa"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001327",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094212,
+      "kind": "text",
+      "body": "⚠️ Low stock: *J519 Timeout Item* — 1 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j519"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001328",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094217,
+      "kind": "text",
+      "body": "⚠️ Low stock: *J518 Kilishi* — 4 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j518"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001329",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094222,
+      "kind": "text",
+      "body": "⚠️ Low stock: *J517 Shea Butter* — 10 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j517"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001330",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094228,
+      "kind": "text",
+      "body": "⚠️ Low stock: *J515 Yam Tubers* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=ai-325f27d3"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001331",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094233,
+      "kind": "text",
+      "body": "⚠️ Low stock: *J515 Ankara Fabric* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=ai-0713d834"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001332",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094238,
+      "kind": "text",
+      "body": "⚠️ Low stock: *J470 widget* — 2 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=f84858a2-99eb-430c-ab36-848c755c7348"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001333",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094243,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Gin 70cl* — 9 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j437-gin"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001334",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094249,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W45 Product j394* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-j394"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001335",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094254,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Vodka 75cl* — 8 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j392-vodka"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001336",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094264,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Note Product* — 3 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j420"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001337",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094269,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Product j414x* — 10 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j414x"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001338",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094275,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Product j414* — 10 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j414"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001339",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094280,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Product j413* — 4 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j413"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001340",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094285,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Product j412* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j412"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001341",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094291,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Product j411c* — 10 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j411c"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001342",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094296,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Product j411b* — 8 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j411b"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001343",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094301,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Product j411a* — 10 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j411a"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001344",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094315,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Product j410* — 9 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j410"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001345",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094321,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Product j409* — 10 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j409"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001346",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094327,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Product j408b* — 9 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j408b"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001347",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094332,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Product j408a* — 9 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j408a"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001348",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094337,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Product j407* — 8 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j407"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001349",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094342,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W45 Product j401c* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-j401c"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001350",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094347,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W45 Product j401b* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-j401b"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001351",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094352,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W45 Product j401a* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-j401a"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001352",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094357,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Fixed Price Item* — 3 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j400b"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001353",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094362,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 School Fees Fund* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j400"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001354",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094367,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W45 Product j399b* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-j399b"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001355",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094372,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W45 Product j399a* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-j399a"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001356",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094377,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Auction Expired* — 1 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j398c"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001357",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094382,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Auction Reserve Two* — 1 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j398b"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001358",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094388,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Auction Reserve Item* — 1 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j398"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001359",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094392,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W46 Auction Ankara* — 1 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w46-j397"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001360",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094398,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Drifty* — 7 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-drift"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001361",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094402,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W45 Product j381c* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-j381c"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001362",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094407,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W45 Product j381b* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-j381b"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001363",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094412,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W45 Product j381a* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-j381a"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001364",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094423,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W45 Product j380* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-j380"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001365",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094428,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W45 PO Product j379c* — 1 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-po-j379c"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001366",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094434,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W45 PO Product j379b* — 6 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-po-j379b"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001367",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094440,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W45 PO Product j379a* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-po-j379a"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001368",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094446,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W45 PO Product j378* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-po-j378"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001369",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094453,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W45 Product j377b* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-j377b"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001370",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094459,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W45 Product j377a* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=prod-w45-j377a"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001371",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094464,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Recharge PIN Pack J351* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=dig-w44-j351"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001372",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094469,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Braids Deluxe J348* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=svc-w44-j348"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001373",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094474,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Braids Deluxe J347* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=svc-w44-j347"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001374",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094479,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W43 Gone Widget* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-w43-j330-empty-b4a261b4"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001375",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094484,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W43 Gone Widget* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-w43-j329-empty-daddb254"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001376",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094489,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W43 Gone Widget* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-w43-j328-empty-c12a7372"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001377",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094494,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W43 Gone Widget* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-w43-j327-empty-941c0ec3"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001378",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094499,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W43 Restock Widget* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-w43-j326-310012"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001379",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094504,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W43 Backorder Widget* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-w43-j325-a85be0"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001380",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094509,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W43 Widget j324-0* — 6 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-w43-j324-0-099913"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001381",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094514,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W43 Widget j323-0* — 7 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-w43-j323-0-8731b0"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001382",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094519,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W43 Widget j322-1* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-w43-j322-1-024738"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001383",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094525,
+      "kind": "text",
+      "body": "⚠️ Low stock: *W43 Widget j322-0* — 8 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-w43-j322-0-8b737b"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001384",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094531,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Indigo Dye Kit* — 3 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=j159-native"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001385",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094543,
+      "kind": "text",
+      "body": "⚠️ Low stock: *J130 p-j130-x2* — 3 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j130-x2"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001386",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094549,
+      "kind": "text",
+      "body": "⚠️ Low stock: *J130 p-j130-s1* — 3 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j130-s1"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001387",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094554,
+      "kind": "text",
+      "body": "⚠️ Low stock: *J130 p-j130-x1* — 3 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j130-x1"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001388",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094560,
+      "kind": "text",
+      "body": "⚠️ Low stock: *J130 p-j130-b4* — 3 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j130-b4"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001389",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094565,
+      "kind": "text",
+      "body": "⚠️ Low stock: *J130 p-j130-b3* — 3 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j130-b3"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001390",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094570,
+      "kind": "text",
+      "body": "⚠️ Low stock: *J130 p-j130-b2* — 3 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j130-b2"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001391",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094577,
+      "kind": "text",
+      "body": "⚠️ Low stock: *J130 p-j130-b1* — 3 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j130-b1"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001392",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094583,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Royal Stallion Rice 50kg* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=ai-d324f48d"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001393",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094588,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Plantain Chips 100g* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=ai-90626bec"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001394",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094593,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Snack p-j128-c* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j128-c"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001395",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094598,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Snack p-j128-b* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j128-b"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001396",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094603,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Snack p-j128-a* — 5 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-j128-a"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001397",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094608,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Peak Milk 400g* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=ai-fc292fe2"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001398",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094613,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Last Unit Special* — 1 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-lastunit"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001399",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094619,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Restock Widget* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-restock"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001400",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094624,
+      "kind": "text",
+      "body": "⚠️ Low stock: *Sold Out Sneakers* — 0 unit(s) left. One-tap restock draft: http://localhost:4173/inventory?restock=p-soldout"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001401",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094636,
+      "kind": "text",
+      "body": "⏰ Order W46-J418C-A492 has been pending for 2160h — please confirm or cancel it."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001402",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094643,
+      "kind": "text",
+      "body": "⏰ Order BK-x-d87651a2 has been pending for 159h — please confirm or cancel it."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001403",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094649,
+      "kind": "text",
+      "body": "⏰ Order W46-J418A-7D2B has been pending for 120h — please confirm or cancel it."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001404",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094654,
+      "kind": "text",
+      "body": "⏰ Order W46-J418B-4A44 has been pending for 120h — please confirm or cancel it."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001405",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094665,
+      "kind": "text",
+      "body": "⏰ Order SIM-J621-1 has been pending for 30h — please confirm or cancel it."
+    },
+    {
+      "dir": "out",
+      "phone": "2348062100001",
+      "wamid": "wamid.sim.001406",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094673,
+      "kind": "text",
+      "body": "💳 Reminder: 5000.00 NGN for order SIM-J621-1 is due on 2026-10-25."
+    },
+    {
+      "dir": "out",
+      "phone": "2348062100001",
+      "wamid": "wamid.sim.001407",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859094684,
+      "kind": "text",
+      "body": "💎 You're pre-approved for credit up to 50000.00 NGN at this store — reply CREDIT to apply."
+    }
+  ]
+}

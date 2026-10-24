@@ -7,261 +7,261 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018868482",
+      "phone": "2348015358482",
       "profileName": "Sim User 8482",
-      "inboundId": "wamid.sim.in.text.00376",
-      "at": 1790989641687,
-      "kind": "text",
-      "text": "stokvel contribute 203b02f3 stkpay-203b02f3-1-0"
-    },
-    {
-      "dir": "out",
-      "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00376",
-      "at": 1790989641694
-    },
-    {
-      "dir": "out",
-      "phone": "2348018868482",
-      "wamid": "wamid.sim.000649",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790989641735,
-      "kind": "text",
-      "body": "✅ Contribution of NGN 500.00 verified and received. Waiting on the other members to complete this cycle."
-    },
-    {
-      "dir": "in",
-      "phone": "2348015730483",
-      "profileName": "Sim User 0483",
-      "inboundId": "wamid.sim.in.text.00377",
-      "at": 1790989642235,
-      "kind": "text",
-      "text": "stokvel contribute 203b02f3 stkpay-203b02f3-1-1"
-    },
-    {
-      "dir": "out",
-      "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00377",
-      "at": 1790989642242
-    },
-    {
-      "dir": "out",
-      "phone": "2348015730483",
-      "wamid": "wamid.sim.000650",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790989642279,
-      "kind": "text",
-      "body": "✅ Contribution of NGN 500.00 verified and received. Waiting on the other members to complete this cycle."
-    },
-    {
-      "dir": "in",
-      "phone": "2348018210406",
-      "profileName": "Sim User 0406",
       "inboundId": "wamid.sim.in.text.00378",
-      "at": 1790989642781,
+      "at": 1792858600176,
       "kind": "text",
-      "text": "stokvel contribute 203b02f3 stkpay-203b02f3-1-2"
+      "text": "stokvel contribute 29f061d4 stkpay-29f061d4-1-0"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00378",
-      "at": 1790989642788
+      "at": 1792858600182
     },
     {
       "dir": "out",
-      "phone": "2348018210406",
+      "phone": "2348015358482",
       "wamid": "wamid.sim.000651",
       "statuses": [
         "sent"
       ],
-      "at": 1790989642835,
+      "at": 1792858600218,
       "kind": "text",
-      "body": "✅ Contribution of NGN 500.00 verified and received — the cycle is complete! 🎉 Payout of NGN 1500.00 has been credited to 2348018868482's wallet."
+      "body": "✅ Contribution of NGN 500.00 verified and received. Waiting on the other members to complete this cycle."
     },
     {
       "dir": "in",
-      "phone": "2348018868482",
-      "profileName": "Sim User 8482",
+      "phone": "2348013043249",
+      "profileName": "Sim User 3249",
       "inboundId": "wamid.sim.in.text.00379",
-      "at": 1790989643330,
+      "at": 1792858600721,
       "kind": "text",
-      "text": "stokvel contribute 203b02f3 stkpay-203b02f3-2-0"
+      "text": "stokvel contribute 29f061d4 stkpay-29f061d4-1-1"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00379",
-      "at": 1790989643338
+      "at": 1792858600734
     },
     {
       "dir": "out",
-      "phone": "2348018868482",
+      "phone": "2348013043249",
       "wamid": "wamid.sim.000652",
       "statuses": [
         "sent"
       ],
-      "at": 1790989643370,
+      "at": 1792858600762,
       "kind": "text",
       "body": "✅ Contribution of NGN 500.00 verified and received. Waiting on the other members to complete this cycle."
     },
     {
       "dir": "in",
-      "phone": "2348015730483",
-      "profileName": "Sim User 0483",
+      "phone": "2348018150042",
+      "profileName": "Sim User 0042",
       "inboundId": "wamid.sim.in.text.00380",
-      "at": 1790989643876,
+      "at": 1792858601269,
       "kind": "text",
-      "text": "stokvel contribute 203b02f3 stkpay-203b02f3-2-1"
+      "text": "stokvel contribute 29f061d4 stkpay-29f061d4-1-2"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00380",
-      "at": 1790989643883
+      "at": 1792858601275
     },
     {
       "dir": "out",
-      "phone": "2348015730483",
+      "phone": "2348018150042",
       "wamid": "wamid.sim.000653",
       "statuses": [
         "sent"
       ],
-      "at": 1790989643910,
+      "at": 1792858601326,
       "kind": "text",
-      "body": "✅ Contribution of NGN 500.00 verified and received. Waiting on the other members to complete this cycle."
+      "body": "✅ Contribution of NGN 500.00 verified and received — the cycle is complete! 🎉 Payout of NGN 1500.00 has been credited to 2348015358482's wallet."
     },
     {
       "dir": "in",
-      "phone": "2348018210406",
-      "profileName": "Sim User 0406",
+      "phone": "2348015358482",
+      "profileName": "Sim User 8482",
       "inboundId": "wamid.sim.in.text.00381",
-      "at": 1790989644423,
+      "at": 1792858601816,
       "kind": "text",
-      "text": "stokvel contribute 203b02f3 stkpay-203b02f3-2-2"
+      "text": "stokvel contribute 29f061d4 stkpay-29f061d4-2-0"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00381",
-      "at": 1790989644432
+      "at": 1792858601824
     },
     {
       "dir": "out",
-      "phone": "2348018210406",
+      "phone": "2348015358482",
       "wamid": "wamid.sim.000654",
       "statuses": [
         "sent"
       ],
-      "at": 1790989644479,
+      "at": 1792858601862,
       "kind": "text",
-      "body": "✅ Contribution of NGN 500.00 verified and received — the cycle is complete! 🎉 Payout of NGN 1500.00 has been credited to 2348015730483's wallet."
+      "body": "✅ Contribution of NGN 500.00 verified and received. Waiting on the other members to complete this cycle."
     },
     {
       "dir": "in",
-      "phone": "2348018868482",
-      "profileName": "Sim User 8482",
+      "phone": "2348013043249",
+      "profileName": "Sim User 3249",
       "inboundId": "wamid.sim.in.text.00382",
-      "at": 1790989644973,
+      "at": 1792858602362,
       "kind": "text",
-      "text": "stokvel contribute 203b02f3 stkpay-203b02f3-3-0"
+      "text": "stokvel contribute 29f061d4 stkpay-29f061d4-2-1"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00382",
-      "at": 1790989644980
+      "at": 1792858602369
     },
     {
       "dir": "out",
-      "phone": "2348018868482",
+      "phone": "2348013043249",
       "wamid": "wamid.sim.000655",
       "statuses": [
         "sent"
       ],
-      "at": 1790989645011,
+      "at": 1792858602395,
       "kind": "text",
       "body": "✅ Contribution of NGN 500.00 verified and received. Waiting on the other members to complete this cycle."
     },
     {
       "dir": "in",
-      "phone": "2348015730483",
-      "profileName": "Sim User 0483",
+      "phone": "2348018150042",
+      "profileName": "Sim User 0042",
       "inboundId": "wamid.sim.in.text.00383",
-      "at": 1790989645520,
+      "at": 1792858602906,
       "kind": "text",
-      "text": "stokvel contribute 203b02f3 stkpay-203b02f3-3-1"
+      "text": "stokvel contribute 29f061d4 stkpay-29f061d4-2-2"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00383",
-      "at": 1790989645527
+      "at": 1792858602912
     },
     {
       "dir": "out",
-      "phone": "2348015730483",
+      "phone": "2348018150042",
       "wamid": "wamid.sim.000656",
       "statuses": [
         "sent"
       ],
-      "at": 1790989645559,
+      "at": 1792858602956,
       "kind": "text",
-      "body": "✅ Contribution of NGN 500.00 verified and received. Waiting on the other members to complete this cycle."
+      "body": "✅ Contribution of NGN 500.00 verified and received — the cycle is complete! 🎉 Payout of NGN 1500.00 has been credited to 2348013043249's wallet."
     },
     {
       "dir": "in",
-      "phone": "2348018210406",
-      "profileName": "Sim User 0406",
+      "phone": "2348015358482",
+      "profileName": "Sim User 8482",
       "inboundId": "wamid.sim.in.text.00384",
-      "at": 1790989646067,
+      "at": 1792858603451,
       "kind": "text",
-      "text": "stokvel contribute 203b02f3 stkpay-203b02f3-3-2"
+      "text": "stokvel contribute 29f061d4 stkpay-29f061d4-3-0"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00384",
-      "at": 1790989646074
+      "at": 1792858603457
     },
     {
       "dir": "out",
-      "phone": "2348018210406",
+      "phone": "2348015358482",
       "wamid": "wamid.sim.000657",
       "statuses": [
         "sent"
       ],
-      "at": 1790989646114,
+      "at": 1792858603489,
       "kind": "text",
-      "body": "✅ Contribution of NGN 500.00 verified and received — the cycle is complete! 🎉 Payout of NGN 1500.00 has been credited to 2348018210406's wallet. The circle has completed a full rotation."
+      "body": "✅ Contribution of NGN 500.00 verified and received. Waiting on the other members to complete this cycle."
     },
     {
       "dir": "in",
-      "phone": "2348018868482",
-      "profileName": "Sim User 8482",
+      "phone": "2348013043249",
+      "profileName": "Sim User 3249",
       "inboundId": "wamid.sim.in.text.00385",
-      "at": 1790989646615,
+      "at": 1792858603995,
       "kind": "text",
-      "text": "stokvel contribute 203b02f3"
+      "text": "stokvel contribute 29f061d4 stkpay-29f061d4-3-1"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00385",
-      "at": 1790989646622
+      "at": 1792858604002
     },
     {
       "dir": "out",
-      "phone": "2348018868482",
+      "phone": "2348013043249",
       "wamid": "wamid.sim.000658",
       "statuses": [
         "sent"
       ],
-      "at": 1790989646640,
+      "at": 1792858604029,
+      "kind": "text",
+      "body": "✅ Contribution of NGN 500.00 verified and received. Waiting on the other members to complete this cycle."
+    },
+    {
+      "dir": "in",
+      "phone": "2348018150042",
+      "profileName": "Sim User 0042",
+      "inboundId": "wamid.sim.in.text.00386",
+      "at": 1792858604542,
+      "kind": "text",
+      "text": "stokvel contribute 29f061d4 stkpay-29f061d4-3-2"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00386",
+      "at": 1792858604549
+    },
+    {
+      "dir": "out",
+      "phone": "2348018150042",
+      "wamid": "wamid.sim.000659",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792858604586,
+      "kind": "text",
+      "body": "✅ Contribution of NGN 500.00 verified and received — the cycle is complete! 🎉 Payout of NGN 1500.00 has been credited to 2348018150042's wallet. The circle has completed a full rotation."
+    },
+    {
+      "dir": "in",
+      "phone": "2348015358482",
+      "profileName": "Sim User 8482",
+      "inboundId": "wamid.sim.in.text.00387",
+      "at": 1792858605090,
+      "kind": "text",
+      "text": "stokvel contribute 29f061d4"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00387",
+      "at": 1792858605098
+    },
+    {
+      "dir": "out",
+      "phone": "2348015358482",
+      "wamid": "wamid.sim.000660",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792858605115,
       "kind": "text",
       "body": "⚠️ Could not record your contribution: circle is completed"
     }

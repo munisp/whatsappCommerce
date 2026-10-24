@@ -8,12 +8,13 @@
  * server returns a PII-scrubbed view only (see server/routers/storefront.ts
  * and services/storefront.ts).
  */
+import { useState } from "react";
 import { useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, MapPin, MessageCircle, Share2, ShoppingBag, Store } from "lucide-react";
+import { Loader2, MapPin, MessageCircle, Share2, ShoppingBag, Sparkles, Store } from "lucide-react";
 
 interface StorefrontProduct {
   id: string;
@@ -26,6 +27,60 @@ interface StorefrontProduct {
   inStock: boolean;
 }
 
+// === W64 intelligence (R1) ===
+/**
+ * Tap-to-expand "Customers also bought" strip for a storefront product card.
+ * Calls the public recs.forProduct co-purchase endpoint; graceful empty
+ * state (renders nothing when there are no pairs yet). Recs are
+ * telemetry-grade and fail-open — the card is unaffected on any error.
+ */
+function RecsStrip({ tenantId, productId }: { tenantId: string; productId: string }) {
+  const recsQ = trpc.recs.forProduct.useQuery(
+    { tenantId, productId, limit: 4 },
+    { retry: false, staleTime: 60_000 },
+  );
+  const recs = recsQ.data?.recommendations ?? [];
+  if (recsQ.isLoading) {
+    return (
+      <div className="px-4 pb-3 flex items-center gap-2 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" /> Finding related items…
+      </div>
+    );
+  }
+  if (recs.length === 0) return null; // empty-state: no co-purchase pairs yet
+  return (
+    <div className="px-4 pb-4 border-t pt-3 space-y-2">
+      <p className="text-xs font-medium flex items-center gap-1 text-muted-foreground">
+        <Sparkles className="h-3 w-3" /> Customers also bought
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        {recs.map((r) => (
+          <div key={r.productId} className="flex items-center gap-2 rounded border p-2">
+            {r.imageUrl && (
+              <img
+                src={r.imageUrl}
+                alt={r.name}
+                width={32}
+                height={32}
+                loading="lazy"
+                decoding="async"
+                className="h-8 w-8 rounded object-cover flex-shrink-0"
+              />
+            )}
+            <div className="min-w-0">
+              <p className="text-xs font-medium truncate">{r.name}</p>
+              <p className="text-xs text-muted-foreground">
+                {r.currency} {Number(r.price).toLocaleString()}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+// === END W64 intelligence (R1) ===
+
 export default function Shop() {
   const params = useParams<{ slug: string }>();
   const slug = (params.slug ?? "").toLowerCase();
@@ -33,6 +88,8 @@ export default function Shop() {
     { slug },
     { enabled: slug.length > 0, retry: false },
   );
+  // === W64 intelligence (R1): tap-to-expand recs strip state ===
+  const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
 
   if (query.isLoading) {
     return (
@@ -143,7 +200,11 @@ export default function Shop() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {catalog.map((p) => (
-                <Card key={p.id} className={p.inStock ? "" : "opacity-60"}>
+                <Card
+                  key={p.id}
+                  className={`${p.inStock ? "" : "opacity-60"} cursor-pointer`}
+                  onClick={() => setExpandedProductId((cur) => (cur === p.id ? null : p.id))}
+                >
                   <CardContent className="p-4 flex gap-3">
                     {p.imageUrl && (
                       <img
@@ -169,6 +230,11 @@ export default function Shop() {
                       </p>
                     </div>
                   </CardContent>
+                  {/* === W64 intelligence (R1): tap-to-expand co-purchase recs === */}
+                  {expandedProductId === p.id && (shop as { tenantId?: string }).tenantId && (
+                    <RecsStrip tenantId={(shop as { tenantId: string }).tenantId} productId={p.id} />
+                  )}
+                  {/* === END W64 intelligence (R1) === */}
                 </Card>
               ))}
             </div>
