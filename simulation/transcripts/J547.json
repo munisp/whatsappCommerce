@@ -8,35 +8,13 @@
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.001228",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790990065294,
-      "kind": "text",
-      "body": "🚨 *Payment dispute* (open): paystack ref w54-j547-werl1wo3 for 1250.00 NGN on order ord-j547-werl1wo3. The order is flagged; review the dispute in your PSP dashboard."
-    },
-    {
-      "dir": "out",
-      "phone": "2348099900000",
-      "wamid": "wamid.sim.001229",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790990065300,
-      "kind": "text",
-      "body": "🔒 Escrow on order ord-j547-werl1wo3 is FROZEN (dispute_raised) — payout is blocked while the dispute (w54-j547-werl1wo3) is open."
-    },
-    {
-      "dir": "out",
-      "phone": "2348099900000",
       "wamid": "wamid.sim.001230",
       "statuses": [
         "sent"
       ],
-      "at": 1790990065737,
+      "at": 1792859024118,
       "kind": "text",
-      "body": "🚨 *Payment dispute* (open): paystack ref w54-j547-werl1wo3 for 1250.00 NGN on order ord-j547-werl1wo3. The order is flagged; review the dispute in your PSP dashboard."
+      "body": "🚨 *Payment dispute* (open): paystack ref w54-j547-8u2bj45p for 1250.00 NGN on order ord-j547-8u2bj45p. The order is flagged; review the dispute in your PSP dashboard."
     },
     {
       "dir": "out",
@@ -45,9 +23,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790990066184,
+      "at": 1792859024124,
       "kind": "text",
-      "body": "🚨 *Payment dispute* (lost): paystack ref w54-j547-werl1wo3 for 1250.00 NGN on order ord-j547-werl1wo3. The order is flagged; review the dispute in your PSP dashboard."
+      "body": "🔒 Escrow on order ord-j547-8u2bj45p is FROZEN (dispute_raised) — payout is blocked while the dispute (w54-j547-8u2bj45p) is open."
     },
     {
       "dir": "out",
@@ -56,9 +34,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790990066192,
+      "at": 1792859024562,
       "kind": "text",
-      "body": "🧾 *Chargeback lost* on order ord-j547-werl1wo3 (w54-j547-werl1wo3) — a recovery entry of 1250.00 NGN was recorded for ops follow-up."
+      "body": "🚨 *Payment dispute* (open): paystack ref w54-j547-8u2bj45p for 1250.00 NGN on order ord-j547-8u2bj45p. The order is flagged; review the dispute in your PSP dashboard."
     },
     {
       "dir": "out",
@@ -67,9 +45,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790990066633,
+      "at": 1792859025010,
       "kind": "text",
-      "body": "🚨 *Payment dispute* (lost): paystack ref w54-j547-werl1wo3 for 1250.00 NGN on order ord-j547-werl1wo3. The order is flagged; review the dispute in your PSP dashboard."
+      "body": "🚨 *Payment dispute* (lost): paystack ref w54-j547-8u2bj45p for 1250.00 NGN on order ord-j547-8u2bj45p. The order is flagged; review the dispute in your PSP dashboard."
     },
     {
       "dir": "out",
@@ -78,9 +56,31 @@
       "statuses": [
         "sent"
       ],
-      "at": 1790990066639,
+      "at": 1792859025019,
       "kind": "text",
-      "body": "🧾 *Chargeback lost* on order ord-j547-werl1wo3 (w54-j547-werl1wo3) — a recovery entry of 1250.00 NGN was recorded for ops follow-up."
+      "body": "🧾 *Chargeback lost* on order ord-j547-8u2bj45p (w54-j547-8u2bj45p) — a recovery entry of 1250.00 NGN was recorded for ops follow-up."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001235",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859025455,
+      "kind": "text",
+      "body": "🚨 *Payment dispute* (lost): paystack ref w54-j547-8u2bj45p for 1250.00 NGN on order ord-j547-8u2bj45p. The order is flagged; review the dispute in your PSP dashboard."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001236",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792859025462,
+      "kind": "text",
+      "body": "🧾 *Chargeback lost* on order ord-j547-8u2bj45p (w54-j547-8u2bj45p) — a recovery entry of 1250.00 NGN was recorded for ops follow-up."
     }
   ]
 }

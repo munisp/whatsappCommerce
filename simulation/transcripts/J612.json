@@ -8,11 +8,11 @@
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.001318",
+      "wamid": "wamid.sim.001320",
       "statuses": [
         "sent"
       ],
-      "at": 1790990130451,
+      "at": 1792859089705,
       "kind": "text",
       "body": "⚠️ Email dead-lettered after 4 attempts.\nTo: test@example.com\nKind: welcome\nError: resend send failed (see [email] log)"
     }

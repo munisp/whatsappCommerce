@@ -63,7 +63,7 @@ import { matchFaq, parseFaqSettings } from "../services/faq";
 import { buildReorder, buildReorderReply } from "../services/reorder";
 import { raiseChatDispute, buildDisputeReply } from "../services/chatDispute";
 import { touchCartMarker } from "../services/cartRecovery";
-import { localeFromSessionLanguage, tr, t27 } from "../services/i18n";
+import { localeFromSessionLanguage, tr, t27, interpolate } from "../services/i18n";
 import { validatePromo, applyPromo } from "../services/promos";
 import { subscribeToWaitlist, unsubscribeFromWaitlist } from "../services/waitlist";
 import { toMinorUnitsExact, minorUnitsToString } from "../../shared/escrowAmounts";
@@ -3960,6 +3960,9 @@ export const nlpRouter = router({
       // === W49 RICHMEDIA (RICH-1): productId added for card buttons ===
       let productImage: { link: string; caption: string; productId?: string } | undefined;
       const productQuery = llmResult.extractedProduct?.trim();
+      // === W64 intelligence (R1) === hoisted so the co-purchase block below
+      // can reuse the SAME resolved product (no duplicate lookup).
+      let w64MatchedProductId: string | undefined;
       if (
         productQuery &&
         (llmResult.intent === "search" || llmResult.intent === "browse" || llmResult.nextState === "product_detail")
@@ -3982,6 +3985,10 @@ export const nlpRouter = router({
           match = direct[0] ?? undefined;
         }
         // === END W51 MERGER FIX ===
+        // === W64 intelligence (R1) === share the resolved product with the
+        // co-purchase annotation below.
+        w64MatchedProductId = match?.id;
+        // === END W64 intelligence ===
         if (match?.imageUrl) {
           // W41 UC-5: catalog card shows the dual price when configured
           // (display-only — the charge stays in NGN).
@@ -4028,6 +4035,46 @@ export const nlpRouter = router({
         }));
       }
       // === END W49 RICHMEDIA ===
+
+      // === W64 intelligence (R1) === co-purchase "customers also bought..."
+      // appended to search/browse/product_detail replies when the refreshed
+      // copurchase_pairs table has data (fail-open; empty state = no line).
+      // Also logs the chat search query (R5, zero-result flag).
+      if (
+        productQuery &&
+        (llmResult.intent === "search" || llmResult.intent === "browse" || llmResult.nextState === "product_detail")
+      ) {
+        try {
+          const { logSearchQuery } = await import("./search");
+          void logSearchQuery({
+            tenantId: input.tenantId,
+            userId: (input as any).from ?? null,
+            channel: (input.channel ?? "whatsapp").toLowerCase(),
+            query: productQuery,
+            resultsCount: w64MatchedProductId ? 1 : 0,
+          });
+        } catch { /* search logging is fail-open */ }
+        if (w64MatchedProductId) {
+          try {
+            const { getCoPurchaseForProduct } = await import("../services/recsService");
+            const recs = await getCoPurchaseForProduct(db, input.tenantId, w64MatchedProductId, 3);
+            if (recs.length > 0) {
+              const [fxTenantR] = await db
+                .select({ displayCurrency: tenants.displayCurrency, displayFxRates: tenants.displayFxRates })
+                .from(tenants).where(eq(tenants.id, input.tenantId)).limit(1)
+                .catch(() => [] as any[]);
+              const lines = recs.map((r, i) =>
+                interpolate(t27(w51Locale, "alsoBoughtLine"), {
+                  n: i + 1,
+                  name: r.name,
+                  price: formatPriceDual(fxTenantR, Number(r.price), r.currency),
+                }));
+              llmResult.reply = `${llmResult.reply ?? ""}\n\n${t27(w51Locale, "alsoBoughtHeader")}\n${lines.join("\n")}`.trim();
+            }
+          } catch { /* recs are fail-open telemetry */ }
+        }
+      }
+      // === END W64 intelligence (R1) ===
 
       // === W51 PROMOS (6d) === promo spotlight card on inquiry turns
       // (browse/search/product_detail), deduped to ONE card per session per

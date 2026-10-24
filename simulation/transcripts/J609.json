@@ -8,11 +8,11 @@
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.001316",
+      "wamid": "wamid.sim.001318",
       "statuses": [
         "sent"
       ],
-      "at": 1790990128382,
+      "at": 1792859087632,
       "kind": "text",
       "body": "⚠️ DLQ drain found dead-lettered events for your workspace.\nmp:dlq:events: drained=2 remaining=0; hermes:dlq: drained=1 remaining=0\nThey were re-persisted to the event log and will be reprocessed by the fluvio-event-sweep."
     }

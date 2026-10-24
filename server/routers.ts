@@ -401,10 +401,18 @@ export const appRouter = router({
   // === W54 capabilities (CAP-1) === consumer membership tiers admin ===
   membershipPlans: membershipPlansRouter,
   // === END W54 capabilities ===
+  // === W64 intelligence (R1/R4) ===
+  recs: recsRouter,
+  prefill: prefillRouter,
+  // === END W64 intelligence ===
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
 import { searchRouter } from "./routers/search";
+// === W64 intelligence (R1/R4) ===
+import { recsRouter } from "./routers/recs";
+import { prefillRouter } from "./routers/prefill";
+// === END W64 intelligence ===
 import { temporalRouter } from "./routers/temporal";
 import { orchestratorRouter } from "./routers/orchestrator";
 // === W27 catalog-ai ===

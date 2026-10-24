@@ -109,6 +109,52 @@ export const catalogAIRouter = router({
       return rejectDraft(db, input.draftId, String(ctx.user?.id ?? "portal"));
     }),
 
+  // === W64 intelligence (R3) ===
+  /**
+   * Photo-first web listing: upload image → vision draft (title/desc/
+   * category/price band from comparables via services/catalogAI createDraft)
+   * → the client renders the prefilled EDITABLE form; publish stays on the
+   * existing publishDraft confirm path. Reuses llmVisionAdapter (LLM
+   * gateway; sim mocks at llm.sim.local) — no duplicated pipeline.
+   */
+  draftFromPhoto: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      /** Base64-encoded image (≤4 MB decoded). */
+      imageBase64: z.string().min(32).max(6_000_000),
+      mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await getDb();
+      if (!db) return { ok: false as const, error: "db_unavailable" };
+      try {
+        const { llmVisionAdapter, createDraft } = await import("../services/catalogAI");
+        const analysis = await llmVisionAdapter.analyzeProductPhoto({
+          imageBase64: input.imageBase64,
+          mimeType: input.mimeType,
+        });
+        if (!analysis.title) return { ok: false as const, error: "vision_failed" };
+        const draft = await createDraft(db, {
+          tenantId: input.tenantId,
+          source: "photo",
+          merchantPhone: `web:${ctx.user?.id ?? "unknown"}`,
+          listing: {
+            name: analysis.title,
+            description: analysis.description,
+            category: analysis.category,
+            priceCents: analysis.priceCents ?? null,
+          },
+          rawExtraction: { ...analysis, channel: "web" },
+        });
+        return { ok: true as const, draft };
+      } catch (e: any) {
+        console.warn("[catalogAI] web photo draft failed:", e?.message);
+        return { ok: false as const, error: "vision_failed" };
+      }
+    }),
+  // === END W64 intelligence (R3) ===
+
   /** Deterministic price suggestion for a category (integer cents). */
   suggestPrice: protectedProcedure
     .input(z.object({ tenantId: z.string(), category: z.string().max(100).optional() }))

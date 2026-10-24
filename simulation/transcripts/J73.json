@@ -7,560 +7,560 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348016481268",
+      "phone": "2348014525900",
       "profileName": "Funke",
-      "inboundId": "wamid.sim.in.text.00243",
-      "at": 1790989461870,
+      "inboundId": "wamid.sim.in.text.00245",
+      "at": 1792858420955,
       "kind": "text",
       "text": "Ẹ káàbọ̀ o"
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000395",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000397",
       "statuses": [
         "sent"
       ],
-      "at": 1790989461883,
+      "at": 1792858420968,
       "kind": "text",
       "body": "Hi! I'm your onboarding assistant. Tell me about your business — the name, what you sell, and your city — and I'll draft your WhatsApp menu, branding and integrations for you to approve."
     },
     {
       "dir": "in",
-      "phone": "2348016481268",
-      "profileName": "Sim User 1268",
-      "inboundId": "wamid.sim.in.text.00244",
-      "at": 1790989462418,
+      "phone": "2348014525900",
+      "profileName": "Sim User 5900",
+      "inboundId": "wamid.sim.in.text.00246",
+      "at": 1792858421502,
       "kind": "text",
       "text": "Orúkọ iṣòwò mi ni Adire Aláàfin, mo ń ta àṣọ adire ní Ìbàdàn, mo ń fi ọjà ráńṣẹ́ fún àwọn ónìbàárà, a sì ń gba bank transfer"
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000396",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000398",
       "statuses": [
         "sent"
       ],
-      "at": 1790989462473,
+      "at": 1792858421558,
       "kind": "text",
       "body": "Èyí ni ètò tí mo dámọ̀ọ́nìí fún Adire Aláàfin. Ṣàyẹ̀wò kólóòkù kàdì — fọwọ́ sí, ṣàtúnṣe tàbí kọ̀. Kò sí ohun tí a ó lo títí tí ẹ yóò fi fọwọ́ sí i."
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000397",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790989462474,
-      "kind": "interactive",
-      "body": "WhatsApp menu for Adire Aláàfin: greeting + top use cases\n\n{\n  \"greeting\": \"Welcome to Adire Aláàfin! How can we help you today?\",\n  \"useCases\": [\n    {\n      \"id\": \"shop\",\n      \"label\": \"Shop products\",\n      \"enabled\": true,\n      \"order\": 1\n    },\n    {\n      \"id\": \"track\",\n      \"label\": \"Track my order\",\n      \"enabled\": true,\n      \"order\": 2\n    },\n    {\n      \"id\": \"support\",\n      \"label\": \"Get support\",\n      \"enabled\": false,\n      \"order\": 3\n    },\n    {\n      \"id\": \"booking\",\n      \"label\": \"Book an appointment\",\n      \"enabled\": false,\n      \"order\": 4\n    },\n    {\n      \"id\": \"handoff\",\n      \"label\": \"Talk to a human\",\n      \"enabled\": true,\n      \"order\": 5\n    },\n    {\n      \"id\": \"procurement\",\n      \"label\": \"Restock / Buy supplies\",\n      \"enabled\": false,\n      \"order\": 6\n    }\n  ],\n  \"customItems\": [],\n  \"fallback\": \"nlp\"\n}",
-      "buttons": [
-        {
-          "id": "onb_approve:p-1-ljmd63",
-          "title": "Fọwọ́ sí"
-        },
-        {
-          "id": "onb_edit:p-1-ljmd63",
-          "title": "Ṣàtúnṣe"
-        },
-        {
-          "id": "onb_reject:p-1-ljmd63",
-          "title": "Kọ̀"
-        }
-      ]
-    },
-    {
-      "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000398",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790989462474,
-      "kind": "interactive",
-      "body": "Suggested use cases: shop, track, handoff\n\n{\n  \"ranked\": [\n    \"shop\",\n    \"track\",\n    \"handoff\",\n    \"support\",\n    \"booking\",\n    \"procurement\"\n  ]\n}",
-      "buttons": [
-        {
-          "id": "onb_approve:p-2-ux8vxp",
-          "title": "Fọwọ́ sí"
-        },
-        {
-          "id": "onb_edit:p-2-ux8vxp",
-          "title": "Ṣàtúnṣe"
-        },
-        {
-          "id": "onb_reject:p-2-ux8vxp",
-          "title": "Kọ̀"
-        }
-      ]
-    },
-    {
-      "dir": "out",
-      "phone": "2348016481268",
+      "phone": "2348014525900",
       "wamid": "wamid.sim.000399",
       "statuses": [
         "sent"
       ],
-      "at": 1790989462474,
+      "at": 1792858421558,
       "kind": "interactive",
-      "body": "Brand kit for Adire Aláàfin\n\n{\n  \"logoSvgDataUri\": \"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9ImxvZ28iPjxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iOTYiIGZpbGw9IiM3NjM3ODEiLz48dGV4dCB4PSIyNTYiIHk9IjI2MiIgZm9udC1mYW1pbHk9IkhlbHZldGljYSwgQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAwIiBmb250LXdlaWdodD0iNjAwIiBsZXR0ZXItc3BhY2luZz0iOCIgZmlsbD0iI0Y1RjJFQyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZG9taW5hbnQtYmFzZWxpbmU9ImNlbnRyYWwiPkFBPC90ZXh0Pjwvc3ZnPg==\",\n  \"logoUrl\": null,\n  \"primaryColor\": \"#763781\",\n  \"secondaryColor\": \"#72B678\",\n  \"tagline\": \"Style that fits your story\"\n}",
+      "body": "WhatsApp menu for Adire Aláàfin: greeting + top use cases\n\n{\n  \"greeting\": \"Welcome to Adire Aláàfin! How can we help you today?\",\n  \"useCases\": [\n    {\n      \"id\": \"shop\",\n      \"label\": \"Shop products\",\n      \"enabled\": true,\n      \"order\": 1\n    },\n    {\n      \"id\": \"track\",\n      \"label\": \"Track my order\",\n      \"enabled\": true,\n      \"order\": 2\n    },\n    {\n      \"id\": \"support\",\n      \"label\": \"Get support\",\n      \"enabled\": false,\n      \"order\": 3\n    },\n    {\n      \"id\": \"booking\",\n      \"label\": \"Book an appointment\",\n      \"enabled\": false,\n      \"order\": 4\n    },\n    {\n      \"id\": \"handoff\",\n      \"label\": \"Talk to a human\",\n      \"enabled\": true,\n      \"order\": 5\n    },\n    {\n      \"id\": \"procurement\",\n      \"label\": \"Restock / Buy supplies\",\n      \"enabled\": false,\n      \"order\": 6\n    }\n  ],\n  \"customItems\": [],\n  \"fallback\": \"nlp\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-3-9w3wxr",
+          "id": "onb_approve:p-1-3blflz",
           "title": "Fọwọ́ sí"
         },
         {
-          "id": "onb_edit:p-3-9w3wxr",
+          "id": "onb_edit:p-1-3blflz",
           "title": "Ṣàtúnṣe"
         },
         {
-          "id": "onb_reject:p-3-9w3wxr",
+          "id": "onb_reject:p-1-3blflz",
           "title": "Kọ̀"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
+      "phone": "2348014525900",
       "wamid": "wamid.sim.000400",
       "statuses": [
         "sent"
       ],
-      "at": 1790989462474,
+      "at": 1792858421559,
+      "kind": "interactive",
+      "body": "Suggested use cases: shop, track, handoff\n\n{\n  \"ranked\": [\n    \"shop\",\n    \"track\",\n    \"handoff\",\n    \"support\",\n    \"booking\",\n    \"procurement\"\n  ]\n}",
+      "buttons": [
+        {
+          "id": "onb_approve:p-2-7xpaqz",
+          "title": "Fọwọ́ sí"
+        },
+        {
+          "id": "onb_edit:p-2-7xpaqz",
+          "title": "Ṣàtúnṣe"
+        },
+        {
+          "id": "onb_reject:p-2-7xpaqz",
+          "title": "Kọ̀"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000401",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792858421559,
+      "kind": "interactive",
+      "body": "Brand kit for Adire Aláàfin\n\n{\n  \"logoSvgDataUri\": \"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9ImxvZ28iPjxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iOTYiIGZpbGw9IiM3NjM3ODEiLz48dGV4dCB4PSIyNTYiIHk9IjI2MiIgZm9udC1mYW1pbHk9IkhlbHZldGljYSwgQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAwIiBmb250LXdlaWdodD0iNjAwIiBsZXR0ZXItc3BhY2luZz0iOCIgZmlsbD0iI0Y1RjJFQyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZG9taW5hbnQtYmFzZWxpbmU9ImNlbnRyYWwiPkFBPC90ZXh0Pjwvc3ZnPg==\",\n  \"logoUrl\": null,\n  \"primaryColor\": \"#763781\",\n  \"secondaryColor\": \"#72B678\",\n  \"tagline\": \"Style that fits your story\"\n}",
+      "buttons": [
+        {
+          "id": "onb_approve:p-3-iat0bw",
+          "title": "Fọwọ́ sí"
+        },
+        {
+          "id": "onb_edit:p-3-iat0bw",
+          "title": "Ṣàtúnṣe"
+        },
+        {
+          "id": "onb_reject:p-3-iat0bw",
+          "title": "Kọ̀"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000402",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792858421559,
       "kind": "interactive",
       "body": "Suggested integrations: twenty\n\n{\n  \"providers\": [\n    {\n      \"provider\": \"twenty\",\n      \"reason\": \"CRM to track customer conversations and follow-ups\"\n    }\n  ],\n  \"summary\": \"Suggested integrations: twenty\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-4-clb7kk",
+          "id": "onb_approve:p-4-00sbp1",
           "title": "Fọwọ́ sí"
         },
         {
-          "id": "onb_edit:p-4-clb7kk",
+          "id": "onb_edit:p-4-00sbp1",
           "title": "Ṣàtúnṣe"
         },
         {
-          "id": "onb_reject:p-4-clb7kk",
+          "id": "onb_reject:p-4-00sbp1",
           "title": "Kọ̀"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348016481268",
-      "profileName": "Sim User 1268",
-      "inboundId": "wamid.sim.in.text.00245",
-      "at": 1790989462962,
+      "phone": "2348014525900",
+      "profileName": "Sim User 5900",
+      "inboundId": "wamid.sim.in.text.00247",
+      "at": 1792858422049,
       "kind": "text",
       "text": "speak pidgin"
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000401",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000403",
       "statuses": [
         "sent"
       ],
-      "at": 1790989462970,
+      "at": 1792858422057,
       "kind": "text",
       "body": "No wahala — I go continue for Nigerian Pidgin."
     },
     {
       "dir": "in",
-      "phone": "2348016481268",
-      "profileName": "Sim User 1268",
-      "inboundId": "wamid.sim.in.btn.00246",
-      "at": 1790989463511,
+      "phone": "2348014525900",
+      "profileName": "Sim User 5900",
+      "inboundId": "wamid.sim.in.btn.00248",
+      "at": 1792858422595,
       "kind": "button_reply",
       "text": "Approve",
-      "payloadId": "onb_approve:p-1-ljmd63"
+      "payloadId": "onb_approve:p-1-3blflz"
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000402",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000404",
       "statuses": [
         "sent"
       ],
-      "at": 1790989463520,
+      "at": 1792858422604,
       "kind": "text",
       "body": "You don approve the waMenu proposal."
     },
     {
       "dir": "in",
-      "phone": "2348016481268",
-      "profileName": "Sim User 1268",
-      "inboundId": "wamid.sim.in.btn.00247",
-      "at": 1790989464054,
+      "phone": "2348014525900",
+      "profileName": "Sim User 5900",
+      "inboundId": "wamid.sim.in.btn.00249",
+      "at": 1792858423139,
       "kind": "button_reply",
       "text": "Approve",
-      "payloadId": "onb_approve:p-2-ux8vxp"
+      "payloadId": "onb_approve:p-2-7xpaqz"
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000403",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000405",
       "statuses": [
         "sent"
       ],
-      "at": 1790989464065,
+      "at": 1792858423149,
       "kind": "text",
       "body": "You don approve the useCases proposal."
     },
     {
       "dir": "in",
-      "phone": "2348016481268",
-      "profileName": "Sim User 1268",
-      "inboundId": "wamid.sim.in.btn.00248",
-      "at": 1790989464598,
+      "phone": "2348014525900",
+      "profileName": "Sim User 5900",
+      "inboundId": "wamid.sim.in.btn.00250",
+      "at": 1792858423683,
       "kind": "button_reply",
       "text": "Approve",
-      "payloadId": "onb_approve:p-3-9w3wxr"
+      "payloadId": "onb_approve:p-3-iat0bw"
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000404",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000406",
       "statuses": [
         "sent"
       ],
-      "at": 1790989464609,
+      "at": 1792858423693,
       "kind": "text",
       "body": "You don approve the branding proposal."
     },
     {
       "dir": "in",
-      "phone": "2348016481268",
-      "profileName": "Sim User 1268",
-      "inboundId": "wamid.sim.in.btn.00249",
-      "at": 1790989465141,
+      "phone": "2348014525900",
+      "profileName": "Sim User 5900",
+      "inboundId": "wamid.sim.in.btn.00251",
+      "at": 1792858424228,
       "kind": "button_reply",
       "text": "Approve",
-      "payloadId": "onb_approve:p-4-clb7kk"
+      "payloadId": "onb_approve:p-4-00sbp1"
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000405",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000407",
       "statuses": [
         "sent"
       ],
-      "at": 1790989465217,
+      "at": 1792858424301,
       "kind": "text",
       "body": "You don approve the integrations proposal."
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000406",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000408",
       "statuses": [
         "sent"
       ],
-      "at": 1790989465217,
+      "at": 1792858424301,
       "kind": "text",
       "body": "Applied: WhatsApp menu for Adire Aláàfin: greeting + top use cases"
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000407",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000409",
       "statuses": [
         "sent"
       ],
-      "at": 1790989465217,
+      "at": 1792858424301,
       "kind": "text",
       "body": "Applied: Suggested use cases: shop, track, handoff"
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000408",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000410",
       "statuses": [
         "sent"
       ],
-      "at": 1790989465217,
+      "at": 1792858424302,
       "kind": "text",
       "body": "Applied: Brand kit for Adire Aláàfin"
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000409",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000411",
       "statuses": [
         "sent"
       ],
-      "at": 1790989465217,
+      "at": 1792858424302,
       "kind": "text",
       "body": "Applied: Suggested integrations: twenty"
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000410",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000412",
       "statuses": [
         "sent"
       ],
-      "at": 1790989465218,
+      "at": 1792858424302,
       "kind": "text",
       "body": "I no fit update the WhatsApp profile: photo."
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000411",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000413",
       "statuses": [
         "sent"
       ],
-      "at": 1790989465218,
+      "at": 1792858424302,
       "kind": "text",
       "body": "I no fit reach your WhatsApp phone number with the token wey dey file. Abeg paste your WhatsApp access token and phone number ID again from Meta Business Settings → WhatsApp → API Setup."
     },
     {
       "dir": "in",
-      "phone": "2348016481268",
-      "profileName": "Sim User 1268",
-      "inboundId": "wamid.sim.in.text.00250",
-      "at": 1790989465687,
+      "phone": "2348014525900",
+      "profileName": "Sim User 5900",
+      "inboundId": "wamid.sim.in.text.00252",
+      "at": 1792858424775,
       "kind": "text",
       "text": "phone number id is 109000777000073 token is EAAj73prospecttoken0123456789"
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000412",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000414",
       "statuses": [
         "sent"
       ],
-      "at": 1790989465726,
+      "at": 1792858424807,
       "kind": "text",
       "body": "I hear you — credentials don update. I dey run the checks again…"
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000413",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000415",
       "statuses": [
         "sent"
       ],
-      "at": 1790989465726,
+      "at": 1792858424807,
       "kind": "text",
       "body": "🎉 All the validation checks don pass! One last step: approve go-live make we switch on your WhatsApp assistant for customers (or reply \"go live\")."
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000414",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000416",
       "statuses": [
         "sent"
       ],
-      "at": 1790989465726,
+      "at": 1792858424807,
       "kind": "interactive",
-      "body": "All 1 validation check(s) passed — go live\n\n{\n  \"checks\": [\n    {\n      \"check\": \"whatsapp\",\n      \"ok\": true\n    }\n  ],\n  \"validatedAt\": \"2026-10-03T01:04:25.724Z\"\n}",
+      "body": "All 1 validation check(s) passed — go live\n\n{\n  \"checks\": [\n    {\n      \"check\": \"whatsapp\",\n      \"ok\": true\n    }\n  ],\n  \"validatedAt\": \"2026-10-24T16:13:44.805Z\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-5-0xod8v",
+          "id": "onb_approve:p-5-1a7wo3",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-5-0xod8v",
+          "id": "onb_edit:p-5-1a7wo3",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-5-0xod8v",
+          "id": "onb_reject:p-5-1a7wo3",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348016481268",
-      "profileName": "Sim User 1268",
-      "inboundId": "wamid.sim.in.btn.00251",
-      "at": 1790989466234,
+      "phone": "2348014525900",
+      "profileName": "Sim User 5900",
+      "inboundId": "wamid.sim.in.btn.00253",
+      "at": 1792858425322,
       "kind": "button_reply",
       "text": "Approve",
-      "payloadId": "onb_approve:p-5-0xod8v"
+      "payloadId": "onb_approve:p-5-1a7wo3"
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000415",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000417",
       "statuses": [
         "sent"
       ],
-      "at": 1790989466282,
+      "at": 1792858425366,
       "kind": "text",
       "body": "You don approve the goLive proposal."
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000416",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000418",
       "statuses": [
         "sent"
       ],
-      "at": 1790989466283,
+      "at": 1792858425366,
       "kind": "text",
-      "body": "🔐 Your secure portal login link (e dey valid for 24 hours, e go open only after code wey dem send to dis phone): http://localhost:4173/portal/login#token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXBlIjoicG9ydGFsX2ludml0ZSIsImp0aSI6Ijk0YTNlN2JkLTI1MmQtNGZmOS05MzAyLTAxOWQ0MTI4N2I2MiIsInRlbmFudElkIjoiNjA1OWUwNGYtZDRlOC00MTcyLTkyNGMtY2E2ZGIyNmQxMTlkIiwidGVuYW50TmFtZSI6IkFkaXJlIEFsw6HDoGZpbiIsImlzc3VlZEJ5IjoiYm9vdHN0cmFwOjkiLCJib3VuZFBob25lIjoiKzIzNDgwMTY0ODEyNjgiLCJpYXQiOjE3OTA5ODk0NjYsImV4cCI6MTc5MTA3NTg2Nn0.0toxqF_kLY-Us-5MIM_yWyMNtKEmT-gd16h4gxLeXW0"
+      "body": "🔐 Your secure portal login link (e dey valid for 24 hours, e go open only after code wey dem send to dis phone): http://localhost:4173/portal/login#token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXBlIjoicG9ydGFsX2ludml0ZSIsImp0aSI6Ijk2OTg3YzQ4LTFlMmItNDNhNS1hZGIzLTY1ZmExNWFlNmYyNyIsInRlbmFudElkIjoiYWRkMmIxMzgtZThlZi00MDIyLTgxMjMtMTcwZDc5NWI3YWYwIiwidGVuYW50TmFtZSI6IkFkaXJlIEFsw6HDoGZpbiIsImlzc3VlZEJ5IjoiYm9vdHN0cmFwOjkiLCJib3VuZFBob25lIjoiKzIzNDgwMTQ1MjU5MDAiLCJpYXQiOjE3OTI4NTg0MjUsImV4cCI6MTc5Mjk0NDgyNX0.uMBgV_liF190IuSXGU8LlyZxPYVZi7ZtWVB-AJcCDD8"
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000417",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000419",
       "statuses": [
         "sent"
       ],
-      "at": 1790989466283,
+      "at": 1792858425366,
       "kind": "text",
       "body": "🎉 You don LIVE! Your customers fit message your business for WhatsApp now."
     },
     {
       "dir": "out",
-      "phone": "2348016481268",
-      "wamid": "wamid.sim.000418",
+      "phone": "2348014525900",
+      "wamid": "wamid.sim.000420",
       "statuses": [
         "sent"
       ],
-      "at": 1790989466284,
+      "at": 1792858425367,
       "kind": "text",
       "body": "🎉 Congrats — your shop don live!\n\nNext steps:\n1. Connect your own WhatsApp number via embedded signup: http://localhost:4173/settings/whatsapp\n2. We don send you one secure login link for your admin portal — e go work only with verification code wey we go send to THIS phone, so keep dis number on.\n\nWelcome aboard! 🚀"
     },
     {
       "dir": "in",
-      "phone": "2348011891819",
+      "phone": "2348015864697",
       "profileName": "Kemi",
-      "inboundId": "wamid.sim.in.text.00252",
-      "at": 1790989466779,
+      "inboundId": "wamid.sim.in.text.00254",
+      "at": 1792858425869,
       "kind": "text",
       "text": "hello"
     },
     {
       "dir": "out",
-      "phone": "2348011891819",
-      "wamid": "wamid.sim.000419",
+      "phone": "2348015864697",
+      "wamid": "wamid.sim.000421",
       "statuses": [
         "sent"
       ],
-      "at": 1790989466792,
+      "at": 1792858425882,
       "kind": "text",
       "body": "Hi! I'm your onboarding assistant. Tell me about your business — the name, what you sell, and your city — and I'll draft your WhatsApp menu, branding and integrations for you to approve."
     },
     {
       "dir": "in",
-      "phone": "2348011891819",
-      "profileName": "Sim User 1819",
-      "inboundId": "wamid.sim.in.text.00253",
-      "at": 1790989467324,
+      "phone": "2348015864697",
+      "profileName": "Sim User 4697",
+      "inboundId": "wamid.sim.in.text.00255",
+      "at": 1792858426412,
       "kind": "text",
       "text": "I run Kemi's Kitchen in Lagos, we sell food bowls, delivery within Lagos, bank transfer"
     },
     {
       "dir": "out",
-      "phone": "2348011891819",
-      "wamid": "wamid.sim.000420",
+      "phone": "2348015864697",
+      "wamid": "wamid.sim.000422",
       "statuses": [
         "sent"
       ],
-      "at": 1790989467354,
+      "at": 1792858426441,
       "kind": "text",
       "body": "Here's the setup I propose for Kemi's Kitchen. Review each card — approve, edit or reject. Nothing is applied until you approve it."
     },
     {
       "dir": "out",
-      "phone": "2348011891819",
-      "wamid": "wamid.sim.000421",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790989467354,
-      "kind": "interactive",
-      "body": "WhatsApp menu for Kemi's Kitchen: greeting + top use cases\n\n{\n  \"greeting\": \"Welcome to Kemi's Kitchen! How can we help you today?\",\n  \"useCases\": [\n    {\n      \"id\": \"shop\",\n      \"label\": \"Shop products\",\n      \"enabled\": true,\n      \"order\": 1\n    },\n    {\n      \"id\": \"track\",\n      \"label\": \"Track my order\",\n      \"enabled\": true,\n      \"order\": 2\n    },\n    {\n      \"id\": \"support\",\n      \"label\": \"Get support\",\n      \"enabled\": false,\n      \"order\": 3\n    },\n    {\n      \"id\": \"booking\",\n      \"label\": \"Book an appointment\",\n      \"enabled\": false,\n      \"order\": 4\n    },\n    {\n      \"id\": \"handoff\",\n      \"label\": \"Talk to a human\",\n      \"enabled\": true,\n      \"order\": 5\n    },\n    {\n      \"id\": \"procurement\",\n      \"label\": \"Restock / Buy supplies\",\n      \"enabled\": false,\n      \"order\": 6\n    }\n  ],\n  \"customItems\": [],\n  \"fallback\": \"nlp\"\n}",
-      "buttons": [
-        {
-          "id": "onb_approve:p-1-nqdony",
-          "title": "Approve"
-        },
-        {
-          "id": "onb_edit:p-1-nqdony",
-          "title": "Edit"
-        },
-        {
-          "id": "onb_reject:p-1-nqdony",
-          "title": "Reject"
-        }
-      ]
-    },
-    {
-      "dir": "out",
-      "phone": "2348011891819",
-      "wamid": "wamid.sim.000422",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790989467355,
-      "kind": "interactive",
-      "body": "Suggested use cases: shop, track, handoff\n\n{\n  \"ranked\": [\n    \"shop\",\n    \"track\",\n    \"handoff\",\n    \"support\",\n    \"booking\",\n    \"procurement\"\n  ]\n}",
-      "buttons": [
-        {
-          "id": "onb_approve:p-2-lxu2yq",
-          "title": "Approve"
-        },
-        {
-          "id": "onb_edit:p-2-lxu2yq",
-          "title": "Edit"
-        },
-        {
-          "id": "onb_reject:p-2-lxu2yq",
-          "title": "Reject"
-        }
-      ]
-    },
-    {
-      "dir": "out",
-      "phone": "2348011891819",
+      "phone": "2348015864697",
       "wamid": "wamid.sim.000423",
       "statuses": [
         "sent"
       ],
-      "at": 1790989467355,
+      "at": 1792858426441,
       "kind": "interactive",
-      "body": "Brand kit for Kemi's Kitchen\n\n{\n  \"logoSvgDataUri\": \"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9ImxvZ28iPjxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iOTYiIGZpbGw9IiM2RDNDNjgiLz48dGV4dCB4PSIyNTYiIHk9IjI2MiIgZm9udC1mYW1pbHk9IkhlbHZldGljYSwgQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAwIiBmb250LXdlaWdodD0iNjAwIiBsZXR0ZXItc3BhY2luZz0iOCIgZmlsbD0iI0Y1RjJFQyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZG9taW5hbnQtYmFzZWxpbmU9ImNlbnRyYWwiPktLPC90ZXh0Pjwvc3ZnPg==\",\n  \"logoUrl\": null,\n  \"primaryColor\": \"#6D3C68\",\n  \"secondaryColor\": \"#85BC97\",\n  \"tagline\": \"Fresh flavor, one message away\"\n}",
+      "body": "WhatsApp menu for Kemi's Kitchen: greeting + top use cases\n\n{\n  \"greeting\": \"Welcome to Kemi's Kitchen! How can we help you today?\",\n  \"useCases\": [\n    {\n      \"id\": \"shop\",\n      \"label\": \"Shop products\",\n      \"enabled\": true,\n      \"order\": 1\n    },\n    {\n      \"id\": \"track\",\n      \"label\": \"Track my order\",\n      \"enabled\": true,\n      \"order\": 2\n    },\n    {\n      \"id\": \"support\",\n      \"label\": \"Get support\",\n      \"enabled\": false,\n      \"order\": 3\n    },\n    {\n      \"id\": \"booking\",\n      \"label\": \"Book an appointment\",\n      \"enabled\": false,\n      \"order\": 4\n    },\n    {\n      \"id\": \"handoff\",\n      \"label\": \"Talk to a human\",\n      \"enabled\": true,\n      \"order\": 5\n    },\n    {\n      \"id\": \"procurement\",\n      \"label\": \"Restock / Buy supplies\",\n      \"enabled\": false,\n      \"order\": 6\n    }\n  ],\n  \"customItems\": [],\n  \"fallback\": \"nlp\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-3-mkr350",
+          "id": "onb_approve:p-1-kc9y3x",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-3-mkr350",
+          "id": "onb_edit:p-1-kc9y3x",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-3-mkr350",
+          "id": "onb_reject:p-1-kc9y3x",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348011891819",
+      "phone": "2348015864697",
       "wamid": "wamid.sim.000424",
       "statuses": [
         "sent"
       ],
-      "at": 1790989467355,
+      "at": 1792858426441,
+      "kind": "interactive",
+      "body": "Suggested use cases: shop, track, handoff\n\n{\n  \"ranked\": [\n    \"shop\",\n    \"track\",\n    \"handoff\",\n    \"support\",\n    \"booking\",\n    \"procurement\"\n  ]\n}",
+      "buttons": [
+        {
+          "id": "onb_approve:p-2-puvtqh",
+          "title": "Approve"
+        },
+        {
+          "id": "onb_edit:p-2-puvtqh",
+          "title": "Edit"
+        },
+        {
+          "id": "onb_reject:p-2-puvtqh",
+          "title": "Reject"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348015864697",
+      "wamid": "wamid.sim.000425",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792858426441,
+      "kind": "interactive",
+      "body": "Brand kit for Kemi's Kitchen\n\n{\n  \"logoSvgDataUri\": \"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9ImxvZ28iPjxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iOTYiIGZpbGw9IiM2RDNDNjgiLz48dGV4dCB4PSIyNTYiIHk9IjI2MiIgZm9udC1mYW1pbHk9IkhlbHZldGljYSwgQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAwIiBmb250LXdlaWdodD0iNjAwIiBsZXR0ZXItc3BhY2luZz0iOCIgZmlsbD0iI0Y1RjJFQyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZG9taW5hbnQtYmFzZWxpbmU9ImNlbnRyYWwiPktLPC90ZXh0Pjwvc3ZnPg==\",\n  \"logoUrl\": null,\n  \"primaryColor\": \"#6D3C68\",\n  \"secondaryColor\": \"#85BC97\",\n  \"tagline\": \"Fresh flavor, one message away\"\n}",
+      "buttons": [
+        {
+          "id": "onb_approve:p-3-axmdg8",
+          "title": "Approve"
+        },
+        {
+          "id": "onb_edit:p-3-axmdg8",
+          "title": "Edit"
+        },
+        {
+          "id": "onb_reject:p-3-axmdg8",
+          "title": "Reject"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348015864697",
+      "wamid": "wamid.sim.000426",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1792858426442,
       "kind": "interactive",
       "body": "Suggested integrations: twenty\n\n{\n  \"providers\": [\n    {\n      \"provider\": \"twenty\",\n      \"reason\": \"CRM to track customer conversations and follow-ups\"\n    }\n  ],\n  \"summary\": \"Suggested integrations: twenty\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-4-0sghuc",
+          "id": "onb_approve:p-4-y4zzvc",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-4-0sghuc",
+          "id": "onb_edit:p-4-y4zzvc",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-4-0sghuc",
+          "id": "onb_reject:p-4-y4zzvc",
           "title": "Reject"
         }
       ]

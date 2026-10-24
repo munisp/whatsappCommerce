@@ -701,6 +701,8 @@ function InfraTab() {
     refetchInterval: infraPoll,
   });
   const temporalRuns = trpc.temporal.listRuns.useQuery({ sinceHours: 24, limit: 10 });
+  // === W64 intelligence (R5): UX friction dashboard (abandonment + zero-result searches) ===
+  const frictionQ = trpc.telemetry.frictionSummary.useQuery(undefined, { retry: false });
 
   const services = health?.services ?? {};
   const serviceNames = Object.keys(services);
@@ -778,6 +780,74 @@ function InfraTab() {
           )}
         </CardContent>
       </Card>
+
+      {/* === W64 intelligence (R5): UX friction (clickstream + search) === */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" />
+            UX Friction (30 days)
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Top abandonment pages and zero-result searches from the clickstream beacon.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <h4 className="text-xs font-semibold mb-2">Abandonment by page</h4>
+              {(frictionQ.data?.abandonment?.length ?? 0) === 0 ? (
+                <p className="text-xs text-muted-foreground">No abandonment events captured yet.</p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-1 px-2">Page</th>
+                      <th className="text-left py-1 px-2">Abandons</th>
+                      <th className="text-left py-1 px-2">Avg dwell</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {frictionQ.data!.abandonment.map((row: any) => (
+                      <tr key={row.page} className="border-b hover:bg-muted/30">
+                        <td className="py-1 px-2 font-mono truncate max-w-[180px]">{row.page}</td>
+                        <td className="py-1 px-2">{row.abandons}</td>
+                        <td className="py-1 px-2 text-muted-foreground">
+                          {Math.round((row.avg_dwell_ms ?? 0) / 1000)}s
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div>
+              <h4 className="text-xs font-semibold mb-2">Zero-result searches</h4>
+              {(frictionQ.data?.zeroResultSearches?.length ?? 0) === 0 ? (
+                <p className="text-xs text-muted-foreground">No zero-result searches captured yet.</p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-1 px-2">Query</th>
+                      <th className="text-left py-1 px-2">Occurrences</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {frictionQ.data!.zeroResultSearches.map((row: any) => (
+                      <tr key={row.query} className="border-b hover:bg-muted/30">
+                        <td className="py-1 px-2 truncate max-w-[180px]">{row.query}</td>
+                        <td className="py-1 px-2">{row.occurrences}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      {/* === END W64 intelligence (R5) === */}
     </div>
   );
 }

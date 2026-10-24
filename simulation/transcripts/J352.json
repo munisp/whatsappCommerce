@@ -7,19 +7,19 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017724816",
+      "phone": "2348017618865",
       "profileName": "Fanout A",
       "inboundId": "wamid.sim.in.j352.0000a",
-      "at": 1790989885410,
+      "at": 1792858844535,
       "kind": "text",
       "text": "hello j352 first entry"
     },
     {
       "dir": "in",
-      "phone": "2348013854112",
+      "phone": "2348017203349",
       "profileName": "Fanout B",
       "inboundId": "wamid.sim.in.j352.0000b",
-      "at": 1790989885410,
+      "at": 1792858844535,
       "kind": "text",
       "text": "hello j352 second entry"
     },
@@ -27,33 +27,33 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.j352.0000a",
-      "at": 1790989885420
+      "at": 1792858844552
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.j352.0000b",
-      "at": 1790989885422
+      "at": 1792858844554
     },
     {
       "dir": "out",
-      "phone": "2348013854112",
-      "wamid": "wamid.sim.001005",
+      "phone": "2348017203349",
+      "wamid": "wamid.sim.001007",
       "statuses": [
         "sent"
       ],
-      "at": 1790989885434,
+      "at": 1792858844567,
       "kind": "text",
       "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
     },
     {
       "dir": "out",
-      "phone": "2348017724816",
-      "wamid": "wamid.sim.001006",
+      "phone": "2348017618865",
+      "wamid": "wamid.sim.001008",
       "statuses": [
         "sent"
       ],
-      "at": 1790989885457,
+      "at": 1792858844598,
       "kind": "text",
       "body": "Sorry, I didn't quite get that — type 'menu' to see options."
     }

@@ -67,7 +67,13 @@ export const journey: Journey = {
     const wrapper = view.catalog.find((p) => p.name === "Adire Wrapper");
     assert(wrapper && wrapper.inStock === true && (wrapper as any).stockQuantity === undefined,
       "no raw stock quantity leaks to the public view");
-    assert((view as any).tenantId === undefined, "no tenant id leaks");
+    // W64 intelligence (R1): tenantId is intentionally part of the public
+    // view — it is the lookup key for the public recs.forProduct co-purchase
+    // endpoint (storefront Shop.tsx RecsStrip). It is not PII; assert it
+    // matches tenant A and that no owner/customer PII fields leak.
+    assert((view as any).tenantId === tenantA, "public view exposes tenant id as recs lookup key");
+    assert((view as any).ownerId === undefined && (view as any).whatsappPhoneNumber === undefined,
+      "no owner PII leaks");
     assert(view.location === null, "location off by default");
 
     // ── 2. Slug uniqueness + deterministic defaults ──────────────────────

@@ -821,7 +821,10 @@ export type MessageKey =
   | "bureauPullSummary" | "bureauPullFailed"
   // === W56 credit (Feature 3) === servicing notices (fee adjust /
   // reschedule / grace period) — buyer-facing, WA+TG parity, fail-open
-  | "creditFeeAdjusted" | "creditRescheduled" | "creditGraceExtended";
+  | "creditFeeAdjusted" | "creditRescheduled" | "creditGraceExtended"
+  // === W64 intelligence === R1 chat recs + R9 proactive nudges (WA+TG)
+  | "alsoBoughtHeader" | "alsoBoughtLine" | "reorderAgainHeader"
+  | "nudgeLowStock" | "nudgeOrderAging" | "nudgePaymentDue" | "nudgeCreditOffer";
 
 export type MessageCatalog = Record<MessageKey, string>;
 
@@ -987,6 +990,15 @@ const EN_CATALOG: MessageCatalog = {
   creditFeeAdjusted: "📉 Your credit facility fee changed from {oldBps} to {newBps} bps — applies to future draws only. Reason: {reason}",
   creditRescheduled: "📅 Your installment plan was rescheduled: {count} future payment(s) updated (fee change {delta}). Reason: {reason}",
   creditGraceExtended: "⏳ Your credit due dates were extended by {days} day(s) on {count} open draw(s). Reason: {reason}",
+  // === W64 intelligence ===
+  alsoBoughtHeader: "🛒 Customers also bought:",
+  alsoBoughtLine: "{n}. {name} — {price}",
+  reorderAgainHeader: "🔁 Order again from your history:",
+  nudgeLowStock: "⚠️ Low stock: *{product}* — {stock} unit(s) left. One-tap restock draft: {url}",
+  nudgeOrderAging: "⏰ Order {orderNumber} has been pending for {hours}h — please confirm or cancel it.",
+  nudgePaymentDue: "💳 Reminder: {amount} {currency} for order {orderNumber} is due on {date}.",
+  nudgeCreditOffer: "💎 You're pre-approved for credit up to {amount} {currency} at this store — reply CREDIT to apply.",
+  // === END W64 intelligence ===
 };
 
 /** Partial translations per locale — any missing key falls back to English. */
@@ -1119,6 +1131,15 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     creditFeeAdjusted: "📉 Les frais de votre facilité de crédit passent de {oldBps} à {newBps} bps — uniquement pour les futurs tirages. Motif : {reason}",
     creditRescheduled: "📅 Votre plan d'échéances a été rééchelonné : {count} paiement(s) futur(s) mis à jour (variation de frais {delta}). Motif : {reason}",
     creditGraceExtended: "⏳ Vos échéances de crédit ont été prolongées de {days} jour(s) sur {count} tirage(s) ouvert(s). Motif : {reason}",
+    // === W64 intelligence ===
+    alsoBoughtHeader: "🛒 Les clients ont aussi acheté :",
+    alsoBoughtLine: "{n}. {name} — {price}",
+    reorderAgainHeader: "🔁 Recommandez depuis votre historique :",
+    nudgeLowStock: "⚠️ Stock bas : *{product}* — {stock} unité(s) restante(s). Brouillon de réassort en un geste : {url}",
+    nudgeOrderAging: "⏰ La commande {orderNumber} est en attente depuis {hours} h — veuillez la confirmer ou l'annuler.",
+    nudgePaymentDue: "💳 Rappel : {amount} {currency} pour la commande {orderNumber} arrive à échéance le {date}.",
+    nudgeCreditOffer: "💎 Vous êtes pré-approuvé pour un crédit jusqu'à {amount} {currency} dans cette boutique — répondez CREDIT pour postuler.",
+    // === END W64 intelligence ===
     walletBalanceNone: "👛 Vous n'avez pas encore de portefeuille dans cette boutique — les remboursements et avoirs arrivent ici.",
     walletLedgerHeader: "Activité récente du portefeuille :",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
@@ -1278,6 +1299,15 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     creditFeeAdjusted: "📉 Kuɗin facilotin kiredit ɗinka ya sauya daga {oldBps} zuwa {newBps} bps — kan sababbin ja da gaba kawai. Dalili: {reason}",
     creditRescheduled: "📅 An sake tsara shirin biya ɗinka: an sabunta biya {count} na gaba (sauyin kuɗi {delta}). Dalili: {reason}",
     creditGraceExtended: "⏳ An tsawaita ranar biyan bashinka da kwana {days} a kan ja {count} da suka buɗe. Dalili: {reason}",
+    // === W64 intelligence ===
+    alsoBoughtHeader: "🛒 Abokan ciniki sun kuma saya:",
+    alsoBoughtLine: "{n}. {name} — {price}",
+    reorderAgainHeader: "🔁 Sake oda daga tarihinka:",
+    nudgeLowStock: "⚠️ Kayayyaki sun rage: *{product}* — {stock} kawai suka rage. Shirin sake cikewa da danna ɗaya: {url}",
+    nudgeOrderAging: "⏰ Oda {orderNumber} na jira tsawon awanni {hours} — don Allah tabbatar ko soke ta.",
+    nudgePaymentDue: "💳 Tunatarwa: {amount} {currency} na oda {orderNumber} yana cika a ranar {date}.",
+    nudgeCreditOffer: "💎 An amince maka da bashi har {amount} {currency} a wannan shagon — aza CREDIT don nema.",
+    // === END W64 intelligence ===
     walletBalanceNone: "👛 Ba ku da walat a wannan kantin tukuna — maida kuɗi da bashin kantin suna zuwa nan.",
     walletLedgerHeader: "Ayyukan walat na baya-bayan nan:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
@@ -1437,6 +1467,15 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     creditFeeAdjusted: "📉 Ètò kírédìtì rẹ yí padà láti {oldBps} sí {newBps} bps — fún àwọn yíyà ọ̀la nìkan. Ìdí: {reason}",
     creditRescheduled: "📅 Àtòjọ̀ ìsanwó rẹ ti yí padà: ìsanwó {count} ọ̀la ti ṣe àtúnṣe (àyípadà ètò {delta}). Ìdí: {reason}",
     creditGraceExtended: "⏳ Ọjọ́ ìsanwó kírédìtì rẹ ti fẹ̀ sí ọjọ́ {days} lórí yíyà {count} tó ṣì í ṣílẹ̀. Ìdí: {reason}",
+    // === W64 intelligence ===
+    alsoBoughtHeader: "🛒 Àwọn oníbàárá tún ra àwọn wọ̀nyí:",
+    alsoBoughtLine: "{n}. {name} — {price}",
+    reorderAgainHeader: "🔁 Tún bẹ̀rẹ̀ láti ìtàn rẹ:",
+    nudgeLowStock: "⚠️ Ẹ̀rọjà kù díẹ̀: *{product}* — {stock} ẹyọ ló kù. Àkópọ̀ àtúnṣe pẹ̀lú ìtẹ kan ṣoṣo: {url}",
+    nudgeOrderAging: "⏰ Òòrùn {orderNumber} ti dúró fún wákàtí {hours} — jọ̀wọ́ jẹ́ kó jẹ́ tàbí kọ́ ọ́.",
+    nudgePaymentDue: "💳 Ìránlétí: {amount} {currency} fún òòrùn {orderNumber} yóò dé ní {date}.",
+    nudgeCreditOffer: "💎 A ti fọwọ́ sí i fún kírédìtì tó dé {amount} {currency} ní ilé ìtajá yìí — dáhùn CREDIT láti bẹ̀rẹ̀.",
+    // === END W64 intelligence ===
     walletBalanceNone: "👛 Kò sí apó-owó fún ọ ní ilé ìtajà yìí — àpèyìn owó àti kírédìtì ilé ìtajà máa wá síbí.",
     walletLedgerHeader: "Àwọn ìṣẹ̀lẹ̀ apó-owó tuntun:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
@@ -1599,6 +1638,15 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     creditFeeAdjusted: "📉 Ụgwọ kredit gị agbanweela site {oldBps} ruo {newBps} bps — na mbinye ọhụrụ naanị. Ihe kpatara: {reason}",
     creditRescheduled: "📅 Ahazigharịrị atụmatụ ịkwụ ụgwọ gị: emelitere ịkwụ ụgwọ {count} n'ọdịnihu (mgbanwe ụgwọ {delta}). Ihe kpatara: {reason}",
     creditGraceExtended: "⏳ Ụbọchị ịkwụ ụgwọ kredit gị ekwetilere ụbọchị {days} na mbinye {count} mepere emepe. Ihe kpatara: {reason}",
+    // === W64 intelligence ===
+    alsoBoughtHeader: "🛒 Ndị ahịa zụtakwara:",
+    alsoBoughtLine: "{n}. {name} — {price}",
+    reorderAgainHeader: "🔁 Nyegharịa ihe ị zụtara:",
+    nudgeLowStock: "⚠️ Ngwaahịa fọdụrụ nke ọma: *{product}* — {stock} ka fọdụ. Draft restock otu piam: {url}",
+    nudgeOrderAging: "⏰ Order {orderNumber} eleterela awa {hours} — biko kwado ma ọ bụ kagbuo ya.",
+    nudgePaymentDue: "💳 Ncheta: {amount} {currency} maka order {orderNumber} ga-eru na {date}.",
+    nudgeCreditOffer: "💎 Ekwenyela gị kredit ruru {amount} {currency} na ụlọ ahịa a — zaa CREDIT iji tinye akwụkwọ.",
+    // === END W64 intelligence ===
     walletBalanceNone: "👛 I nwebeghị akpa ego na ụlọ ahịa a — nkwụghachi ụgwọ na kredit ụlọ ahịa na-abịa ebe a.",
     walletLedgerHeader: "Ihe omume akpa ego ọhụrụ:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
@@ -1758,6 +1806,15 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     creditFeeAdjusted: "📉 Ada ya mkopo wako imebadilika kutoka {oldBps} hadi {newBps} bps — kwa mikopo ijayo pekee. Sababu: {reason}",
     creditRescheduled: "📅 Mpango wako wa malipo umepangwa upya: malipo {count} yajayo yamesasishwa (mabadiliko ya ada {delta}). Sababu: {reason}",
     creditGraceExtended: "⏳ Tarehe za malipo ya mkopo wako zimeongezewa siku {days} kwenye mikopo {count} wazi. Sababu: {reason}",
+    // === W64 intelligence ===
+    alsoBoughtHeader: "🛒 Wateja pia walinunua:",
+    alsoBoughtLine: "{n}. {name} — {price}",
+    reorderAgainHeader: "🔁 Agiza tena kutoka kwa historia yako:",
+    nudgeLowStock: "⚠️ Hisa chache: *{product}* — {stock} zimebaki. Rasimu ya kujaza kwa kubofya mara moja: {url}",
+    nudgeOrderAging: "⏰ Oda {orderNumber} imesubiri kwa saa {hours} — tafadhali thibitisha au ghairisha.",
+    nudgePaymentDue: "💳 Ukumbusho: {amount} {currency} kwa oda {orderNumber} inastahili tarehe {date}.",
+    nudgeCreditOffer: "💎 Umeidhinishwa kwa mkopo hadi {amount} {currency} dukani hapa — jibu CREDIT kuomba.",
+    // === END W64 intelligence ===
     walletBalanceNone: "👛 Huna pochi na duka hili bado — marejesho na mikopo ya duka hufika hapa.",
     walletLedgerHeader: "Shughuli za hivi karibuni za pochi:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
@@ -1916,6 +1973,15 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     creditFeeAdjusted: "📉 የብድር ክፍያዎ ከ{oldBps} ወደ {newBps} bps ተቀይሯል — ለወደፊት ማውጫዎች ብቻ። ምክንያት: {reason}",
     creditRescheduled: "📅 የክፍያ እቅድዎ እንደገና ተዘጋጅቷል: {count} የወደፊት ክፍያዎች ተዘምነዋል (የክፍያ ልውውጥ {delta})። ምክንያት: {reason}",
     creditGraceExtended: "⏳ የብድር ክፍያ ቀኖችዎ በ{days} ቀን(ዎች) በ{count} ክፍት ማውጫዎች ላይ ተራዝመዋል። ምክንያት: {reason}",
+    // === W64 intelligence ===
+    alsoBoughtHeader: "🛒 ደንበኞች እንዲሁም ገዝተዋል:",
+    alsoBoughtLine: "{n}. {name} — {price}",
+    reorderAgainHeader: "🔁 ከታሪክዎ እንደገና ይዘዙ:",
+    nudgeLowStock: "⚠️ ዝቅተኛ ክምችት: *{product}* — {stock} ብቻ ቀርተዋል። በአንድ ንክኪ የማሟያ ረቂቅ: {url}",
+    nudgeOrderAging: "⏰ ትዕዛዝ {orderNumber} ለ{hours} ሰዓታት በመጠባበቅ ላይ ነው — እባክዎ ያረጋግጡት ወይም ይሰርዙት።",
+    nudgePaymentDue: "💳 ማስታወሻ: {amount} {currency} ለትዕዛዝ {orderNumber} በ{date} ይካሄዳል።",
+    nudgeCreditOffer: "💎 እስከ {amount} {currency} ብድር በዚህ ሱቅ ቀድመው ጸድቀውልዎታል — ለማመልከት CREDIT ይመልሱ።",
+    // === END W64 intelligence ===
     walletBalanceNone: "👛 እስካሁን በዚህ ሱቅ ዋሌት የለዎትም — ተመላሾች እና የሱቅ ክሬዲቶች እዚህ ይደርሳሉ።",
     walletLedgerHeader: "የቅርብ ጊዜ የዋሌት እንቅስቃሴ:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",
@@ -2082,6 +2148,15 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     creditFeeAdjusted: "📉 Your credit facility fee don change from {oldBps} to {newBps} bps — na only future draws e go touch. Reason: {reason}",
     creditRescheduled: "📅 Dem don reschedule your installment plan: {count} future payment(s) don update (fee change {delta}). Reason: {reason}",
     creditGraceExtended: "⏳ Your credit due dates don extend by {days} day(s) on {count} open draw(s). Reason: {reason}",
+    // === W64 intelligence ===
+    alsoBoughtHeader: "🛒 Customers sef buy dis ones:",
+    alsoBoughtLine: "{n}. {name} — {price}",
+    reorderAgainHeader: "🔁 Order again from wetin you don buy before:",
+    nudgeLowStock: "⚠️ Stock don low: *{product}* — na {stock} remain. One-tap restock draft: {url}",
+    nudgeOrderAging: "⏰ Order {orderNumber} don dey pending for {hours}h — abeg confirm or cancel am.",
+    nudgePaymentDue: "💳 Reminder: {amount} {currency} for order {orderNumber} go due on {date}.",
+    nudgeCreditOffer: "💎 Dem don pre-approve you for credit reach {amount} {currency} for dis store — reply CREDIT to apply.",
+    // === END W64 intelligence ===
     walletBalanceNone: "👛 You never get wallet for dis shop yet — refund and store credit go land here.",
     walletLedgerHeader: "Recent wallet activity:",
     walletLedgerEntry: "{sign}{amount} — {reason} ({date})",

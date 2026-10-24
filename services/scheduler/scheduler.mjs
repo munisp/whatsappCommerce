@@ -66,6 +66,11 @@ export const SCHEDULE = [
   // === END W61 dataloss ===
   // === W62 findings === F9 email_outbox retry sweep.
   { path: "/api/scheduled/email-send-retry", intervalMin: 5 },
+  // === W64 intelligence === R9 proactive push ops sweep (hourly) + R1
+  // nightly co-purchase pair refresh.
+  { path: "/api/scheduled/proactive-nudges", intervalMin: 60 },
+  { path: "/api/scheduled/recs-refresh", intervalMin: 1440 },
+  // === END W64 intelligence ===
   // F14: the two /api/cron/* platform-ops sweeps are scheduler-invoked too
   // (they verify the same cron JWT). Previously they had NO production
   // invoker at all — no allowlist entry and no k8s CronJob (audit W61

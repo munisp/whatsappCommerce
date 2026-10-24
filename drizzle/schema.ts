@@ -7651,3 +7651,83 @@ export const medusaPromoOutbox = pgTable("medusa_promo_outbox", {
 export type MedusaPromoOutboxRow = typeof medusaPromoOutbox.$inferSelect;
 export type NewMedusaPromoOutboxRow = typeof medusaPromoOutbox.$inferInsert;
 // === END W60 persistence ===
+
+// === W64 intelligence ===
+// R1 recsys: nightly-refreshed co-purchase pairs derived from order_items
+// co-occurrence (services/recsService.ts). One row per (tenant, product,
+// pair); upserted by the refresh sweep. Additive-only.
+export const copurchasePairs = pgTable("copurchase_pairs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  productId: varchar("product_id", { length: 36 }).notNull(),
+  pairProductId: varchar("pair_product_id", { length: 36 }).notNull(),
+  /** Number of distinct orders containing BOTH products. */
+  coCount: integer("co_count").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("copurchase_pairs_uniq").on(t.tenantId, t.productId, t.pairProductId),
+  index("copurchase_pairs_product_idx").on(t.tenantId, t.productId),
+]);
+export type CopurchasePair = typeof copurchasePairs.$inferSelect;
+export type NewCopurchasePair = typeof copurchasePairs.$inferInsert;
+
+// R5 clickstream: lightweight UI event capture (page/action/dwell) from the
+// shared beacon hook (client + ui/* apps). Fire-and-forget, fail-open;
+// telemetry only — NEVER money-path.
+export const uiEvents = pgTable("ui_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }),
+  userId: varchar("user_id", { length: 64 }),
+  sessionId: varchar("session_id", { length: 64 }),
+  app: varchar("app", { length: 32 }),
+  page: varchar("page", { length: 255 }).notNull(),
+  action: varchar("action", { length: 64 }).notNull(),
+  dwellMs: integer("dwell_ms"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("ui_events_tenant_created_idx").on(t.tenantId, t.createdAt),
+  index("ui_events_page_idx").on(t.page),
+]);
+export type UiEvent = typeof uiEvents.$inferSelect;
+export type NewUiEvent = typeof uiEvents.$inferInsert;
+
+// R5 search logging: every search query (chat + web) with a zero-result
+// flag; feeds the admin friction dashboard + catalog-gap signals.
+export const searchQueries = pgTable("search_queries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }),
+  userId: varchar("user_id", { length: 64 }),
+  channel: varchar("channel", { length: 16 }),
+  query: varchar("query", { length: 512 }).notNull(),
+  resultsCount: integer("results_count"),
+  zeroResult: boolean("zero_result").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("search_queries_tenant_created_idx").on(t.tenantId, t.createdAt),
+  index("search_queries_zero_idx").on(t.zeroResult),
+]);
+export type SearchQuery = typeof searchQueries.$inferSelect;
+export type NewSearchQuery = typeof searchQueries.$inferInsert;
+
+// R9 proactive push ops: durable per-(tenant,type,subject,day) idempotency
+// record so a sweep re-run never double-nudges. Claim-first INSERT .. ON
+// CONFLICT DO NOTHING (services/proactive.ts).
+export const proactiveNudges = pgTable("proactive_nudges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  nudgeType: varchar("nudge_type", { length: 32 }).notNull(),
+  subjectId: varchar("subject_id", { length: 128 }).notNull(),
+  /** UTC day bucket YYYY-MM-DD — at most one nudge per day+type+subject. */
+  day: varchar("day", { length: 10 }).notNull(),
+  channel: varchar("channel", { length: 16 }),
+  status: varchar("status", { length: 16 }).notNull().default("sent"),
+  detail: jsonb("detail"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("proactive_nudges_idem_uniq").on(t.tenantId, t.nudgeType, t.subjectId, t.day),
+  index("proactive_nudges_tenant_idx").on(t.tenantId),
+]);
+export type ProactiveNudge = typeof proactiveNudges.$inferSelect;
+export type NewProactiveNudge = typeof proactiveNudges.$inferInsert;
+// === END W64 intelligence ===

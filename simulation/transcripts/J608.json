@@ -8,11 +8,11 @@
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.001315",
+      "wamid": "wamid.sim.001317",
       "statuses": [
         "sent"
       ],
-      "at": 1790990127991,
+      "at": 1792859087241,
       "kind": "text",
       "body": "⚠️ SMS dead-lettered after 4 attempts.\nTo: 2348070608000\nError: SMS send failed (network): africa_talking-sms: HTTP 500"
     }

@@ -61,6 +61,72 @@ export default function Products() {
   const [importResult, setImportResult] = useState<{ inserted: number; skipped: number; errors: string[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // === W64 intelligence (R3) === photo-first listing: upload photo →
+  // catalogAI vision draft (title/desc/category/price band) → prefilled
+  // editable form → publish via the EXISTING draft publish path.
+  const [photoOpen, setPhotoOpen] = useState(false);
+  const [photoDraft, setPhotoDraft] = useState<{
+    draftId: string;
+    name: string;
+    description: string;
+    category: string;
+    price: string;
+  } | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const draftFromPhotoMutation = trpc.catalogAI.draftFromPhoto.useMutation({
+    onSuccess: (r) => {
+      if (r.ok && r.draft) {
+        setPhotoDraft({
+          draftId: r.draft.id,
+          name: r.draft.name ?? "",
+          description: r.draft.description ?? "",
+          category: r.draft.category ?? "",
+          price: r.draft.suggestedPriceCents != null ? (r.draft.suggestedPriceCents / 100).toFixed(2) : "",
+        });
+        toast.success("Draft ready — review and publish");
+      } else {
+        toast.error("Could not analyse that photo — try a clearer product shot");
+      }
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const publishDraftMutation = trpc.catalogAI.publishDraft.useMutation({
+    onSuccess: (r) => {
+      if (r.ok) {
+        toast.success("Product published");
+        setPhotoOpen(false);
+        setPhotoDraft(null);
+        refetch();
+      } else {
+        toast.error(`Publish failed: ${r.error}`);
+      }
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const rejectDraftMutation = trpc.catalogAI.rejectDraft.useMutation();
+  const handlePhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => resolve(ev.target?.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const base64 = dataUrl.split(",")[1] ?? "";
+      draftFromPhotoMutation.mutate({
+        tenantId: DEMO_TENANT,
+        imageBase64: base64,
+        mimeType: (["image/jpeg", "image/png", "image/webp"].includes(file.type) ? file.type : "image/jpeg") as "image/jpeg" | "image/png" | "image/webp",
+      });
+    } catch {
+      toast.error("Could not read that file");
+    }
+  };
+  // === END W64 intelligence (R3) ===
+
   const { data: stats } = trpc.product.stats.useQuery({ tenantId: DEMO_TENANT });
   // Fetch unfiltered list — the server-side filter uses case-sensitive SQL `like`
   // on name only, so searching is done client-side (case-insensitive) instead.
@@ -236,6 +302,86 @@ export default function Products() {
                 )}
               </DialogContent>
             </Dialog>
+
+            {/* === W64 intelligence (R3): photo-first listing dialog === */}
+            <Dialog open={photoOpen} onOpenChange={(v) => { setPhotoOpen(v); if (!v) setPhotoDraft(null); }}>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="gap-2 border-border bg-transparent"><ImageIcon className="w-4 h-4" />Add via photo</Button>
+              </DialogTrigger>
+              <DialogContent className="bg-card border-border">
+                <DialogHeader><DialogTitle>Add Product via Photo</DialogTitle></DialogHeader>
+                <div className="space-y-3 mt-2">
+                  {!photoDraft ? (
+                    <div
+                      className="border-2 border-dashed border-border rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 transition-colors"
+                      onClick={() => photoInputRef.current?.click()}
+                    >
+                      <ImageIcon className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+                      <p className="text-sm text-muted-foreground">
+                        {draftFromPhotoMutation.isPending
+                          ? "Analysing photo…"
+                          : "Tap to upload a product photo — we'll draft the listing for you"}
+                      </p>
+                      <input
+                        ref={photoInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={handlePhotoFileChange}
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs text-muted-foreground">AI draft — edit anything, then publish.</p>
+                      <div className="space-y-1">
+                        <Label>Name</Label>
+                        <Input value={photoDraft.name} onChange={(e) => setPhotoDraft({ ...photoDraft, name: e.target.value })} className="bg-input border-border" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Description</Label>
+                        <Input value={photoDraft.description} onChange={(e) => setPhotoDraft({ ...photoDraft, description: e.target.value })} className="bg-input border-border" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Category</Label>
+                        <Input value={photoDraft.category} onChange={(e) => setPhotoDraft({ ...photoDraft, category: e.target.value })} className="bg-input border-border" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Price (NGN)</Label>
+                        <Input value={photoDraft.price} onChange={(e) => setPhotoDraft({ ...photoDraft, price: e.target.value })} className="bg-input border-border" />
+                      </div>
+                      <div className="flex gap-2 justify-end">
+                        <Button
+                          variant="outline"
+                          className="border-border bg-transparent"
+                          onClick={() => {
+                            rejectDraftMutation.mutate({ tenantId: DEMO_TENANT, draftId: photoDraft.draftId });
+                            setPhotoDraft(null);
+                            setPhotoOpen(false);
+                          }}
+                        >
+                          Discard
+                        </Button>
+                        <Button
+                          className="bg-primary text-primary-foreground"
+                          disabled={publishDraftMutation.isPending || !photoDraft.name.trim() || !photoDraft.price.trim()}
+                          onClick={() => publishDraftMutation.mutate({
+                            tenantId: DEMO_TENANT,
+                            draftId: photoDraft.draftId,
+                            name: photoDraft.name.trim(),
+                            description: photoDraft.description,
+                            category: photoDraft.category,
+                            priceCents: Math.round(parseFloat(photoDraft.price) * 100),
+                          })}
+                        >
+                          {publishDraftMutation.isPending ? "Publishing…" : "Publish"}
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </DialogContent>
+            </Dialog>
+            {/* === END W64 intelligence (R3) === */}
 
             {/* Single product add dialog */}
             <Dialog open={open} onOpenChange={setOpen}>
