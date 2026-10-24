@@ -343,7 +343,7 @@ class TranscriptRecorder {
     const index = {
       generatedAt: new Date().toISOString(),
       businessName: BUSINESS_NAME,
-      allPass: manifest.every((j) => j.pass === true),
+      allPass: this.completed.every((t) => t.pass),
       journeys: manifest,
     };
     fs.writeFileSync(path.join(dir, "index.json"), JSON.stringify(index, null, 2));

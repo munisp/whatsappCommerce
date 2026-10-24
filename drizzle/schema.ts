@@ -198,6 +198,7 @@ export type NewTenantMembership = typeof tenantMemberships.$inferInsert;
 //   - jti = token jti            → that specific token is revoked (logout)
 //   - jti = 'user:' + userId     → revoke-all marker for that user (admin)
 // expiresAt mirrors the token's exp so stale rows can be garbage-collected.
+// W62 F11 WRITER: server/_core/sdk.ts revokeSessionJti/revokeAllSessionsForUser (drizzle, outside services/ scan — W61 audit false positive).
 export const sessionRevocations = pgTable("session_revocations", {
   jti: varchar("jti", { length: 64 }).primaryKey(),
   userId: varchar("userId", { length: 36 }),
@@ -460,6 +461,7 @@ export const agentEvents = pgTable("agent_events", {
 ]);
 
 // ─── Webhook Events ───────────────────────────────────────────────────────────
+// W62 F11 DEPRECATED (W62 F11): no writer anywhere — superseded by processed_webhook_events (dedupe ledger), wa_webhook_events (WA DLQ) and raw_webhook_events (W61 PSP landing pad). Kept for additive-only schema; do not write new rows.
 export const webhookEvents = pgTable("webhook_events", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
@@ -476,6 +478,7 @@ export const webhookEvents = pgTable("webhook_events", {
 ]);
 
 // ─── Service Health ───────────────────────────────────────────────────────────
+// W62 F11 WRITER: server/db.ts recordServiceHealth() (db helper, outside services/ scan).
 export const serviceHealth = pgTable("service_health", {
   id: serial("id").primaryKey(),
   serviceName: varchar("serviceName", { length: 100 }).notNull(),
@@ -1931,6 +1934,7 @@ export const disputeEvidenceTokens = pgTable("dispute_evidence_tokens", {
 export type DisputeEvidenceToken = typeof disputeEvidenceTokens.$inferSelect;
 
 // ─── Dispute Evidence Submissions ────────────────────────────────────────────
+// W62 F11 WRITER: server/routers/evidencePortal.ts.
 export const disputeEvidenceSubmissions = pgTable("dispute_evidence_submissions", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   disputeId: varchar("dispute_id", { length: 36 }).notNull(),
@@ -2120,6 +2124,7 @@ export const b2bPurchaseOrders = pgTable("b2b_purchase_orders", {
 // ── Multi-Channel ─────────────────────────────────────────────────────────────
 export const channelEnum = pgEnum("channel", ["whatsapp", "ussd", "sms", "telegram", "instagram", "email"]);
 
+// W62 F11 EXTERNAL (W62 F11): no in-repo writer — reserved for the USSD gateway; /ussd endpoint is currently stateless. Kept (additive-only).
 export const ussdSessions = pgTable("ussd_sessions", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   sessionId: varchar("sessionId", { length: 128 }).notNull().unique(),
@@ -2185,6 +2190,7 @@ export const marketplaceSellers = pgTable("marketplace_sellers", {
   index("marketplace_sellers_owner_phone_idx").on(t.ownerPhone),
 ]);
 
+// W62 F11 DEPRECATED (W62 F11): no writer/reader in platform code. Kept (additive-only).
 export const sellerProducts = pgTable("seller_products", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   sellerId: varchar("sellerId", { length: 36 }).notNull(),
@@ -2249,6 +2255,7 @@ export const mobileMoneyTransactions = pgTable("mobile_money_transactions", {
   index("mobile_money_order_idx").on(t.orderId),
 ]);
 
+// W62 F11 EXTERNAL (W62 F11): no in-repo writer — reserved for an FX rate feed sidecar; read via raw SQL/views. Kept (additive-only).
 export const forexRates = pgTable("forex_rates", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   baseCurrency: varchar("baseCurrency", { length: 3 }).notNull(),
@@ -2300,6 +2307,7 @@ export const appointments = pgTable("appointments", {
   index("appointments_customer_phone_idx").on(t.customerPhone),
 ]);
 
+// W62 F11 DEPRECATED (W62 F11): no writer. Digital-goods roadmap table; superseded by digital_pins/digital_product_purchases flows. Kept (additive-only).
 export const digitalProducts = pgTable("digital_products", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
@@ -2361,6 +2369,7 @@ export const cohortSnapshots = pgTable("cohort_snapshots", {
   calculatedAt: timestamp("calculatedAt").defaultNow().notNull(),
 });
 
+// W62 F11 EXTERNAL (W62 F11): no in-repo writer — written by the ML stack offline scoring job; append-only. Kept (additive-only).
 export const ltvScores = pgTable("ltv_scores", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
@@ -2441,6 +2450,7 @@ export const procurementBids = pgTable("procurement_bids", {
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
+// W62 F11 DEPRECATED (W62 F11): no writer. GovProc roadmap table. Kept (additive-only).
 export const governmentContracts = pgTable("government_contracts", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
@@ -2844,6 +2854,7 @@ export const hermesConfigs = pgTable("hermes_configs", {
 ]);
 export type HermesConfig = typeof hermesConfigs.$inferSelect;
 
+// W62 F11 EXTERNAL (W62 F11): read by server/routers/hermes.ts; rows intended from the Hermes bridge pipeline (currently dormant — see docs/event-topology.md). Kept (additive-only).
 export const hermesEventLog = pgTable("hermes_event_log", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
@@ -3106,6 +3117,7 @@ export type FluvioEventLog = typeof fluvioEventLog.$inferSelect;
 export const tigerBeetleAccountTypeEnum = pgEnum("tigerbeetle_account_type", [
   "merchant", "escrow", "platform_fee", "float", "suspense",
 ]);
+// W62 F11 WRITER: rust/ledger-bridge sidecar (ledger account mapping; external raw SQL).
 export const tigerBeetleAccounts = pgTable("tigerbeetle_accounts", {
   id:             uuid("id").primaryKey().defaultRandom(),
   tbAccountId:    varchar("tb_account_id", { length: 64 }).notNull().unique(),
@@ -3410,6 +3422,43 @@ export const rawWebhookEvents = pgTable("raw_webhook_events", {
 export type RawWebhookEvent = typeof rawWebhookEvents.$inferSelect;
 export type NewRawWebhookEvent = typeof rawWebhookEvents.$inferInsert;
 // === END W61 dataloss ===
+
+// === W62 findings ===
+// email_outbox (F9, migration 0182): durable transactional-email outbox.
+// W61 audit MEDIUM #9: emails were fire-and-forget (sendEmail swallowed
+// failures and returned false) — the WA ban-circuit admin alert email was
+// the ONLY notification path for a banned sender number and could be lost
+// silently. Callers enqueue a row (unique idempotency_key, ON CONFLICT DO
+// NOTHING); an immediate best-effort send is attempted, and on failure the
+// row goes status='failed' with exponential backoff; /api/scheduled/
+// email-send-retry claims due rows claim-first and dead-letters after
+// WA_RETRY_MAX_ATTEMPTS with a tenant-admin alert. Additive-only.
+export const emailOutbox = pgTable("email_outbox", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }),
+  /** Idempotency key: kind + recipient + logical occurrence. Unique. */
+  idempotencyKey: varchar("idempotency_key", { length: 191 }).notNull(),
+  kind: varchar("kind", { length: 48 }).notNull(),
+  toEmail: varchar("to_email", { length: 320 }).notNull(),
+  subject: varchar("subject", { length: 512 }).notNull(),
+  html: text("html").notNull(),
+  textBody: text("text_body"),
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  attempts: integer("attempts").default(0).notNull(),
+  nextRetryAt: timestamp("next_retry_at"),
+  lastError: text("last_error"),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("email_outbox_idempotency_key_uniq").on(t.idempotencyKey),
+  index("email_outbox_retry_idx").on(t.nextRetryAt),
+  index("email_outbox_status_idx").on(t.status),
+  index("email_outbox_tenant_idx").on(t.tenantId),
+]);
+export type EmailOutbox = typeof emailOutbox.$inferSelect;
+export type NewEmailOutbox = typeof emailOutbox.$inferInsert;
+// === END W62 findings ===
 
 // ── Platform ops: usage metering counters ────────────────────────────────────
 // Monthly per-tenant usage counters (period = "yyyymm"). Upsert-incremented by
@@ -3736,6 +3785,7 @@ export type NewGoodsReceipt = typeof goodsReceipts.$inferInsert;
 // === END W45 orders-p0 ===
 
 // ─── w9: media assets (brand studio generated logos / kits) ─────────────────
+// W62 F11 WRITER: server/services/brandStudio/index.ts (insert x2).
 export const mediaAssets = pgTable("media_assets", {
   id:       uuid("id").primaryKey().defaultRandom(),
   tenantId: varchar("tenant_id", { length: 36 }).notNull(),
@@ -5241,6 +5291,7 @@ export const approvalRequests = pgTable("approval_requests", {
 export type ApprovalRequest = typeof approvalRequests.$inferSelect;
 export type NewApprovalRequest = typeof approvalRequests.$inferInsert;
 
+// W62 F11 WRITER: server/routers/approvals.ts.
 export const tenantApprovalPolicies = pgTable("tenant_approval_policies", {
   tenantId: varchar("tenant_id", { length: 36 }).primaryKey(),
   /** 0 = approvals disabled. */
@@ -5593,6 +5644,7 @@ export type NewTelemetryTenantAllowlistEntry = typeof telemetryTenantAllowlist.$
 // Latest honest health snapshot per telemetry component (otel-collector,
 // jaeger, prometheus, grafana, alertmanager, scraped infra targets).
 // tenant_id NULL = platform-scoped component (most are). Migration 0116.
+// W62 F11 EXTERNAL (W62 F11): no in-repo writer — reserved for the telemetry/control-plane status feed. Kept (additive-only).
 export const telemetryComponentStatus = pgTable("telemetry_component_status", {
   id:        serial("id").primaryKey(),
   tenantId:  varchar("tenant_id", { length: 36 }),
@@ -5695,6 +5747,7 @@ export type NewPaymentMismatchQuarantine = typeof paymentMismatchQuarantine.$inf
 // the merchant, the platform must not silently double-spend — a clawback
 // debit record is created against the merchant in the SAME transaction as
 // the refund decision so recovery is explicit and auditable.
+// W62 F11 WRITER: server/services/payments/disputes.ts + server/routers/orderCrud.ts.
 export const merchantClawbacks = pgTable("merchant_clawbacks", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: varchar("tenant_id", { length: 36 }).notNull(),
@@ -5860,6 +5913,7 @@ export type NewCustomerPaymentToken = typeof customerPaymentTokens.$inferInsert;
 // (balance_cents >= amount) in customerWallet.ts, so a concurrent race can
 // never push it below zero. currency is NGN-only this wave (honest doctrine:
 // no multi-currency ledger).
+// W62 F11 WRITER: server/services/customerWallet.ts via raw sql`` (INSERT/UPDATE customer_wallets) — raw SQL not attributed by the W61 scan.
 export const customerWallets = pgTable("customer_wallets", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: varchar("tenant_id", { length: 36 }).notNull(),

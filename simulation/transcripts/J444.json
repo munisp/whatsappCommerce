@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348016013225",
-      "profileName": "Sim User 3225",
-      "inboundId": "wamid.sim.in.text.00566",
-      "at": 1790980494620,
+      "phone": "2348014154710",
+      "profileName": "Sim User 4710",
+      "inboundId": "wamid.sim.in.text.00564",
+      "at": 1790989985419,
       "kind": "text",
       "text": "hello again"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00566",
-      "at": 1790980494629
+      "wamid": "wamid.sim.in.text.00564",
+      "at": 1790989985426
     },
     {
       "dir": "out",
-      "phone": "2348016013225",
-      "wamid": "wamid.sim.001124",
+      "phone": "2348014154710",
+      "wamid": "wamid.sim.001122",
       "statuses": [
         "sent"
       ],
-      "at": 1790980494637,
+      "at": 1790989985432,
       "kind": "text",
       "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
     }

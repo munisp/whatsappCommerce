@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017067463",
-      "profileName": "Sim User 7463",
-      "inboundId": "wamid.sim.in.loc.00329",
-      "at": 1790980103412,
+      "phone": "2348011679655",
+      "profileName": "Sim User 9655",
+      "inboundId": "wamid.sim.in.loc.00327",
+      "at": 1790989595339,
       "kind": "location",
       "lat": 6.53,
       "lng": 3.3792
@@ -18,26 +18,26 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.loc.00329",
-      "at": 1790980103419
+      "wamid": "wamid.sim.in.loc.00327",
+      "at": 1790989595345
     },
     {
       "dir": "out",
-      "phone": "2348017067463",
-      "wamid": "wamid.sim.000586",
+      "phone": "2348011679655",
+      "wamid": "wamid.sim.000584",
       "statuses": [
         "sent"
       ],
-      "at": 1790980103445,
+      "at": 1790989595371,
       "kind": "text",
       "body": "📍 Businesses near you (within 5 km):\n1. ★ Sponsored: Sim Store — sim · 0.6 km\n   🗺️ https://maps.google.com/?q=6.5244,3.3792\n2. ★ Sponsored: Geo Boost B — Local business · 0.5 km\n   🗺️ https://maps.google.com/?q=6.5255,3.3792\n3. Lagos Plastics Manufacturing — plastics · 0.3 km\n   🗺️ https://maps.google.com/?q=6.5272,3.3792\n💡 Share a different location anytime to search around another area.\n\nReply with a category to filter, or tell me what you're looking for."
     },
     {
       "dir": "in",
-      "phone": "2348017067463",
-      "profileName": "Sim User 7463",
-      "inboundId": "wamid.sim.in.loc.00330",
-      "at": 1790980103967,
+      "phone": "2348011679655",
+      "profileName": "Sim User 9655",
+      "inboundId": "wamid.sim.in.loc.00328",
+      "at": 1790989595871,
       "kind": "location",
       "lat": 6.53,
       "lng": 3.3792
@@ -45,17 +45,17 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.loc.00330",
-      "at": 1790980103973
+      "wamid": "wamid.sim.in.loc.00328",
+      "at": 1790989595878
     },
     {
       "dir": "out",
-      "phone": "2348017067463",
-      "wamid": "wamid.sim.000587",
+      "phone": "2348011679655",
+      "wamid": "wamid.sim.000585",
       "statuses": [
         "sent"
       ],
-      "at": 1790980103995,
+      "at": 1790989595902,
       "kind": "text",
       "body": "📍 Businesses near you (within 5 km):\n1. ★ Sponsored: Geo Boost B — Local business · 0.5 km\n   🗺️ https://maps.google.com/?q=6.5255,3.3792\n2. ★ Sponsored: Geo Boost C — Local business · 0.8 km\n   🗺️ https://maps.google.com/?q=6.5228,3.3792\n3. Lagos Plastics Manufacturing — plastics · 0.3 km\n   🗺️ https://maps.google.com/?q=6.5272,3.3792\n4. Sim Store — sim · 0.6 km\n   🗺️ https://maps.google.com/?q=6.5244,3.3792\n💡 Share a different location anytime to search around another area.\n\nReply with a category to filter, or tell me what you're looking for."
     }

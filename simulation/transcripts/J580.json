@@ -8,35 +8,35 @@
     {
       "dir": "out",
       "phone": "2348099900000",
+      "wamid": "wamid.sim.001302",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790990106140,
+      "kind": "text",
+      "body": "⚠️ Credit risk: buyer cust-j580-031826 is identity-linked to 1 defaulted credit account(s). Credit eligibility is FROZEN pending review (cash sales are unaffected)."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001303",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790990106148,
+      "kind": "text",
+      "body": "📋 Identity-flag dispute raised for buyer cust-j580-031826 (flag 1ffaec9c-4258-4ab6-805e-8dd89aa42bc7). Please review the linked-default evidence. Note: not my account"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
       "wamid": "wamid.sim.001304",
       "statuses": [
         "sent"
       ],
-      "at": 1790980616549,
+      "at": 1790990106173,
       "kind": "text",
-      "body": "⚠️ Credit risk: buyer cust-j580-247427 is identity-linked to 1 defaulted credit account(s). Credit eligibility is FROZEN pending review (cash sales are unaffected)."
-    },
-    {
-      "dir": "out",
-      "phone": "2348099900000",
-      "wamid": "wamid.sim.001305",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790980616555,
-      "kind": "text",
-      "body": "📋 Identity-flag dispute raised for buyer cust-j580-247427 (flag 776d6256-a8cc-4345-8a9f-c33eafbb1322). Please review the linked-default evidence. Note: not my account"
-    },
-    {
-      "dir": "out",
-      "phone": "2348099900000",
-      "wamid": "wamid.sim.001306",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790980616582,
-      "kind": "text",
-      "body": "⚠️ Credit risk: buyer cust-j580-247427 is identity-linked to 1 defaulted credit account(s). Credit eligibility is FROZEN pending review (cash sales are unaffected)."
+      "body": "⚠️ Credit risk: buyer cust-j580-031826 is identity-linked to 1 defaulted credit account(s). Credit eligibility is FROZEN pending review (cash sales are unaffected)."
     }
   ]
 }

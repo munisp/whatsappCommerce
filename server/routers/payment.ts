@@ -95,7 +95,17 @@ async function ensureLedgerAccountProvisioned(opts: {
 
 // ── Redis idempotency helper ──────────────────────────────────────────────────
 
-async function acquireIdempotencyLock(key: string, ttlSeconds = 300): Promise<boolean> {
+// === W62 findings (F10) ===
+// TTL raised 300s → 86400s (24h). PSP/webhook retries routinely arrive hours
+// after initiation (provider retry windows are typically 8–72h); a 5-minute
+// lock let late duplicates bypass the Redis gate. The Redis lock is the fast
+// path only — the authoritative backstop is the DB: payment_outbox's unique
+// reference index (payment_outbox_reference_uniq), payments' provider
+// reference uniqueness, and the claim-first guarded status UPDATEs
+// downstream reject duplicates even if the lock has expired or Redis is
+// degraded (fail-closed in production, above).
+// === END W62 findings ===
+async function acquireIdempotencyLock(key: string, ttlSeconds = 86400): Promise<boolean> {
   // Fail CLOSED in production: without Redis there is no duplicate-initiation
   // protection, and a fail-open lock means double charges. Degrade (with a loud
   // warning) only outside production.

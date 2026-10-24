@@ -9,6 +9,9 @@
 //
 // Integration points:
 //   - Kafka topics: hermes.events.inbound (platform → Hermes), hermes.events.outbound (Hermes → platform)
+//   - W62 F8: hermes.events.outbound is DORMANT — this bridge produces it
+//     but no platform consumer subscribes (audit W61 MEDIUM #8). See
+//     docs/event-topology.md.
 //   - Hermes Agent HTTP API: POST /api/v1/process (send event), POST /api/v1/webhook (receive callback)
 //   - Platform tRPC API: POST /api/trpc/hermes.* (config, approval, status)
 //   - WhatsApp Business Cloud API: POST /api/webhooks/whatsapp/send (send approval requests to merchants)

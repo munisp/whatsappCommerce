@@ -11,7 +11,6 @@ import crypto from "crypto";
 import type { Express, Request, Response } from "express";
 import * as db from "../db";
 import { decodeOAuthState } from "@shared/const";
-import { sendWelcomeEmail } from "../services/email/resend";
 import { getSessionCookieOptions } from "./cookies";
 import { ENV } from "./env";
 import {
@@ -85,11 +84,26 @@ export function registerOAuthRoutes(app: Express) {
       const sessionToken = signSessionToken({ id: String(user?.id ?? 0), openId: claims.sub, email: claims.email ?? null, name: claims.name ?? null, role: (user?.role as "admin" | "user") ?? "user", tenantId: user?.tenantId ?? null, loginMethod: "keycloak" });
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(SESSION_COOKIE, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-      // Fire-and-forget — a failed welcome email must never block login.
+      // Durable enqueue (W62 F9) — a failed welcome email must never block
+      // login, but it is persisted+retried instead of fire-and-forget.
       if (isNewUser && claims.email) {
-        sendWelcomeEmail(claims.email, claims.name ?? claims.preferred_username ?? null).catch(err =>
-          console.warn("[Auth] Welcome email failed", err)
-        );
+        const { enqueueEmail } = await import("../services/emailOutbox");
+        const greeting = claims.name || claims.preferred_username ? `Hi ${claims.name ?? claims.preferred_username},` : "Hi,";
+        enqueueEmail({
+          tenantId: user?.tenantId ?? null,
+          idempotencyKey: `welcome:${claims.email}`,
+          kind: "welcome",
+          to: claims.email,
+          subject: "Welcome to WhatsApp Commerce",
+          text: `${greeting}\n\nYour account is ready. Sign in to set up your business and start selling on WhatsApp.`,
+          html: `
+            <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+              <h2>Welcome to WhatsApp Commerce</h2>
+              <p>${greeting}</p>
+              <p>Your account is ready. Sign in to set up your business and start selling on WhatsApp.</p>
+            </div>
+          `,
+        }).catch(err => console.warn("[Auth] Welcome email enqueue failed", err));
       }
       res.redirect(302, redirectTo);
     } catch (error) { console.error("[Auth] Callback failed", error); res.status(500).json({ error: "Auth callback failed" }); }

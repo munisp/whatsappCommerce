@@ -7,142 +7,142 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018871905",
-      "profileName": "Sim User 1905",
-      "inboundId": "wamid.sim.in.text.00597",
-      "at": 1790980569919,
+      "phone": "2348016839792",
+      "profileName": "Sim User 9792",
+      "inboundId": "wamid.sim.in.text.00595",
+      "at": 1790990059600,
       "kind": "text",
       "text": "events"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00597",
-      "at": 1790980569930
+      "wamid": "wamid.sim.in.text.00595",
+      "at": 1790990059607
     },
     {
       "dir": "out",
-      "phone": "2348018871905",
-      "wamid": "wamid.sim.001215",
+      "phone": "2348016839792",
+      "wamid": "wamid.sim.001213",
       "statuses": [
         "sent"
       ],
-      "at": 1790980569967,
+      "at": 1790990059640,
       "kind": "text",
-      "body": "🎟️ Upcoming events:\n1. W53 J545 Live Show — 2026-10-09 22:36 @ W53 Arena, Lagos\nReply TICKET <number> to see ticket types (e.g. TICKET 1)."
+      "body": "🎟️ Upcoming events:\n1. W53 J545 Live Show — 2026-10-10 01:14 @ W53 Arena, Lagos\nReply TICKET <number> to see ticket types (e.g. TICKET 1)."
     },
     {
       "dir": "in",
-      "phone": "2348018871905",
-      "profileName": "Sim User 1905",
-      "inboundId": "wamid.sim.in.text.00598",
-      "at": 1790980570463,
+      "phone": "2348016839792",
+      "profileName": "Sim User 9792",
+      "inboundId": "wamid.sim.in.text.00596",
+      "at": 1790990060147,
       "kind": "text",
       "text": "ticket 1"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00598",
-      "at": 1790980570472
+      "wamid": "wamid.sim.in.text.00596",
+      "at": 1790990060154
     },
     {
       "dir": "out",
-      "phone": "2348018871905",
-      "wamid": "wamid.sim.001216",
+      "phone": "2348016839792",
+      "wamid": "wamid.sim.001214",
       "statuses": [
         "sent"
       ],
-      "at": 1790980570502,
+      "at": 1790990060180,
       "kind": "text",
       "body": "🎟️ W53 J545 Live Show\nTicket types:\n1. General — NGN 2,500.00 (50 left)\n2. VIP — NGN 9,000.00 (10 left)\nReply BUY <number> [qty] to get a payment link (e.g. BUY 1 2)."
     },
     {
       "dir": "in",
-      "phone": "2348018871905",
-      "profileName": "Sim User 1905",
-      "inboundId": "wamid.sim.in.text.00599",
-      "at": 1790980571009,
+      "phone": "2348016839792",
+      "profileName": "Sim User 9792",
+      "inboundId": "wamid.sim.in.text.00597",
+      "at": 1790990060692,
       "kind": "text",
       "text": "buy 1 2"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00599",
-      "at": 1790980571019
+      "wamid": "wamid.sim.in.text.00597",
+      "at": 1790990060701
     },
     {
       "dir": "out",
-      "phone": "2348018871905",
+      "phone": "2348016839792",
+      "wamid": "wamid.sim.001215",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790990060739,
+      "kind": "text",
+      "body": "🎟️ 2 × General for W53 J545 Live Show — total NGN 5,000.00 (order EVT-MURP8N94).\nTap to pay securely: https://checkout.paystack.com/sim/EVT-1790990060728-C4D2004E"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016839792",
+      "wamid": "wamid.sim.001216",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790990061281,
+      "kind": "text",
+      "body": "🧾 *Sim Store (j471) — Payment Receipt*\nOrder: EVT-MURP8N94\n\n2 × W53 J545 Live Show — General — ₦5,000.00\n\n*Total paid: ₦5,000.00*\nPayment ref: EVT-1790990060728-C4D2004E\n\n🔎 Track your order: http://localhost:4173/track/bac11c53-4fdb-425b-8e66-018d616afc9a.A5nnqc1VeGnp2c7ptZDhmYt-"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016839792",
       "wamid": "wamid.sim.001217",
       "statuses": [
         "sent"
       ],
-      "at": 1790980571063,
+      "at": 1790990061289,
       "kind": "text",
-      "body": "🎟️ 2 × General for W53 J545 Live Show — total NGN 5,000.00 (order EVT-MURJL8YQ).\nTap to pay securely: https://checkout.paystack.com/sim/EVT-1790980571042-FDF86A45"
+      "body": "🎟️ Your tickets for *W53 J545 Live Show* (2026-10-10 01:14) at W53 Arena, Lagos:\n1. T-51577B4E\n2. T-C7370D92\nShow the codes at the door. Order EVT-MURP8N94."
     },
     {
       "dir": "out",
-      "phone": "2348018871905",
+      "phone": "2348016839792",
       "wamid": "wamid.sim.001218",
       "statuses": [
         "sent"
       ],
-      "at": 1790980571587,
-      "kind": "text",
-      "body": "🧾 *Sim Store (j471) — Payment Receipt*\nOrder: EVT-MURJL8YQ\n\n2 × W53 J545 Live Show — General — ₦5,000.00\n\n*Total paid: ₦5,000.00*\nPayment ref: EVT-1790980571042-FDF86A45\n\n🔎 Track your order: http://localhost:4173/track/de5d1705-89e9-4229-87f7-56dc8fcd3525.ywGzqeuBMbUEbD_vwRjwf75n"
-    },
-    {
-      "dir": "out",
-      "phone": "2348018871905",
-      "wamid": "wamid.sim.001219",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790980571596,
-      "kind": "text",
-      "body": "🎟️ Your tickets for *W53 J545 Live Show* (2026-10-09 22:36) at W53 Arena, Lagos:\n1. T-0DCEC9F1\n2. T-12512C50\nShow the codes at the door. Order EVT-MURJL8YQ."
-    },
-    {
-      "dir": "out",
-      "phone": "2348018871905",
-      "wamid": "wamid.sim.001220",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790980571599,
+      "at": 1790990061292,
       "kind": "document",
       "mediaKind": "document",
-      "caption": "🧾 Receipt for order EVT-MURJL8YQ",
-      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-EVT-MURJL8YQ.pdf"
+      "caption": "🧾 Receipt for order EVT-MURP8N94",
+      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-EVT-MURP8N94.pdf"
     },
     {
       "dir": "in",
-      "phone": "2348019559562",
-      "profileName": "Sim User 9562",
-      "inboundId": "wamid.sim.in.text.00600",
-      "at": 1790980572010,
+      "phone": "2348016599806",
+      "profileName": "Sim User 9806",
+      "inboundId": "wamid.sim.in.text.00598",
+      "at": 1790990061698,
       "kind": "text",
-      "text": "checkin T-0DCEC9F1"
+      "text": "checkin T-51577B4E"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00600",
-      "at": 1790980572017
+      "wamid": "wamid.sim.in.text.00598",
+      "at": 1790990061707
     },
     {
       "dir": "out",
-      "phone": "2348019559562",
-      "wamid": "wamid.sim.001221",
+      "phone": "2348016599806",
+      "wamid": "wamid.sim.001219",
       "statuses": [
         "sent"
       ],
-      "at": 1790980572054,
+      "at": 1790990061743,
       "kind": "text",
-      "body": "Ticket T-0DCEC9F1 belongs to a cancelled event — not valid for entry."
+      "body": "Ticket T-51577B4E belongs to a cancelled event — not valid for entry."
     }
   ]
 }

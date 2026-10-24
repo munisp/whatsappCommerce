@@ -138,8 +138,14 @@ export async function alertBanCircuitTripped(
   try {
     const email = await resolveAdminEmail(db, tenantId);
     if (email) {
-      const { sendEmail } = await import("./email/resend");
-      await sendEmail({
+      // === W62 findings (F9) === durable outbox enqueue (idempotency-keyed,
+      // retried by /api/scheduled/email-send-retry) instead of fire-and-forget
+      // — this alert is the ONLY notification path for a banned sender number.
+      const { enqueueEmail } = await import("./emailOutbox");
+      await enqueueEmail({
+        tenantId,
+        idempotencyKey: `ban-circuit:${tenantId}:${phoneNumberId}`,
+        kind: "ban_circuit_alert",
         to: email,
         subject: "[WAC] WhatsApp number restricted — sends paused",
         text:

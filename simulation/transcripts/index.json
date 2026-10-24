@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-02T22:37:43.785Z",
+  "generatedAt": "2026-10-03T01:18:42.123829Z",
   "businessName": "Simply Green (simulated tenant)",
   "allPass": true,
   "journeys": [
@@ -4578,6 +4578,46 @@
       "pass": true,
       "file": "J611.json",
       "messageCount": 1
+    },
+    {
+      "id": "J612",
+      "title": "email outbox: idempotent enqueue, cron retry, dead-letter admin alert",
+      "feature": "W62 findings F9: durable email outbox",
+      "pass": true,
+      "file": "J612.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J613",
+      "title": "payment idempotency lock TTL 24h + documented DB backstop",
+      "feature": "W62 findings F10: idempotency TTL",
+      "pass": true,
+      "file": "J613.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J614",
+      "title": "wa_webhook_events dead row alerts tenant admin",
+      "feature": "W62 findings F13: dead-row alert",
+      "pass": true,
+      "file": "J614.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J615",
+      "title": "cron allowlist parity: /api/cron sweeps are scheduler-invoked",
+      "feature": "W62 findings F14: cron allowlist parity",
+      "pass": true,
+      "file": "J615.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J616",
+      "title": "integrations webhook: identical redelivery deduped, distinct update applies",
+      "feature": "W62 findings F12: webhook dedupe",
+      "pass": true,
+      "file": "J616.json",
+      "messageCount": 0
     },
     {
       "id": "J62",

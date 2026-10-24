@@ -8,35 +8,35 @@
     {
       "dir": "out",
       "phone": "2348099900000",
+      "wamid": "wamid.sim.000791",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790989778608,
+      "kind": "text",
+      "body": "🚨 *Payment dispute* (open): paystack ref w39-j271-jk53dpzq for 1250.00 NGN on order ord-j271-jk53dpzq. The order is flagged; review the dispute in your PSP dashboard."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000792",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790989779054,
+      "kind": "text",
+      "body": "🚨 *Payment dispute* (open): paystack ref w39-j271-jk53dpzq for 1250.00 NGN on order ord-j271-jk53dpzq. The order is flagged; review the dispute in your PSP dashboard."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
       "wamid": "wamid.sim.000793",
       "statuses": [
         "sent"
       ],
-      "at": 1790980287521,
+      "at": 1790989779923,
       "kind": "text",
-      "body": "🚨 *Payment dispute* (open): paystack ref w39-j271-bvr9m746 for 1250.00 NGN on order ord-j271-bvr9m746. The order is flagged; review the dispute in your PSP dashboard."
-    },
-    {
-      "dir": "out",
-      "phone": "2348099900000",
-      "wamid": "wamid.sim.000794",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790980287963,
-      "kind": "text",
-      "body": "🚨 *Payment dispute* (open): paystack ref w39-j271-bvr9m746 for 1250.00 NGN on order ord-j271-bvr9m746. The order is flagged; review the dispute in your PSP dashboard."
-    },
-    {
-      "dir": "out",
-      "phone": "2348099900000",
-      "wamid": "wamid.sim.000795",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790980288828,
-      "kind": "text",
-      "body": "🚨 *Refund FAILED at provider*: paystack ref w39-j271-bvr9m746-refund-bad (750.00 NGN) for order ord-j271-bvr9m746. The customer has NOT been refunded — retry the refund or reconcile manually."
+      "body": "🚨 *Refund FAILED at provider*: paystack ref w39-j271-jk53dpzq-refund-bad (750.00 NGN) for order ord-j271-jk53dpzq. The customer has NOT been refunded — retry the refund or reconcile manually."
     }
   ]
 }

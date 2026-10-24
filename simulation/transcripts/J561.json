@@ -8,133 +8,133 @@
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348017795963",
-      "sessionId": "w55-j561-1790980603722",
+      "phone": "2348019650294",
+      "sessionId": "w55-j561-1790990093733",
       "text": "(dial)",
-      "at": 1790980604031
+      "at": 1790990094101
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348017795963",
-      "sessionId": "w55-j561-1790980603722",
+      "phone": "2348019650294",
+      "sessionId": "w55-j561-1790990093733",
       "text": "CON Big menu — pick one:\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n4. Extra Service 1\n5. Extra Service 2\n6. Extra Service 3\n7. Extra Service 4\n8. Extra Service 5\n9. Extra Service 6\n10. Extra Service 7\n11. Extra Service 8",
-      "at": 1790980604032
+      "at": 1790990094102
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348017795963",
-      "sessionId": "w55-j561-1790980603722",
+      "phone": "2348019650294",
+      "sessionId": "w55-j561-1790990093733",
       "text": "events",
-      "at": 1790980604338
+      "at": 1790990094415
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348017795963",
-      "sessionId": "w55-j561-1790980603722",
-      "text": "CON 🎟️ Upcoming events:\n1. W53 J561 Live Show — 2026-10-09 @ W53 Arena, Lagos\nReply with the event number.",
-      "at": 1790980604339
+      "phone": "2348019650294",
+      "sessionId": "w55-j561-1790990093733",
+      "text": "CON 🎟️ Upcoming events:\n1. W53 J561 Live Show — 2026-10-10 @ W53 Arena, Lagos\nReply with the event number.",
+      "at": 1790990094416
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348017795963",
-      "sessionId": "w55-j561-1790980603722",
+      "phone": "2348019650294",
+      "sessionId": "w55-j561-1790990093733",
       "text": "1",
-      "at": 1790980604647
+      "at": 1790990094724
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348017795963",
-      "sessionId": "w55-j561-1790980603722",
+      "phone": "2348019650294",
+      "sessionId": "w55-j561-1790990093733",
       "text": "CON W53 J561 Live Show\nTicket types:\n1. General — NGN 2,500.00 (50 left)\n2. VIP — NGN 9,000.00 (10 left)",
-      "at": 1790980604648
+      "at": 1790990094725
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348017795963",
-      "sessionId": "w55-j561-1790980603722",
+      "phone": "2348019650294",
+      "sessionId": "w55-j561-1790990093733",
       "text": "1",
-      "at": 1790980604955
+      "at": 1790990095033
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348017795963",
-      "sessionId": "w55-j561-1790980603722",
+      "phone": "2348019650294",
+      "sessionId": "w55-j561-1790990093733",
       "text": "CON How many tickets? Reply with a number.",
-      "at": 1790980604956
+      "at": 1790990095034
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348017795963",
-      "sessionId": "w55-j561-1790980603722",
+      "phone": "2348019650294",
+      "sessionId": "w55-j561-1790990093733",
       "text": "1",
-      "at": 1790980605332
+      "at": 1790990095416
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348017795963",
-      "sessionId": "w55-j561-1790980603722",
-      "text": "END 🎟️ 1 × General for W53 J561 Live Show — total NGN 2,500.00 (order EVT-MURJLZ4W).\nPay: https://checkout.paystack.com/sim/EVT-1790980604960-56A1ABEE",
-      "at": 1790980605333
+      "phone": "2348019650294",
+      "sessionId": "w55-j561-1790990093733",
+      "text": "END 🎟️ 1 × General for W53 J561 Live Show — total NGN 2,500.00 (order EVT-MURP9DQ7).\nPay: https://checkout.paystack.com/sim/EVT-1790990095039-CE4190CF",
+      "at": 1790990095417
     },
     {
       "dir": "out",
-      "phone": "2348017795963",
+      "phone": "2348019650294",
+      "wamid": "wamid.sim.001293",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790990095458,
+      "kind": "text",
+      "body": "🧾 *Sim Store (j471) — Payment Receipt*\nOrder: EVT-MURP9DQ7\n\n1 × W53 J561 Live Show — General — ₦2,500.00\n\n*Total paid: ₦2,500.00*\nPayment ref: EVT-1790990095039-CE4190CF\n\n🔎 Track your order: http://localhost:4173/track/398b6609-ff2e-48a4-a041-43fc3a193cd6.FF3_hBGUpoPsPxBgJzK7DFcH"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019650294",
+      "wamid": "wamid.sim.001294",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790990095468,
+      "kind": "text",
+      "body": "🎟️ Your ticket for *W53 J561 Live Show* (2026-10-10 01:14) at W53 Arena, Lagos:\n1. T-C6E574FE\nShow the code at the door. Order EVT-MURP9DQ7."
+    },
+    {
+      "dir": "out",
+      "phone": "2348019650294",
       "wamid": "wamid.sim.001295",
       "statuses": [
         "sent"
       ],
-      "at": 1790980605363,
-      "kind": "text",
-      "body": "🧾 *Sim Store (j471) — Payment Receipt*\nOrder: EVT-MURJLZ4W\n\n1 × W53 J561 Live Show — General — ₦2,500.00\n\n*Total paid: ₦2,500.00*\nPayment ref: EVT-1790980604960-56A1ABEE\n\n🔎 Track your order: http://localhost:4173/track/961c981f-1a8d-41f4-bf22-df8b40f30f74.-uqxnsG4sXHoTCQtopC9cwXN"
-    },
-    {
-      "dir": "out",
-      "phone": "2348017795963",
-      "wamid": "wamid.sim.001296",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790980605377,
-      "kind": "text",
-      "body": "🎟️ Your ticket for *W53 J561 Live Show* (2026-10-09 22:36) at W53 Arena, Lagos:\n1. T-6F5DC0D1\nShow the code at the door. Order EVT-MURJLZ4W."
-    },
-    {
-      "dir": "out",
-      "phone": "2348017795963",
-      "wamid": "wamid.sim.001297",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1790980605380,
+      "at": 1790990095473,
       "kind": "document",
       "mediaKind": "document",
-      "caption": "🧾 Receipt for order EVT-MURJLZ4W",
-      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-EVT-MURJLZ4W.pdf"
+      "caption": "🧾 Receipt for order EVT-MURP9DQ7",
+      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-EVT-MURP9DQ7.pdf"
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348017795963",
-      "sessionId": "w55-j561-1790980603722-tix",
+      "phone": "2348019650294",
+      "sessionId": "w55-j561-1790990093733-tix",
       "text": "my tickets",
-      "at": 1790980606073
+      "at": 1790990096158
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348017795963",
-      "sessionId": "w55-j561-1790980603722-tix",
-      "text": "END 🎟️ Your tickets:\nT-6F5DC0D1 (issued)",
-      "at": 1790980606074
+      "phone": "2348019650294",
+      "sessionId": "w55-j561-1790990093733-tix",
+      "text": "END 🎟️ Your tickets:\nT-C6E574FE (issued)",
+      "at": 1790990096159
     }
   ]
 }

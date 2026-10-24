@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348013350316",
-      "profileName": "Sim User 0316",
-      "inboundId": "wamid.sim.in.text.00582",
-      "at": 1790980553810,
+      "phone": "2348018746763",
+      "profileName": "Sim User 6763",
+      "inboundId": "wamid.sim.in.text.00580",
+      "at": 1790990043885,
       "kind": "text",
       "text": "menu"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00582",
-      "at": 1790980553819
+      "wamid": "wamid.sim.in.text.00580",
+      "at": 1790990043893
     },
     {
       "dir": "out",
-      "phone": "2348013350316",
-      "wamid": "wamid.sim.001189",
+      "phone": "2348018746763",
+      "wamid": "wamid.sim.001187",
       "statuses": [
         "sent"
       ],
-      "at": 1790980553864,
+      "at": 1790990043918,
       "kind": "interactive",
       "body": "Big menu — pick one:",
       "footer": "Tap an option, or reply with its number.",

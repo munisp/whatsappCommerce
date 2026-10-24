@@ -1,6 +1,10 @@
 // === W45 go-rust-services (MSG-19) ===
 // notification-service — queue-backed notification dispatch pipeline.
 //
+// W62 F8: DORMANT PIPE — this service consumes notifications.dispatch, but
+// no platform producer publishes to it (audit W61 MEDIUM #8). Kept but
+// documented as inactive; set KAFKA_TOPIC_DISPATCH and wire a producer to
+// activate. See docs/event-topology.md.
 // Consumes notifications.dispatch (Kafka), dedupes via Redis, delivers to the
 // platform notify endpoint with retries, dead-letters terminal failures to
 // notifications.dlq. Exposes /health on PORT.
