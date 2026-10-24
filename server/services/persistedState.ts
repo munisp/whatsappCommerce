@@ -60,4 +60,62 @@ export async function setNxOnce(key: string, ttlMs: number, opts: { label: strin
     return memorySetNx(key, ttlMs);
   }
 }
+
+// === W65 conversational ===
+/** Dev/test-only fallback for JSON blobs: key → {value, expiry}. */
+const memoryJson = new Map<string, { v: string; exp: number }>();
+
+function memoryPutJson(key: string, value: string, ttlMs: number): void {
+  const now = Date.now();
+  memoryJson.forEach((rec, k) => {
+    if (rec.exp <= now) memoryJson.delete(k);
+  });
+  memoryJson.set(key, { v: value, exp: now + ttlMs });
+}
+
+function memoryTakeJson(key: string): string | null {
+  const rec = memoryJson.get(key);
+  if (!rec) return null;
+  memoryJson.delete(key);
+  return rec.exp > Date.now() ? rec.v : null;
+}
+
+/**
+ * Store a JSON-serializable value with a millisecond TTL. Production + Redis
+ * down → throws PersistedStateUnavailableError (fail-closed: a confirm token
+ * store that cannot remember is worse than none); dev/test → in-memory.
+ */
+export async function putJson(key: string, value: unknown, ttlMs: number, opts: { label: string }): Promise<void> {
+  const serialized = JSON.stringify(value);
+  try {
+    const redis = await getRedis();
+    if (!redis) throw new Error("Redis client is not connected");
+    await redis.set(key, serialized, "PX", Math.max(1, Math.floor(ttlMs)));
+  } catch (e: any) {
+    if (isProd) throw new PersistedStateUnavailableError(opts.label, e);
+    console.warn(`[persistedState] ${opts.label}: Redis unavailable (${e?.message ?? e}) — dev in-memory fallback`);
+    memoryPutJson(key, serialized, ttlMs);
+  }
+}
+
+/**
+ * One-shot read: returns the parsed value and DELETES the key (confirm
+ * tokens must not be replayable). Missing/expired → null. Production +
+ * Redis down → throws (fail-closed); dev/test → in-memory.
+ */
+export async function takeJson<T>(key: string, opts: { label: string }): Promise<T | null> {
+  try {
+    const redis = await getRedis();
+    if (!redis) throw new Error("Redis client is not connected");
+    // GETDEL is atomic (Redis ≥ 6.2): no get-then-delete race.
+    const raw = await (redis as any).getdel(key);
+    return raw == null ? null : (JSON.parse(raw) as T);
+  } catch (e: any) {
+    if (isProd) throw new PersistedStateUnavailableError(opts.label, e);
+    console.warn(`[persistedState] ${opts.label}: Redis unavailable (${e?.message ?? e}) — dev in-memory fallback`);
+    const raw = memoryTakeJson(key);
+    return raw == null ? null : (JSON.parse(raw) as T);
+  }
+}
+// === END W65 conversational ===
 // === END W60 persistence ===

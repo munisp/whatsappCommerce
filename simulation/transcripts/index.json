@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-24T16:25:18.985Z",
+  "generatedAt": "2026-10-24T18:49:29.843Z",
   "businessName": "Simply Green (simulated tenant)",
   "allPass": true,
   "journeys": [
@@ -4666,6 +4666,30 @@
       "pass": true,
       "file": "J621.json",
       "messageCount": 86
+    },
+    {
+      "id": "J622",
+      "title": "onboardingChat web facade: start → steps → confirm cards → tenant live",
+      "feature": "W65 R2 chat-first web onboarding (tRPC facade over onboardingCopilot)",
+      "pass": true,
+      "file": "J622.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J623",
+      "title": "command bar parse → confirm → execute incl. admin gating + missing fields",
+      "feature": "W65 R7 universal NL command bar",
+      "pass": true,
+      "file": "J623.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J624",
+      "title": "smartDefaults per-context predictions + correction learning event",
+      "feature": "W65 R10 smart defaults engine",
+      "pass": true,
+      "file": "J624.json",
+      "messageCount": 0
     },
     {
       "id": "J63",

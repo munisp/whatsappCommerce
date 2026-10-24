@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348011427252",
-      "profileName": "Sim User 7252",
+      "phone": "2348013177900",
+      "profileName": "Sim User 7900",
       "inboundId": "wamid.sim.in.img.00336",
-      "at": 1792858559383,
+      "at": 1792867211050,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-j128-photo"
@@ -19,53 +19,53 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.img.00336",
-      "at": 1792858559389
+      "at": 1792867211057
     },
     {
       "dir": "out",
-      "phone": "2348011427252",
+      "phone": "2348013177900",
       "wamid": "wamid.sim.000597",
       "statuses": [
         "sent"
       ],
-      "at": 1792858559419,
+      "at": 1792867211088,
       "kind": "interactive",
       "body": "🤖 *AI draft listing* (photo)\n\n*Plantain Chips 100g*\nCrispy salted plantain chips, 100g pack.\nCategory: j128snacks\nSuggested price: NGN 250.00\nTypical range: NGN 200.00 – NGN 300.00\n\nTap ✅ to publish to your catalog, or ❌ to discard. You can edit it in the tenant portal.",
       "buttons": [
         {
-          "id": "catalog_ai:publish:90626bec-e891-47d3-b113-5cdbd904e4e1",
+          "id": "catalog_ai:publish:c53bd492-8aeb-46f7-b33e-d7e87e5e6644",
           "title": "✅ Publish"
         },
         {
-          "id": "catalog_ai:reject:90626bec-e891-47d3-b113-5cdbd904e4e1",
+          "id": "catalog_ai:reject:c53bd492-8aeb-46f7-b33e-d7e87e5e6644",
           "title": "❌ Reject"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348011427252",
-      "profileName": "Sim User 7252",
+      "phone": "2348013177900",
+      "profileName": "Sim User 7900",
       "inboundId": "wamid.sim.in.btn.00337",
-      "at": 1792858559928,
+      "at": 1792867211595,
       "kind": "button_reply",
       "text": "✅ Publish",
-      "payloadId": "catalog_ai:publish:90626bec-e891-47d3-b113-5cdbd904e4e1"
+      "payloadId": "catalog_ai:publish:c53bd492-8aeb-46f7-b33e-d7e87e5e6644"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.btn.00337",
-      "at": 1792858559935
+      "at": 1792867211602
     },
     {
       "dir": "out",
-      "phone": "2348011427252",
+      "phone": "2348013177900",
       "wamid": "wamid.sim.000598",
       "statuses": [
         "sent"
       ],
-      "at": 1792858559956,
+      "at": 1792867211627,
       "kind": "text",
       "body": "✅ \"Plantain Chips 100g\" is now live in your catalog at NGN 250.00."
     }

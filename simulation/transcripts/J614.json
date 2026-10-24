@@ -12,7 +12,7 @@
       "statuses": [
         "sent"
       ],
-      "at": 1792859090463,
+      "at": 1792867739907,
       "kind": "text",
       "body": "⚠️ WhatsApp webhook event dead-lettered after 3 retries.\nType: text · Number: 2348000000000 · Event j614-evt\nError: simulated persistent failure\nReview it in the webhook DLQ dashboard and requeue if needed."
     }

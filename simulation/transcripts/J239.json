@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348016111365",
+      "phone": "2348012885665",
       "profileName": "WA User",
       "inboundId": "wamid.sim.in.text.00449",
-      "at": 1792858730616,
+      "at": 1792867381429,
       "kind": "text",
       "text": "zzqx do you deliver to Yaba on Sundays"
     },
@@ -18,16 +18,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00449",
-      "at": 1792858730623
+      "at": 1792867381436
     },
     {
       "dir": "out",
-      "phone": "2348016111365",
+      "phone": "2348012885665",
       "wamid": "wamid.sim.000792",
       "statuses": [
         "sent"
       ],
-      "at": 1792858730655,
+      "at": 1792867381468,
       "kind": "text",
       "body": "Sorry, I didn't quite get that — type 'menu' to see options."
     }

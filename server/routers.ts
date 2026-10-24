@@ -405,6 +405,11 @@ export const appRouter = router({
   recs: recsRouter,
   prefill: prefillRouter,
   // === END W64 intelligence ===
+  // === W65 conversational ===
+  onboardingChat: onboardingChatRouter,
+  commandBar: commandBarRouter,
+  smartDefaults: smartDefaultsRouter,
+  // === END W65 conversational ===
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
@@ -413,6 +418,11 @@ import { searchRouter } from "./routers/search";
 import { recsRouter } from "./routers/recs";
 import { prefillRouter } from "./routers/prefill";
 // === END W64 intelligence ===
+// === W65 conversational ===
+import { onboardingChatRouter } from "./routers/onboardingChat";
+import { commandBarRouter } from "./routers/commandBar";
+import { smartDefaultsRouter } from "./routers/smartDefaults";
+// === END W65 conversational ===
 import { temporalRouter } from "./routers/temporal";
 import { orchestratorRouter } from "./routers/orchestrator";
 // === W27 catalog-ai ===

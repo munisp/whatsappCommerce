@@ -69,6 +69,17 @@ export const EXEMPTION_ALLOWLIST: Record<string, string> = {
     "shared quick-reply template library (tenantId nullable; list is global), cross-tenant by design",
   "quickReplyTemplates.ts:incrementUsage":
     "shared quick-reply template library (tenantId nullable; list is global), cross-tenant by design",
+  // === W65 conversational (R2) === pre-tenant onboarding wizard: sessions are
+  // created BEFORE the tenant exists, keyed by an unguessable sessionId
+  // (capability); go-live still routes through the existing tenant.create path.
+  "onboardingChat.ts:start":
+    "pre-tenant onboarding session create/resume — no tenant exists yet; session keyed by unguessable sessionId capability",
+  "onboardingChat.ts:step":
+    "pre-tenant onboarding chat — sessionId bearer capability; tenantId assigned by the copilot service at go-live",
+  "onboardingChat.ts:decide":
+    "pre-tenant onboarding proposal decision — sessionId bearer capability, checkpoint enforced in service layer",
+  "onboardingChat.ts:reset":
+    "pre-tenant onboarding session abandon — sessionId bearer capability, no tenant data mutated",
   // Fixture control: proves the allowlist (not the in-source comment) is what
   // exempts a procedure. Never add real exemptions for fixture files.
   "evasion.fixture.ts:publicWebhookish":

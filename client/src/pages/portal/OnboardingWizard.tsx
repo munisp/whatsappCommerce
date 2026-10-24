@@ -518,7 +518,13 @@ function ReviewStep({ tenantId, onComplete, onBack }: { tenantId: string; onComp
 }
 
 // ─── Main Wizard ──────────────────────────────────────────────────────────────
+// === W65 conversational (R2) === chat-first onboarding mode (portal parity) ===
+import OnboardingChatPanel from "@/components/OnboardingChatPanel";
+// === END W65 conversational ===
+
 export default function OnboardingWizard({ onComplete }: { onComplete?: () => void }) {
+  // === W65 conversational (R2): chat-first toggle; form = review & edit ===
+  const [wizardMode, setWizardMode] = useState<"chat" | "form">("chat");
   const [currentStep, setCurrentStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
@@ -581,6 +587,19 @@ export default function OnboardingWizard({ onComplete }: { onComplete?: () => vo
 
   return (
     <DashboardLayout>
+    {/* === W65 conversational (R2) === */}
+    {wizardMode === "chat" ? (
+      <div className="min-h-screen bg-muted/30 flex items-start justify-center pt-8 pb-16 px-4">
+        <div className="w-full max-w-2xl space-y-4">
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={() => setWizardMode("form")}>
+              Review &amp; edit (form)
+            </Button>
+          </div>
+          <OnboardingChatPanel onSwitchToForm={() => setWizardMode("form")} />
+        </div>
+      </div>
+    ) : (
     <div className="min-h-screen bg-muted/30 flex items-start justify-center pt-8 pb-16 px-4">
       <div className="w-full max-w-2xl">
         {/* Header */}
@@ -660,6 +679,8 @@ export default function OnboardingWizard({ onComplete }: { onComplete?: () => vo
         )}
       </div>
     </div>
+    )}
+    {/* === END W65 conversational === */}
     </DashboardLayout>
   );
 }
