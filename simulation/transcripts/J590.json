@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348013424488",
-      "profileName": "Sim User 4488",
+      "phone": "2348015166839",
+      "profileName": "Sim User 6839",
       "inboundId": "wamid.sim.in.text.00630",
-      "at": 1792859071066,
+      "at": 1792867720865,
       "kind": "text",
       "text": "statement"
     },
@@ -18,16 +18,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00630",
-      "at": 1792859071073
+      "at": 1792867720871
     },
     {
       "dir": "out",
-      "phone": "2348013424488",
+      "phone": "2348015166839",
       "wamid": "wamid.sim.001310",
       "statuses": [
         "sent"
       ],
-      "at": 1792859071110,
+      "at": 1792867720902,
       "kind": "document",
       "mediaKind": "document",
       "caption": "Your wallet statement 2026-09-01 .. 2026-10-01",
@@ -35,21 +35,21 @@
     },
     {
       "dir": "out",
-      "phone": "2348013424488",
+      "phone": "2348015166839",
       "wamid": "wamid.sim.001311",
       "statuses": [
         "sent"
       ],
-      "at": 1792859071113,
+      "at": 1792867720905,
       "kind": "text",
       "body": "📄 Wallet statement 2026-09-01 .. 2026-10-01: opening NGN 0.00, closing NGN 5,000.00. The PDF is on its way as a document."
     },
     {
       "dir": "in",
-      "phone": "2348015604076",
-      "profileName": "Sim User 4076",
+      "phone": "2348018720263",
+      "profileName": "Sim User 0263",
       "inboundId": "wamid.sim.in.text.00631",
-      "at": 1792859071613,
+      "at": 1792867721417,
       "kind": "text",
       "text": "statement"
     },
@@ -57,16 +57,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00631",
-      "at": 1792859071620
+      "at": 1792867721424
     },
     {
       "dir": "out",
-      "phone": "2348015604076",
+      "phone": "2348018720263",
       "wamid": "wamid.sim.001312",
       "statuses": [
         "sent"
       ],
-      "at": 1792859071671,
+      "at": 1792867721459,
       "kind": "text",
       "body": "Sorry, I didn't quite get that — type 'menu' to see options."
     }

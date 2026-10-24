@@ -141,10 +141,18 @@ export default function Products() {
       );
   // === W48 perf (PERF-FE-4): virtualized product rows ===
   const { scrollRef, virtualizer } = useTableVirtualizer(filteredProducts.length, 53);
+  // === W65 conversational (R10) === smart default: price band from catalogAI
+  // comparables for the typed category; edits are captured as learning events.
+  const recordPriceCorrection = trpc.smartDefaults.correct.useMutation();
+  const { data: priceBand } = trpc.smartDefaults.forContext.useQuery(
+    { tenantId: DEMO_TENANT, context: "price_band", category: form.category || undefined },
+    { enabled: !!DEMO_TENANT && open && !!form.category.trim() },
+  );
   const createMutation = trpc.product.create.useMutation({
     onSuccess: () => { toast.success("Product created"); setOpen(false); refetch(); },
     onError: (e) => toast.error(e.message),
   });
+  // === END W65 conversational ===
   // === W48 perf (PERF-FE-12): validation is a mutation, not a query — the
   // CSV payload is no longer serialized into a query key / refetched.
   const validateCsvMutation = trpc.product.validateCsv.useMutation();
@@ -402,6 +410,21 @@ export default function Products() {
                       <Input value={(form as any)[f.key]} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} placeholder={f.placeholder} className="bg-input border-border" />
                     </div>
                   ))}
+                  {/* === W65 conversational (R10): price-band suggestion === */}
+                  {!!priceBand?.value && (priceBand.value as any).suggestedPriceCents != null && (
+                    <div className="flex items-center justify-between rounded-md border border-dashed border-border p-2 text-xs" data-testid="price-band-suggestion">
+                      <span className="text-muted-foreground">
+                        Suggested {(((priceBand.value as any).suggestedPriceCents) / 100).toFixed(2)} NGN
+                        (band {(((priceBand.value as any).bandLowCents ?? 0) / 100).toFixed(2)}–{(((priceBand.value as any).bandHighCents ?? 0) / 100).toFixed(2)})
+                        — {(priceBand as any).basis}
+                      </span>
+                      <Button type="button" variant="outline" size="sm"
+                        onClick={() => setForm({ ...form, price: (((priceBand.value as any).suggestedPriceCents) / 100).toFixed(2) })}>
+                        Apply
+                      </Button>
+                    </div>
+                  )}
+                  {/* === END W65 conversational === */}
                   <div className="space-y-1">
                     <Label>Stock Quantity</Label>
                     <Input type="number" value={form.stockQuantity} onChange={(e) => setForm({ ...form, stockQuantity: parseInt(e.target.value) || 0 })} className="bg-input border-border" />

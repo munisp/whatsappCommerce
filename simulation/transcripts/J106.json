@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018838957",
-      "profileName": "Sim User 8957",
+      "phone": "2348013957063",
+      "profileName": "Sim User 7063",
       "inboundId": "wamid.sim.in.img.00310",
-      "at": 1792858489688,
+      "at": 1792867140542,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-j106-shelf"
@@ -19,25 +19,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.img.00310",
-      "at": 1792858489694
+      "at": 1792867140549
     },
     {
       "dir": "out",
-      "phone": "2348018838957",
+      "phone": "2348013957063",
       "wamid": "wamid.sim.000525",
       "statuses": [
         "sent"
       ],
-      "at": 1792858489728,
+      "at": 1792867140584,
       "kind": "text",
       "body": "📷 I counted: 50× J106 Rice 5kg, 18× J106 Beans 2kg, 12× J106 Garri 1kg. Reply APPLY to update stock or REVIEW to check first."
     },
     {
       "dir": "in",
-      "phone": "2348018838957",
-      "profileName": "Sim User 8957",
+      "phone": "2348013957063",
+      "profileName": "Sim User 7063",
       "inboundId": "wamid.sim.in.text.00311",
-      "at": 1792858490233,
+      "at": 1792867141088,
       "kind": "text",
       "text": "APPLY"
     },
@@ -45,16 +45,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00311",
-      "at": 1792858490240
+      "at": 1792867141095
     },
     {
       "dir": "out",
-      "phone": "2348018838957",
+      "phone": "2348013957063",
       "wamid": "wamid.sim.000526",
       "statuses": [
         "sent"
       ],
-      "at": 1792858490262,
+      "at": 1792867141116,
       "kind": "text",
       "body": "✅ Updated stock for 1 item(s). 2 item(s) had lower confidence and were NOT applied — please review them in your dashboard. (1 excluded as too uncertain.)"
     }

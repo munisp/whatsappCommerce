@@ -11,7 +11,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, CalendarIcon, X, Check, ChevronsUpDown } from "lucide-react";
 import { PlusCircle } from "lucide-react";
 import { format } from "date-fns";
@@ -77,6 +77,23 @@ export default function MerchantWallet() {
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [bankAccount, setBankAccount] = useState("");
   const [bankCode, setBankCode] = useState("");
+  // === W65 conversational (R10) === smart default: prefill the W59 primary
+  // payout account into the withdrawal dialog; edits are learning events.
+  const { data: payoutDefault } = trpc.smartDefaults.forContext.useQuery(
+    { tenantId, context: "payout_account" },
+    { enabled: !!tenantId && withdrawOpen },
+  );
+  const recordPayoutCorrection = trpc.smartDefaults.correct.useMutation();
+  useEffect(() => {
+    const v = payoutDefault?.value as any;
+    if (withdrawOpen && v && !bankAccount) {
+      setBankAccount(v.accountNumber ?? "");
+      setBankCode(v.bankCode ?? "");
+      setSelectedBankLabel(v.accountName ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payoutDefault, withdrawOpen]);
+  // === END W65 conversational ===
   const [selectedBankLabel, setSelectedBankLabel] = useState("");
   const [bankPickerOpen, setBankPickerOpen] = useState(false);
   const [csvLoading, setCsvLoading] = useState(false);
@@ -582,6 +599,15 @@ export default function MerchantWallet() {
                   // Changing the payout destination is a separate, audited,
                   // step-up-gated action (W30) — an OTP is sent to the tenant
                   // admin phone before the new bank details are saved.
+                  // === W65 conversational (R10): correction learning event ===
+                  const suggested = (payoutDefault?.value as any)?.accountNumber;
+                  if (suggested && bankAccount && bankAccount !== suggested) {
+                    recordPayoutCorrection.mutate({
+                      tenantId, app: "tenant-portal", context: "payout_account",
+                      suggested: payoutDefault?.value, actual: { accountNumber: bankAccount, bankCode },
+                    });
+                  }
+                  // === END W65 conversational ===
                   if (bankAccount && bankCode && resolvedAccount) {
                     const challenge = await stepUpRequest.mutateAsync({ tenantId, purpose: "payout_change" });
                     const otp = window.prompt(

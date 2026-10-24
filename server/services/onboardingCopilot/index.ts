@@ -21,11 +21,12 @@ import {
   loadSession,
   saveSession,
   startSessionCas,
+  TERMINAL_STATES,
   type CopilotChannel,
   type CopilotReply,
   type OnboardingSession,
 } from "./session";
-import { advanceToLive, runAgentTurn, runConfigurationPhase } from "./agent";
+import { advanceToLive, runAgentTurn, runConfigurationPhase, transition } from "./agent";
 import { sessionLanguage, t, isCopilotLanguage, type CopilotLanguage } from "./language";
 
 export {
@@ -275,3 +276,20 @@ export async function findActiveSessionByPhone(phone: string): Promise<Onboardin
 export async function listSessions(filter?: { tenantId?: string }): Promise<OnboardingSession[]> {
   return listSessionRows(filter);
 }
+
+// === W65 conversational (R2) ===
+/**
+ * Explicitly abandon a non-terminal session (web wizard "start over").
+ * Terminal sessions are returned unchanged.
+ */
+export async function abandonSession(sessionId: string): Promise<OnboardingSession | null> {
+  const session = await loadSession(sessionId);
+  if (!session) return null;
+  if (!TERMINAL_STATES.includes(session.state)) {
+    await transition(session, "abandoned");
+    await appendTranscript(session, "system", "Session abandoned by operator (web wizard reset).");
+    await saveSession(session);
+  }
+  return session;
+}
+// === END W65 conversational ===

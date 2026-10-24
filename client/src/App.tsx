@@ -1,6 +1,9 @@
 import { lazy, Suspense, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
+// === W65 conversational ===
+import CommandBar from "@/components/CommandBar";
+// === END W65 conversational ===
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Switch, useLocation } from "wouter";
@@ -359,6 +362,8 @@ function App() {
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster />
+          {/* === W65 conversational === Cmd+K universal NL command bar */}
+          <CommandBar />
           <Router />
         </TooltipProvider>
       </ThemeProvider>

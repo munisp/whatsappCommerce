@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348016491139",
-      "profileName": "Sim User 1139",
+      "phone": "2348016490461",
+      "profileName": "Sim User 0461",
       "inboundId": "wamid.sim.in.text.00012",
-      "at": 1792858157070,
+      "at": 1792866807202,
       "kind": "text",
       "text": "menu"
     },
@@ -18,16 +18,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00012",
-      "at": 1792858157077
+      "at": 1792866807210
     },
     {
       "dir": "out",
-      "phone": "2348016491139",
+      "phone": "2348016490461",
       "wamid": "wamid.sim.000014",
       "statuses": [
         "sent"
       ],
-      "at": 1792858157112,
+      "at": 1792866807244,
       "kind": "interactive",
       "body": "Welcome to Sim Store! How can we help you today?",
       "footer": "Tap an option, or reply with its number.",
@@ -48,10 +48,10 @@
     },
     {
       "dir": "in",
-      "phone": "2348016491139",
-      "profileName": "Sim User 1139",
+      "phone": "2348016490461",
+      "profileName": "Sim User 0461",
       "inboundId": "wamid.sim.in.text.00013",
-      "at": 1792858157615,
+      "at": 1792866807750,
       "kind": "text",
       "text": "1"
     },
@@ -59,25 +59,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00013",
-      "at": 1792858157623
+      "at": 1792866807758
     },
     {
       "dir": "out",
-      "phone": "2348016491139",
+      "phone": "2348016490461",
       "wamid": "wamid.sim.000015",
       "statuses": [
         "sent"
       ],
-      "at": 1792858157666,
+      "at": 1792866807802,
       "kind": "text",
       "body": "Great — tell me what you want, e.g. '2 Jollof Rice'."
     },
     {
       "dir": "in",
-      "phone": "2348016491139",
-      "profileName": "Sim User 1139",
+      "phone": "2348016490461",
+      "profileName": "Sim User 0461",
       "inboundId": "wamid.sim.in.text.00014",
-      "at": 1792858158162,
+      "at": 1792866808296,
       "kind": "text",
       "text": "show me ankara"
     },
@@ -85,27 +85,27 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00014",
-      "at": 1792858158170
+      "at": 1792866808304
     },
     {
       "dir": "out",
-      "phone": "2348016491139",
+      "phone": "2348016490461",
       "wamid": "wamid.sim.000016",
       "statuses": [
         "sent"
       ],
-      "at": 1792858158220,
+      "at": 1792866808344,
       "kind": "text",
       "body": "Here is our Ankara Fabric!"
     },
     {
       "dir": "out",
-      "phone": "2348016491139",
+      "phone": "2348016490461",
       "wamid": "wamid.sim.000017",
       "statuses": [
         "sent"
       ],
-      "at": 1792858158234,
+      "at": 1792866808358,
       "kind": "interactive",
       "body": "Ankara Fabric — ₦5,000.00",
       "buttons": [

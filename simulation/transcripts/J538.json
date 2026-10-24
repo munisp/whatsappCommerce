@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348019617626",
-      "profileName": "Sim User 7626",
+      "phone": "2348012676257",
+      "profileName": "Sim User 6257",
       "inboundId": "wamid.sim.in.text.00582",
-      "at": 1792859002986,
+      "at": 1792867652926,
       "kind": "text",
       "text": "menu"
     },
@@ -18,16 +18,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00582",
-      "at": 1792859002993
+      "at": 1792867652935
     },
     {
       "dir": "out",
-      "phone": "2348019617626",
+      "phone": "2348012676257",
       "wamid": "wamid.sim.001189",
       "statuses": [
         "sent"
       ],
-      "at": 1792859003013,
+      "at": 1792867652963,
       "kind": "interactive",
       "body": "Big menu — pick one:",
       "footer": "Tap an option, or reply with its number.",

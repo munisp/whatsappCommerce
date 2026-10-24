@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348016013781",
-      "profileName": "Sim User 3781",
+      "phone": "2348017126774",
+      "profileName": "Sim User 6774",
       "inboundId": "wamid.sim.in.text.00580",
-      "at": 1792858999256,
+      "at": 1792867649095,
       "kind": "text",
-      "text": "DEAL DEAL33 REF REF-GNJCR9"
+      "text": "DEAL DEAL33 REF REF-NG7EY6"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00580",
-      "at": 1792858999263
+      "at": 1792867649102
     },
     {
       "dir": "out",
-      "phone": "2348016013781",
+      "phone": "2348017126774",
       "wamid": "wamid.sim.001187",
       "statuses": [
         "sent"
       ],
-      "at": 1792858999304,
+      "at": 1792867649143,
       "kind": "text",
       "body": "✅ Deal DEAL33 locked in — it applies automatically at checkout. Happy shopping!"
     }

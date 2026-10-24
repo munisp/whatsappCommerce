@@ -803,6 +803,11 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j620-clickstream-friction"),
     import("./journeys/j621-proactive-nudges"),
     // === END W64 intelligence ===
+    // === W65 conversational ===
+    import("./journeys/j622-onboarding-chat-web"),
+    import("./journeys/j623-command-bar"),
+    import("./journeys/j624-smart-defaults"),
+    // === END W65 conversational ===
     // === END W55 parity ===
     // === END W54 CAPABILITIES ===
     // === END W51 PROMOS ===

@@ -101,8 +101,14 @@ interface ValidationCheck {
   detail?: string;
 }
 
+// === W65 conversational (R2) === chat-first onboarding mode ===
+import OnboardingChatPanel from "@/components/OnboardingChatPanel";
+// === END W65 conversational ===
+
 export default function TenantOnboardingWizard() {
   const { user, refresh } = useAuth();
+  // === W65 conversational (R2): chat-first by default; form = review & edit ===
+  const [onboardingMode, setOnboardingMode] = useState<"chat" | "form">("chat");
   const [, navigate] = useLocation();
   const { activeTenantId, setActiveTenantId } = useActiveTenant();
   // A brand-new self-service user has no tenant yet, so users.tenantId is the
@@ -402,6 +408,17 @@ export default function TenantOnboardingWizard() {
 
   return (
     <DashboardLayout>
+      {/* === W65 conversational (R2) === */}
+      {onboardingMode === "chat" ? (
+        <div className="p-6 space-y-6 max-w-5xl mx-auto">
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={() => setOnboardingMode("form")}>
+              Review &amp; edit (form)
+            </Button>
+          </div>
+          <OnboardingChatPanel onSwitchToForm={() => setOnboardingMode("form")} />
+        </div>
+      ) : (
       <div className="p-6 space-y-6 max-w-5xl mx-auto">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
@@ -1192,6 +1209,8 @@ export default function TenantOnboardingWizard() {
           </Button>
         </div>
       </div>
+      )}
+      {/* === END W65 conversational === */}
     </DashboardLayout>
   );
 }

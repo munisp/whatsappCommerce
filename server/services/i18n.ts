@@ -54,6 +54,15 @@ export interface LocalePack {
   /** === W47 crosscutting (ONB-I18N-1): age-gate attestation prompt
    *  ({age} = required age, {items} = optional parenthesised product list). === */
   ageGatePrompt: string;
+  /** === W65 conversational === R7 command bar + R10 smart defaults copy. */
+  cmdUnknown: string;
+  cmdConfirmPrompt: string;
+  cmdExecuted: string;
+  cmdFailed: string;
+  cmdMissingFields: string;
+  cmdAdminOnly: string;
+  defaultSuggested: string;
+  defaultCorrectionThanks: string;
 }
 
 /**
@@ -133,8 +142,25 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     paidViaCredit: "Paid via credit — due {dueDate}. Repay by the due date to keep ordering.",
     imageProcessingFailed: "Sorry — I couldn't process that photo. Try sending it again, or type what you're looking for. 📷",
     ageGatePrompt: "🔞 One or more items in your cart{items} are age-restricted. Please confirm you are {age} years or older by replying \"YES {age}+\" to complete your order.",
+    // === W65 conversational === R7 command bar + R10 smart defaults
+    cmdUnknown: "🤔 I couldn't map that to a command — try 'create invoice', 'wallet balance', 'order status'.",
+    cmdConfirmPrompt: "Confirm this action? {summary}",
+    cmdExecuted: "✅ Done: {summary}",
+    cmdFailed: "❌ Couldn't complete: {summary} ({error})",
+    cmdMissingFields: "I still need: {fields}.",
+    cmdAdminOnly: "🔒 That command is admin-only.",
+    defaultSuggested: "💡 Suggested: {value} — {basis}.",
+    defaultCorrectionThanks: "Noted — thanks, I'll learn from that.",
   },
   fr: {
+    cmdUnknown: "🤔 Je n'ai pas compris — essayez « créer facture », « solde », « statut commande ».",
+    cmdConfirmPrompt: "Confirmer cette action ? {summary}",
+    cmdExecuted: "✅ Terminé : {summary}",
+    cmdFailed: "❌ Échec : {summary} ({error})",
+    cmdMissingFields: "Il me manque : {fields}.",
+    cmdAdminOnly: "🔒 Commande réservée aux administrateurs.",
+    defaultSuggested: "💡 Suggestion : {value} — {basis}.",
+    defaultCorrectionThanks: "C'est noté — merci, j'en tiendrai compte.",
     greeting: "Bonjour ! Bienvenue chez {businessName}. Comment pouvons-nous vous aider ?",
     menuLabels: {
       shop: "Acheter / passer une commande",
@@ -164,6 +190,14 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     ageGatePrompt: "🔞 Un ou plusieurs articles de votre panier{items} sont réservés aux adultes. Confirmez que vous avez {age} ans ou plus en répondant \"OUI {age}+\" pour terminer votre commande.",
   },
   ha: {
+    cmdUnknown: "🤔 Ban fahimci umarnin ba — gwada 'create invoice', 'wallet balance', 'order status'.",
+    cmdConfirmPrompt: "Tabbatar da wannan aikin? {summary}",
+    cmdExecuted: "✅ An gama: {summary}",
+    cmdFailed: "❌ Ba a iya kammala ba: {summary} ({error})",
+    cmdMissingFields: "Ina bukatar: {fields}.",
+    cmdAdminOnly: "🔒 Wannan umarni na admin ne kawai.",
+    defaultSuggested: "💡 Shawara: {value} — {basis}.",
+    defaultCorrectionThanks: "An lura — na gode, zan koya daga gare shi.",
     greeting: "Sannu da zuwa {businessName}! Yaya za mu iya taimaka maka yau?",
     menuLabels: {
       shop: "Sayayya / aika oda",
@@ -191,6 +225,14 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     ageGatePrompt: "🔞 Akwai abubuwa a cikin kwandonka{items} da ke buƙatar shekara. Tabbitar da cewa kana da shekara {age} ko fiye ta amsa \"EE {age}+\" don kammala odar ka.",
   },
   yo: {
+    cmdUnknown: "🤔 N kò lòye àṣẹ náà — gbìyànjú 'create invoice', 'wallet balance', 'order status'.",
+    cmdConfirmPrompt: "Jẹ́ kí n ṣe ìdánimọ̀? {summary}",
+    cmdExecuted: "✅ Ṣe é: {summary}",
+    cmdFailed: "❌ Kò ṣe é: {summary} ({error})",
+    cmdMissingFields: "Mo ṣì nílò: {fields}.",
+    cmdAdminOnly: "🔒 Àṣẹ yìí fún admin nìkan.",
+    defaultSuggested: "💡 Àbá: {value} — {basis}.",
+    defaultCorrectionThanks: "Mo ti kọ ọ́ sílẹ̀ — ẹ ṣeun, ma a kọ́ lọ́gbọ́n.",
     greeting: "Ẹ káàbọ̀ sí {businessName}! Báwo la ṣe lè ràn wọ́ lọ́wọ́ lónìí?",
     menuLabels: {
       shop: "Ra ọjà / fi àṣẹ ránṣẹ́",
@@ -218,6 +260,14 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     ageGatePrompt: "🔞 Ohun kan tàbí síwájú nínú àpò rẹ{items} ní ìdíwọ́ ọjọ́-ori. Jẹ́rìíṣí pé o ti pé dí {age} nípa fìdáhùn \"BẸẸNI {age}+\" láti parí àṣẹ rẹ.",
   },
   ig: {
+    cmdUnknown: "🤔 Aghọtaghị m iwu ahụ — nwalee 'create invoice', 'wallet balance', 'order status'.",
+    cmdConfirmPrompt: "Kwenye omume a? {summary}",
+    cmdExecuted: "✅ Emechara: {summary}",
+    cmdFailed: "❌ Enweghị ike imezu: {summary} ({error})",
+    cmdMissingFields: "Ka m chọrọ: {fields}.",
+    cmdAdminOnly: "🔒 Iwu a bụ nke admin naanị.",
+    defaultSuggested: "💡 Atụmatụ: {value} — {basis}.",
+    defaultCorrectionThanks: "Edetoola — daalụ, aga m amụta ya.",
     greeting: "Nnọọ na {businessName}! Kedu ka anyị ga-esi nyere gị aka taa?",
     menuLabels: {
       shop: "Zụta / zipu ihe ị chọrọ",
@@ -246,6 +296,14 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
   },
   // W27: Swahili + Amharic packs (locales extended from 5 → 7).
   sw: {
+    cmdUnknown: "🤔 Sikuelewi amri hiyo — jaribu 'create invoice', 'wallet balance', 'order status'.",
+    cmdConfirmPrompt: "Thibitisha kitendo hiki? {summary}",
+    cmdExecuted: "✅ Imekamilika: {summary}",
+    cmdFailed: "❌ Imeshindwa: {summary} ({error})",
+    cmdMissingFields: "Bado ninahitaji: {fields}.",
+    cmdAdminOnly: "🔒 Amri hii ni ya msimamizi pekee.",
+    defaultSuggested: "💡 Pendekezo: {value} — {basis}.",
+    defaultCorrectionThanks: "Nimekurekodisha — asante, nitajifunza.",
     greeting: "Karibu {businessName}! Tunaweza kukusaidia vipi leo?",
     menuLabels: {
       shop: "Nunua bidhaa",
@@ -275,6 +333,14 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     ageGatePrompt: "🔞 Bidhaa moja au zaidi kwenye mkoba wako{items} zina kikomo cha umri. Thibitisha kuwa una miaka {age} au zaidi kwa kujibu \"NDIYO {age}+\" ili kukamilisha agizo lako.",
   },
   am: {
+    cmdUnknown: "🤔 ያን ትእዛዝ አልገባኝም — 'create invoice'፣ 'wallet balance'፣ 'order status' ይሞክሩ።",
+    cmdConfirmPrompt: "ይህን እርምጃ አረጋግጥ? {summary}",
+    cmdExecuted: "✅ ተጠናቋል: {summary}",
+    cmdFailed: "❌ አልተሳካም: {summary} ({error})",
+    cmdMissingFields: "አሁንም ያስፈልገኛል: {fields}.",
+    cmdAdminOnly: "🔒 ይህ ትእዛዝ ለአስተዳዳሪ ብቻ ነው።",
+    defaultSuggested: "💡 ምክር: {value} — {basis}.",
+    defaultCorrectionThanks: "ተመዝግቧል — አመሰግናለሁ፣ እማራለሁ።",
     greeting: "እንኳን ወደ {businessName} በደህና መጡ! ዛሬ እንዴት ልንረዳዎት እንችላለን?",
     menuLabels: {
       shop: "ምርቶችን ይግዙ",
@@ -308,6 +374,14 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
   // the literal word "WhatsApp" — telegramInbound does a WhatsApp→Telegram
   // string swap on it (I18N-8).
   pcm: {
+    cmdUnknown: "🤔 I no grab dat command — try 'create invoice', 'wallet balance', 'order status'.",
+    cmdConfirmPrompt: "You confirm dis action? {summary}",
+    cmdExecuted: "✅ Done: {summary}",
+    cmdFailed: "❌ E no work: {summary} ({error})",
+    cmdMissingFields: "I still need: {fields}.",
+    cmdAdminOnly: "🔒 Na admin only fit run dat one.",
+    defaultSuggested: "💡 Suggestion: {value} — {basis}.",
+    defaultCorrectionThanks: "I don note am — thanks, I go learn from am.",
     greeting: "How far! Welcome to {businessName}! Wetin you need today?",
     menuLabels: {
       shop: "Buy tins / see products",
@@ -824,7 +898,11 @@ export type MessageKey =
   | "creditFeeAdjusted" | "creditRescheduled" | "creditGraceExtended"
   // === W64 intelligence === R1 chat recs + R9 proactive nudges (WA+TG)
   | "alsoBoughtHeader" | "alsoBoughtLine" | "reorderAgainHeader"
-  | "nudgeLowStock" | "nudgeOrderAging" | "nudgePaymentDue" | "nudgeCreditOffer";
+  | "nudgeLowStock" | "nudgeOrderAging" | "nudgePaymentDue" | "nudgeCreditOffer"
+  // === W65 conversational === R7 command bar + R10 smart defaults (web + WA/TG-ready)
+  | "cmdUnknown" | "cmdConfirmPrompt" | "cmdExecuted" | "cmdFailed"
+  | "cmdMissingFields" | "cmdAdminOnly"
+  | "defaultSuggested" | "defaultCorrectionThanks";
 
 export type MessageCatalog = Record<MessageKey, string>;
 
@@ -999,6 +1077,16 @@ const EN_CATALOG: MessageCatalog = {
   nudgePaymentDue: "💳 Reminder: {amount} {currency} for order {orderNumber} is due on {date}.",
   nudgeCreditOffer: "💎 You're pre-approved for credit up to {amount} {currency} at this store — reply CREDIT to apply.",
   // === END W64 intelligence ===
+  // === W65 conversational ===
+  cmdUnknown: "🤔 I couldn't map that to a command — try 'create invoice', 'wallet balance', 'order status'.",
+  cmdConfirmPrompt: "Confirm this action? {summary}",
+  cmdExecuted: "✅ Done: {summary}",
+  cmdFailed: "❌ Couldn't complete: {summary} ({error})",
+  cmdMissingFields: "I still need: {fields}.",
+  cmdAdminOnly: "🔒 That command is admin-only.",
+  defaultSuggested: "💡 Suggested: {value} — {basis}.",
+  defaultCorrectionThanks: "Noted — thanks, I'll learn from that.",
+  // === END W65 conversational ===
 };
 
 /** Partial translations per locale — any missing key falls back to English. */
@@ -1037,6 +1125,15 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     paymentReceived: "✅ Paiement reçu — merci ! Votre commande est en préparation.",
     paymentFailed: "❌ Le paiement n'a pas abouti — réessayez ou choisissez un autre moyen.",
     paymentPending: "Votre paiement est en cours de confirmation — nous vous informerons bientôt.",
+    // === W65 conversational === R7 command bar + R10 smart defaults
+    cmdUnknown: "🤔 Je n'ai pas compris — essayez « créer facture », « solde », « statut commande ».",
+    cmdConfirmPrompt: "Confirmer cette action ? {summary}",
+    cmdExecuted: "✅ Terminé : {summary}",
+    cmdFailed: "❌ Échec : {summary} ({error})",
+    cmdMissingFields: "Il me manque : {fields}.",
+    cmdAdminOnly: "🔒 Commande réservée aux administrateurs.",
+    defaultSuggested: "💡 Suggestion : {value} — {basis}.",
+    defaultCorrectionThanks: "C'est noté — merci, j'en tiendrai compte.",
     // === W51 PROMOS ===
     promoSpotlightBody: "🔥 {title} — {discount} avec le code {code}",
     promoShopNow: "🛍️ Acheter",
@@ -1205,6 +1302,15 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     paymentReceived: "✅ An karɓi biya — na gode! Ana shirin odarka.",
     paymentFailed: "❌ Biya bai yi nasara ba — sake gwadawa ko zaɓi wani hanya.",
     paymentPending: "Ana tabbatar da biyarka — za mu sanar da kai nan ba da jimawa ba.",
+    // === W65 conversational === R7 command bar + R10 smart defaults
+    cmdUnknown: "🤔 Ban fahimci umarnin ba — gwada 'create invoice', 'wallet balance', 'order status'.",
+    cmdConfirmPrompt: "Tabbatar da wannan aikin? {summary}",
+    cmdExecuted: "✅ An gama: {summary}",
+    cmdFailed: "❌ Ba a iya kammala ba: {summary} ({error})",
+    cmdMissingFields: "Ina bukatar: {fields}.",
+    cmdAdminOnly: "🔒 Wannan umarni na admin ne kawai.",
+    defaultSuggested: "💡 Shawara: {value} — {basis}.",
+    defaultCorrectionThanks: "An lura — na gode, zan koya daga gare shi.",
     // === W51 PROMOS ===
     promoSpotlightBody: "🔥 {title} — {discount} da lambar {code}",
     promoShopNow: "🛍️ Yi sayayya",
@@ -1373,6 +1479,15 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     paymentReceived: "✅ A ti gba owó — ẹ ṣeun! A ń ṣe àṣẹ rẹ.",
     paymentFailed: "❌ Owó kò lọ — gbìyànjú lẹ́ẹ̀kansi tàbí yan ọ̀nà míì.",
     paymentPending: "A ń jẹ́rìí sí owó rẹ — a ó sọ fún ọ láìpẹ́.",
+    // === W65 conversational === R7 command bar + R10 smart defaults
+    cmdUnknown: "🤔 N kò lòye àṣẹ náà — gbìyànjú 'create invoice', 'wallet balance', 'order status'.",
+    cmdConfirmPrompt: "Jẹ́ kí n ṣe ìdánimọ̀? {summary}",
+    cmdExecuted: "✅ Ṣe é: {summary}",
+    cmdFailed: "❌ Kò ṣe é: {summary} ({error})",
+    cmdMissingFields: "Mo ṣì nílò: {fields}.",
+    cmdAdminOnly: "🔒 Àṣẹ yìí fún admin nìkan.",
+    defaultSuggested: "💡 Àbá: {value} — {basis}.",
+    defaultCorrectionThanks: "Mo ti kọ ọ́ sílẹ̀ — ẹ ṣeun, ma a kọ́ lọ́gbọ́n.",
     // === W51 PROMOS ===
     promoSpotlightBody: "🔥 {title} — {discount} pẹ̀lú kóòdù {code}",
     promoShopNow: "🛍️ Ra níṣìí",
@@ -1544,6 +1659,15 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     // intentionally-missing key; fallback chain now exercised via J137's
     // unknown-locale seam).
     paymentPending: "A na-akwenye ụgwọ gị ugbu a — anyị ga-agwa gị n'oge na-adịghị anya.",
+    // === W65 conversational === R7 command bar + R10 smart defaults
+    cmdUnknown: "🤔 Aghọtaghị m iwu ahụ — nwalee 'create invoice', 'wallet balance', 'order status'.",
+    cmdConfirmPrompt: "Kwenye omume a? {summary}",
+    cmdExecuted: "✅ Emechara: {summary}",
+    cmdFailed: "❌ Enweghị ike imezu: {summary} ({error})",
+    cmdMissingFields: "Ka m chọrọ: {fields}.",
+    cmdAdminOnly: "🔒 Iwu a bụ nke admin naanị.",
+    defaultSuggested: "💡 Atụmatụ: {value} — {basis}.",
+    defaultCorrectionThanks: "Edetoola — daalụ, aga m amụta ya.",
     // === W51 PROMOS ===
     promoSpotlightBody: "🔥 {title} — {discount} site na koodu {code}",
     promoShopNow: "🛍️ Zụta ugbu a",
@@ -1712,6 +1836,15 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     paymentReceived: "✅ Malipo yamepokea — asante! Agizo lako linaandaliwa.",
     paymentFailed: "❌ Malipo hayakufanikiwa — jaribu tena au chagua njia nyingine.",
     paymentPending: "Malipo yako yanathibitishwa — tutakujulisha hivi karibuni.",
+    // === W65 conversational === R7 command bar + R10 smart defaults
+    cmdUnknown: "🤔 Sikuelewi amri hiyo — jaribu 'create invoice', 'wallet balance', 'order status'.",
+    cmdConfirmPrompt: "Thibitisha kitendo hiki? {summary}",
+    cmdExecuted: "✅ Imekamilika: {summary}",
+    cmdFailed: "❌ Imeshindwa: {summary} ({error})",
+    cmdMissingFields: "Bado ninahitaji: {fields}.",
+    cmdAdminOnly: "🔒 Amri hii ni ya msimamizi pekee.",
+    defaultSuggested: "💡 Pendekezo: {value} — {basis}.",
+    defaultCorrectionThanks: "Nimekurekodisha — asante, nitajifunza.",
     // === W51 PROMOS ===
     promoSpotlightBody: "🔥 {title} — {discount} kwa msimbo {code}",
     promoShopNow: "🛍️ Nunua sasa",
@@ -2017,6 +2150,15 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     // intentionally-missing key; fallback chain now exercised via J137's
     // unknown-locale seam).
     paymentPending: "ክፍያዎ እየተረጋገጠ ነው — በቅርቡ እናሳውቆታለን።",
+    // === W65 conversational === R7 command bar + R10 smart defaults
+    cmdUnknown: "🤔 ያን ትእዛዝ አልገባኝም — 'create invoice'፣ 'wallet balance'፣ 'order status' ይሞክሩ።",
+    cmdConfirmPrompt: "ይህን እርምጃ አረጋግጥ? {summary}",
+    cmdExecuted: "✅ ተጠናቋል: {summary}",
+    cmdFailed: "❌ አልተሳካም: {summary} ({error})",
+    cmdMissingFields: "አሁንም ያስፈልገኛል: {fields}.",
+    cmdAdminOnly: "🔒 ይህ ትእዛዝ ለአስተዳዳሪ ብቻ ነው።",
+    defaultSuggested: "💡 ምክር: {value} — {basis}.",
+    defaultCorrectionThanks: "ተመዝግቧል — አመሰግናለሁ፣ እማራለሁ።",
   },
   // === W49 I18N-PCM === full catalog (all 27 MessageKeys — complete).
   // W55 parity (PARITY-7): ig/am paymentPending filled too — every locale
@@ -2054,6 +2196,15 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     paymentReceived: "✅ Payment don enter — thank you! We dey prepare your order.",
     paymentFailed: "❌ Payment no go — abeg try again or choose another way.",
     paymentPending: "Dem dey confirm your payment — we go update you small time.",
+    // === W65 conversational === R7 command bar + R10 smart defaults
+    cmdUnknown: "🤔 I no grab dat command — try 'create invoice', 'wallet balance', 'order status'.",
+    cmdConfirmPrompt: "You confirm dis action? {summary}",
+    cmdExecuted: "✅ Done: {summary}",
+    cmdFailed: "❌ E no work: {summary} ({error})",
+    cmdMissingFields: "I still need: {fields}.",
+    cmdAdminOnly: "🔒 Na admin only fit run dat one.",
+    defaultSuggested: "💡 Suggestion: {value} — {basis}.",
+    defaultCorrectionThanks: "I don note am — thanks, I go learn from am.",
     // === W51 PROMOS ===
     promoSpotlightBody: "🔥 {title} — {discount} with code {code}",
     promoShopNow: "🛍️ Shop now",
