@@ -1316,7 +1316,14 @@ export const nlpRouter = router({
         // A session already on the sticky locale keeps its own spelling: "pcm" and "pidgin" are both Pidgin but
         // render different USSD greetings (J537), so rewriting "pcm" to "pidgin" here would swap the greeting.
         const alreadyOnSticky = !!stickyLocale && localeFromSessionLanguage(session.language) === stickyLocale;
-        if (!alreadyOnSticky && detectedLang !== session.language) {
+        // USSD sessions pin their chosen locale: menu inputs (numbers, product codes,
+        // free text typed while navigating) carry no reliable language signal, so
+        // re-detecting the language from them wrongly resets the session — e.g. a
+        // French USSD browse menu falling back to English on an unrecognised "zzz"
+        // (W55 PARITY-7). Conversational (non-USSD) flows keep the self-correct
+        // behaviour (J601: a stuck session self-corrects on the next English message).
+        const isUssdSession = input.ussdMode ?? ((session.context as Record<string, unknown> | null)?.ussdMode === true);
+        if (!isUssdSession && !alreadyOnSticky && detectedLang !== session.language) {
           await db.update(nlpSessions)
             .set({ language: detectedLang, lastActivityAt: new Date() })
             .where(eq(nlpSessions.id, session.id));
