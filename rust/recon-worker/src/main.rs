@@ -288,12 +288,9 @@ async fn run_recon(state: &AppState) -> ReconResult {
                     Ok(rows) => {
                         total_checked = rows.len() as u64;
 
-                        // === W48 sidecars (PERF-SC-27) === was N+1: a
-                        // sequential GET /balance/{id} per payment intent (up
-                        // to 1000 serial RTTs per run). Now the balance
-                        // checks run concurrently with bounded parallelism
-                        // (JoinSet + Semaphore, RECON_FETCH_CONCURRENCY,
-                        // default 16).
+                        // Collect the completed payments that carry a ledger
+                        // transfer id, then reconcile them all in ONE batched
+                        // ledger_transfers query below (no per-payment RTT).
                         struct FetchJob {
                             id: String,
                             tenant_id: String,
@@ -328,8 +325,8 @@ async fn run_recon(state: &AppState) -> ReconResult {
                             let expected_minor = (amount * 100.0).round() as i64;
 
                             if status == "completed" {
-                                // === W48 perf: ledger-balance fetches for a page of payments are now BATCHED
-                                // (bounded-concurrency JoinSet below) instead of one sequential await per row.
+                                // Completed payments with a ledger transfer id are verified in one batched
+                                // ledger_transfers lookup below (committed + right amount).
                                 if let Some(lid) = ledger_id {
                                     fetch_jobs.push(FetchJob {
                                         id, tenant_id, amount, expected_minor, ledger_id: lid,
@@ -356,65 +353,86 @@ async fn run_recon(state: &AppState) -> ReconResult {
                             }
                         }
 
-                        let concurrency: usize = env::var("RECON_FETCH_CONCURRENCY")
-                            .ok().and_then(|v| v.parse().ok()).unwrap_or(16);
-                        let sem = Arc::new(tokio::sync::Semaphore::new(concurrency));
-                        let mut set: tokio::task::JoinSet<(bool, Option<ReconAlert>)> =
-                            tokio::task::JoinSet::new();
-                        for job in fetch_jobs {
-                            let sem = sem.clone();
-                            let http = state.http.clone();
-                            let base = state.config.ledger_bridge_url.clone();
-                            set.spawn(async move {
-                                let _permit = sem.acquire().await.expect("semaphore");
-                                let ledger_url = format!("{}/balance/{}", base, job.ledger_id);
-                                match http.get(&ledger_url).send().await {
-                                    Ok(r) if r.status().is_success() => {
-                                        let data = r.json::<serde_json::Value>().await.unwrap_or_default();
-                                        let balance_minor = data["balance_minor"].as_i64()
-                                            .or_else(|| data["balance"].as_f64().map(|b| (b * 100.0).round() as i64))
-                                            .unwrap_or(0);
-                                        let reserved_minor = data["reserved_minor"].as_i64()
-                                            .or_else(|| data["reserved"].as_f64().map(|b| (b * 100.0).round() as i64))
-                                            .unwrap_or(0);
-                                        let observed_minor = balance_minor + reserved_minor;
-                                        if observed_minor < job.expected_minor {
-                                            // Ledger entry exists but does not
-                                            // cover the completed payment.
-                                            (false, Some(ReconAlert {
-                                                severity: "high".into(),
-                                                message: format!(
-                                                    "Payment {} amount drift: expected {} minor units, ledger entry {} holds {}",
-                                                    job.id, job.expected_minor, job.ledger_id, observed_minor
-                                                ),
-                                                tenant_id: Some(job.tenant_id),
-                                                amount_diff: Some((job.expected_minor - observed_minor) as f64 / 100.0),
-                                            }))
-                                        } else {
-                                            (true, None)
-                                        }
+                        // Reconcile each completed payment against its ledger TRANSFER (not an account).
+                        // Was: GET /balance/{ledger_id} — but ledger_id is a ledger_transfers.id (a TRANSFER
+                        // id), while /balance is ACCOUNT-keyed, so the endpoint 404'd and EVERY two-phase
+                        // payment false-positived as "ledger entry not found". Check the transfer row itself:
+                        // a completed payment's transfer must be committed (or reversed, if later refunded)
+                        // and carry the expected amount. One batched PG query, not an N+1 of HTTP calls.
+                        let ledger_ids: Vec<String> =
+                            fetch_jobs.iter().map(|j| j.ledger_id.clone()).collect();
+                        let mut tx_rows: std::collections::HashMap<String, (String, i64)> =
+                            std::collections::HashMap::new();
+                        if !ledger_ids.is_empty() {
+                            match client
+                                .query(
+                                    "SELECT id::text, status::text, amount_minor::bigint \
+                                     FROM ledger_transfers WHERE id::text = ANY($1)",
+                                    &[&ledger_ids],
+                                )
+                                .await
+                            {
+                                Ok(rows) => {
+                                    for row in &rows {
+                                        tx_rows.insert(row.get(0), (row.get(1), row.get(2)));
                                     }
-                                    _ => {
-                                        (false, Some(ReconAlert {
+                                }
+                                Err(e) => {
+                                    error!(run_id = %run_id, error = %e, "ledger_transfers reconciliation query failed");
+                                    alerts.push(ReconAlert {
+                                        severity: "critical".into(),
+                                        message: format!("ledger_transfers reconciliation query failed: {}", e),
+                                        tenant_id: None,
+                                        amount_diff: None,
+                                    });
+                                }
+                            }
+                        }
+                        for job in fetch_jobs {
+                            match tx_rows.get(&job.ledger_id) {
+                                // Settled as expected: committed (or reversed by a later refund), right amount.
+                                Some((status, amount_minor))
+                                    if status == "committed" || status == "reversed" =>
+                                {
+                                    if *amount_minor != job.expected_minor {
+                                        alerts.push(ReconAlert {
                                             severity: "high".into(),
                                             message: format!(
-                                                "Payment {} completed ({} minor units) but ledger entry {} not found",
-                                                job.id, job.expected_minor, job.ledger_id
+                                                "Payment {} amount drift: expected {} minor units, ledger transfer {} holds {}",
+                                                job.id, job.expected_minor, job.ledger_id, amount_minor
                                             ),
                                             tenant_id: Some(job.tenant_id),
-                                            amount_diff: Some(job.amount),
-                                        }))
+                                            amount_diff: Some((job.expected_minor - amount_minor) as f64 / 100.0),
+                                        });
+                                    } else {
+                                        matched += 1;
                                     }
                                 }
-                            });
-                        }
-                        while let Some(res) = set.join_next().await {
-                            match res {
-                                Ok((ok, maybe_alert)) => {
-                                    if ok { matched += 1; }
-                                    if let Some(a) = maybe_alert { alerts.push(a); }
+                                // Transfer exists but is NOT settled for a payment the app calls completed
+                                // (still pending, or voided) — a genuine, actionable discrepancy.
+                                Some((status, _)) => {
+                                    alerts.push(ReconAlert {
+                                        severity: "high".into(),
+                                        message: format!(
+                                            "Payment {} completed but its ledger transfer {} is '{}', not committed",
+                                            job.id, job.ledger_id, status
+                                        ),
+                                        tenant_id: Some(job.tenant_id),
+                                        amount_diff: Some(job.amount),
+                                    });
                                 }
-                                Err(e) => error!(run_id = %run_id, error = %e, "balance check task failed"),
+                                // No ledger transfer at all for a completed payment.
+                                None => {
+                                    alerts.push(ReconAlert {
+                                        severity: "high".into(),
+                                        message: format!(
+                                            "Payment {} completed ({} minor units) but ledger transfer {} not found",
+                                            job.id, job.expected_minor, job.ledger_id
+                                        ),
+                                        tenant_id: Some(job.tenant_id),
+                                        amount_diff: Some(job.amount),
+                                    });
+                                }
                             }
                         }
                         info!(run_id = %run_id, total = total_checked, matched = matched, "DB recon complete");
