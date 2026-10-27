@@ -5964,10 +5964,25 @@ async function startServer() {
     console.error(`[express-error] ${req.method} ${req.path}:`, err);
     if (res.headersSent) return;
     const status = typeof err?.status === "number" && err.status >= 400 && err.status < 600 ? err.status : 500;
+    // Never echo a server-internal message to clients. 500s are always generic;
+    // for other statuses we pass a clean app message through but suppress Node
+    // syscall errors (ENOENT/EACCES/…) and anything carrying a filesystem path,
+    // which would leak the server's directory layout / OS user (info disclosure).
+    const raw = String(err?.message ?? "Request failed");
+    const isSyscall = typeof err?.code === "string" && /^E[A-Z]+$/.test(err.code);
+    const looksLikePath = /(^|[\s"'(])\/(Users|home|app|var|root|srv|opt|tmp|etc)\//.test(raw) || /node_modules/.test(raw);
+    const message =
+      status === 500
+        ? "Internal server error"
+        : isSyscall || looksLikePath
+          ? status === 404
+            ? "Not found"
+            : "Request failed"
+          : raw;
     res.status(status).json({
       error: {
         code: status,
-        message: status === 500 ? "Internal server error" : String(err?.message ?? "Request failed"),
+        message,
         path: req.path,
       },
     });

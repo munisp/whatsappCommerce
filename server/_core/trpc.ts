@@ -15,6 +15,17 @@ const t = initTRPC.context<TrpcContext>().create({
   // round-trips across many routers; dropping it is a breaking change, not a
   // perf tweak. Payload size/CPU is addressed by PERF-API-10 (gzip) instead.
   transformer: superjson,
+  // Defence-in-depth: never ship stack traces (absolute paths, internal module
+  // structure) to clients outside local dev. tRPC's default shape already omits
+  // `stack` when NODE_ENV=production; this also strips it in test/staging, where
+  // the default would otherwise include it.
+  errorFormatter(opts) {
+    const { shape } = opts;
+    if (process.env.NODE_ENV === "development") return shape;
+    const data = { ...(shape.data as Record<string, unknown>) };
+    delete data.stack;
+    return { ...shape, data };
+  },
 });
 
 /**
