@@ -138,11 +138,18 @@ export function serveBrotliPrecompressed(distPath: string) {
     const brPath = filePath + ".br";
     fs.stat(brPath, (err, stat) => {
       if (err || !stat.isFile()) return next();
+      // A service worker and the HTML app shell MUST revalidate on every load:
+      // a long max-age makes an edge CDN (Cloudflare) serve a stale sw.js for
+      // the full window, so a new build's SW/asset references never reach
+      // clients — the "You're Offline" / white-screen-after-deploy trap. Hashed
+      // asset files are content-addressed and immutable, so they stay cached.
+      const base = path.basename(urlPath);
+      const mustRevalidate = base === "sw.js" || ext === ".html";
       res.set({
         "Content-Type": contentType,
         "Content-Encoding": "br",
         "Content-Length": String(stat.size),
-        "Cache-Control": "public, max-age=14400",
+        "Cache-Control": mustRevalidate ? "no-cache" : "public, max-age=14400",
         Vary: "Accept-Encoding",
       });
       fs.createReadStream(brPath).pipe(res);
