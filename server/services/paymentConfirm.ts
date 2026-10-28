@@ -212,6 +212,11 @@ export async function confirmProviderPayment(
     reference: string;
     amountMajor: number | null; // provider-reported amount in MAJOR currency units
     currency: string | null;
+    // SECURITY: when set, the tenant whose webhook credentials verified this
+    // call. The payment row is matched GLOBALLY by reference below; if it
+    // belongs to a different tenant this is a cross-tenant forgery and is
+    // refused. Callers on the webhook path (unifiedWebhook) MUST pass this.
+    expectedTenantId?: string | null;
     rawPayload: unknown;
   },
 ): Promise<{ ok: boolean; action: string; detail?: string }> {
@@ -269,6 +274,22 @@ export async function confirmProviderPayment(
     intentLedgerPendingId = intent.ledgerPendingId ?? null;
     intentAmount = intent.amount;
     intentCurrency = intent.currency ?? null;
+  }
+  // ── SECURITY: confused-deputy guard ───────────────────────────────────────
+  // The caller verified the webhook signature against expectedTenantId's
+  // credentials, but the row above was matched GLOBALLY by reference. If the
+  // payment belongs to a different tenant, a signature from one tenant's secret
+  // is being used to confirm another tenant's payment — refuse before mutating.
+  if (opts.expectedTenantId && tenantId !== opts.expectedTenantId) {
+    console.error(`[payment-confirm] TENANT MISMATCH ${opts.provider} ref=${reference}: verified as tenant ${opts.expectedTenantId} but payment belongs to ${tenantId} — refusing (possible cross-tenant forgery)`);
+    captureException(new Error(`payment webhook tenant mismatch: signer=${opts.expectedTenantId} owner=${tenantId}`), {
+      service: "paymentConfirm",
+      operation: "confirmProviderPayment",
+      tenantId,
+      severity: "critical",
+      extra: { reference, provider: opts.provider, signerTenantId: opts.expectedTenantId },
+    });
+    return { ok: false, action: "tenant-mismatch", detail: reference };
   }
   // Idempotent (commit / postDirectLedgerLeg both replay-safe): settling the ledger is safe to call on
   // every confirmation path for this intent, including replays, which is how a first attempt that hit a

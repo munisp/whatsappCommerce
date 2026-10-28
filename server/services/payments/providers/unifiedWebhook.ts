@@ -38,26 +38,14 @@ function normalizeHeaders(headers: Request["headers"]): Record<string, string> {
   return out;
 }
 
-function extractTenantId(payload: any): string | null {
-  // Metadata containers per adapter body shape: paystack/custom data.metadata,
-  // flutterwave data.meta, stripe data.object.metadata, monnify
-  // eventData.metaData, customHttp payload.meta.
-  const candidates = [
-    payload?.data?.metadata,
-    payload?.data?.meta,
-    payload?.data?.object?.metadata,
-    payload?.eventData?.metaData,
-    payload?.payload?.meta,
-    payload?.metadata,
-  ];
-  for (const meta of candidates) {
-    if (meta && typeof meta === "object") {
-      const t = (meta as Record<string, unknown>).tenant_id ?? (meta as Record<string, unknown>).tenantId;
-      if (typeof t === "string" && t) return t;
-    }
-  }
-  return null;
-}
+// NOTE: tenant resolution MUST come from the payment reference, never from
+// attacker-controlled webhook metadata (tenant_id). A prior extractTenantId()
+// that read metadata.tenant_id to choose the VERIFYING credentials was a
+// confused-deputy: anyone who configured ANY tenant's webhook secret (self-
+// service, via paymentGateway.configure) could forge a charge.success for
+// ANOTHER tenant's pending payment — the signer was never bound to the payee.
+// Removed deliberately; do not reintroduce metadata-based tenant selection on
+// the verify path.
 
 function extractReference(payload: any): string | null {
   // Reference fields per adapter body shape (see the adapters' verifyWebhook):
@@ -119,12 +107,14 @@ export async function handleUnifiedPaymentWebhook(req: Request, res: Response): 
       payload = null;
     }
 
-    // ── Resolve tenant creds from intent/metadata ─────────────────────────
-    let tenantId = payload ? extractTenantId(payload) : null;
+    // ── Resolve the OWNING tenant from the reference (authoritative) ───────
+    // SECURITY: the verifying credentials MUST belong to the tenant that owns
+    // the referenced payment, so a signature from tenant A's secret can never
+    // confirm tenant B's payment. Resolve the tenant from the reference row
+    // only (never from the request body), and bind confirmProviderPayment to
+    // it below via expectedTenantId.
     const reference = payload ? extractReference(payload) : null;
-    if (!tenantId && reference) {
-      tenantId = await resolveTenantIdByReference(db, reference);
-    }
+    let tenantId: string | null = reference ? await resolveTenantIdByReference(db, reference) : null;
 
     let creds: unknown = null;
     if (tenantId) {
@@ -184,6 +174,8 @@ export async function handleUnifiedPaymentWebhook(req: Request, res: Response): 
         reference: norm.reference,
         amountMajor: norm.amountCents / 100,
         currency,
+        // Bind the confirmed payment to the tenant whose creds verified above.
+        expectedTenantId: tenantId,
         rawPayload: payload?.data ?? payload,
       });
       if (!result.ok) {
