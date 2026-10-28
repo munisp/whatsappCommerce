@@ -1486,6 +1486,17 @@ async function startServer() {
     app.set("trust proxy", trustProxySetting());
   }
 
+  // Baseline security headers (defence-in-depth; Cloudflare fronts TLS). No CSP
+  // here on purpose — it needs per-app tuning and a wrong one white-screens the SPA.
+  app.disable("x-powered-by");
+  app.use((_req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
+    next();
+  });
+
   // === W34 otel-core === lazy, fail-open OTel bootstrap. Activated only when
   // OTEL_ENABLED=true; init failure warns and continues (requests unaffected).
   void initTelemetry().catch(() => { /* telemetry must never break boot */ });
