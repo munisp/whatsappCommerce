@@ -269,7 +269,7 @@ The API-level isolation was already proven (`tests/e2e/_idor-poc.ts`: 11/11). Re
 
 ## 10. Known issues to re-verify (from this session's QA — see `.qa/reports/test-run-2026-10-27.md`)
 
-All six were **fixed**; confirm they stay fixed (regression):
+All eight were **fixed**; confirm they stay fixed (regression):
 1. French USSD/menu i18n (J565) and Telegram "stokvel" keyword parity (J560).
 2. recon-worker reconciled completed payments against the wrong id — now checks the `ledger_transfers` row;
    verify `/recon/trigger` reports 0 discrepancies for healthy committed payments.
@@ -278,6 +278,13 @@ All six were **fixed**; confirm they stay fixed (regression):
 4. tRPC stack-trace leak (#5) — in a production-mode build, error bodies must have no `stack`.
 5. Fluvio topic-name mismatch (#6) — producer now publishes hyphenated topics; confirm events reach the
    consumer (or note Fluvio absent).
+6. SPA white-screen (#7) — the platform-admin console AND tenant portal must RENDER in a production build
+   (`npm run build` then serve). They previously `createContext`-crashed to a blank white screen. Load several
+   routes in each and confirm real content + zero `pageerror`/console errors on mount.
+7. Revenue dashboard + analytics/escrow 500s (#8) — admin `/platform-admin/revenue` (revenue.summary +
+   revenue.gmvLeaderboard), tenant-analytics MoM comparison, and escrow wallet-transaction date filters must
+   return 200 (they failed on a JS-Date-as-`.toString()` SQL bind and, for gmvLeaderboard, an ambiguous
+   `status` column across the `tenants` join).
 
 Also treat the self-audit docs with skepticism: this repo has a history of inflated "all green" claims —
 **verify, don't trust.**
