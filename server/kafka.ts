@@ -347,25 +347,31 @@ export async function publishEvents(events: KafkaEvent[]): Promise<void> {
   await publishFluvioEvents(events);
 }
 
+// Topic names MUST be hyphenated (wacommerce-orders), NOT dotted. These are the
+// canonical names created by services/fluvio-consumer/bin/provision_topics.rs and
+// consumed by fluvio-consumer; Fluvio rejects any other characters ("Invalid topic
+// name"). They were dotted here (wacommerce.orders, Kafka-style) while the consumer
+// side was fixed to hyphenated — so /produce rejected every event and the whole
+// pipeline silently dropped (fail-open). Keep these in lockstep with that TOPICS list.
 /** Publish a single typed platform event. */
 export async function publishOrderEvent(orderId: string, tenantId: string, status: string, meta?: Record<string, unknown>) {
-  await publishEvents([{ topic: "wacommerce.orders", key: orderId, value: { orderId, tenantId, status, ...meta } }]);
+  await publishEvents([{ topic: "wacommerce-orders", key: orderId, value: { orderId, tenantId, status, ...meta } }]);
 }
 
 export async function publishPaymentEvent(paymentId: string, tenantId: string, status: string, meta?: Record<string, unknown>) {
-  await publishEvents([{ topic: "wacommerce.payments", key: paymentId, value: { paymentId, tenantId, status, ...meta } }]);
+  await publishEvents([{ topic: "wacommerce-payments", key: paymentId, value: { paymentId, tenantId, status, ...meta } }]);
 }
 
 export async function publishConversationEvent(conversationId: string, tenantId: string, eventType: string, meta?: Record<string, unknown>) {
-  await publishEvents([{ topic: "wacommerce.conversations", key: conversationId, value: { conversationId, tenantId, eventType, ...meta } }]);
+  await publishEvents([{ topic: "wacommerce-conversations", key: conversationId, value: { conversationId, tenantId, eventType, ...meta } }]);
 }
 
 export async function publishInventoryEvent(productId: string, tenantId: string, delta: number, meta?: Record<string, unknown>) {
-  await publishEvents([{ topic: "wacommerce.inventory", key: productId, value: { productId, tenantId, delta, ...meta } }]);
+  await publishEvents([{ topic: "wacommerce-inventory", key: productId, value: { productId, tenantId, delta, ...meta } }]);
 }
 
 export async function publishHermesPOEvent(poId: string, tenantId: string, status: string, meta?: Record<string, unknown>) {
-  await publishEvents([{ topic: "wacommerce.hermes.po", key: poId, value: { poId, tenantId, status, ...meta } }]);
+  await publishEvents([{ topic: "wacommerce-hermes-po", key: poId, value: { poId, tenantId, status, ...meta } }]);
 }
 
 /** Health check — returns latency in ms or error. */
