@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, inArray, gte, lte } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, adminProcedure, router, assertTenantAccess, assertMoneyAccess, moneyProcedure } from "../_core/trpc";
 // === W34 otel-core === money-rail RED metrics (fail-open recorders).
@@ -2568,12 +2568,12 @@ export const walletRouter = router({
 
       const conditions: any[] = [eq(walletTransactions.walletId, wallet.id)];
       if (input.startDate) {
-        conditions.push(sql`${walletTransactions.createdAt} >= ${new Date(input.startDate)}`);
+        conditions.push(gte(walletTransactions.createdAt, new Date(input.startDate)));
       }
       if (input.endDate) {
         const end = new Date(input.endDate);
         end.setHours(23, 59, 59, 999);
-        conditions.push(sql`${walletTransactions.createdAt} <= ${end}`);
+        conditions.push(lte(walletTransactions.createdAt, end));
       }
       const txs = await db.select().from(walletTransactions)
         .where(and(...conditions))

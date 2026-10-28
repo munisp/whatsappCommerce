@@ -2,7 +2,7 @@ import { z } from "zod";
 import { router, adminProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { paymentTransactions, tenants, paymentGatewayConfigs } from "../../drizzle/schema";
-import { eq, gte, and, sql, desc, count } from "drizzle-orm";
+import { eq, gte, lt, and, sql, desc, count } from "drizzle-orm";
 
 // Revenue share rates (profit-sharing model)
 const PLATFORM_REVENUE_SHARE = 0.05;   // 5% of tenant net profit
@@ -53,7 +53,7 @@ export const revenueRouter = router({
         and(
           eq(paymentTransactions.status, "success"),
           gte(paymentTransactions.createdAt, lastMonthStart),
-          sql`${paymentTransactions.createdAt} < ${thisMonthStart}`
+          lt(paymentTransactions.createdAt, thisMonthStart)
         )
       );
 
@@ -253,8 +253,10 @@ export const revenueRouter = router({
       const thisMonth = await db
         .select({
           tenantId: paymentTransactions.tenantId,
-          gmv: sql<string>`COALESCE(SUM(amount) FILTER (WHERE status = 'success'), 0)`,
-          txnCount: sql<string>`COUNT(*) FILTER (WHERE status = 'success')`,
+          // Qualify status: this query joins `tenants`, which ALSO has a `status`
+          // column, so a bare `status` is ambiguous ("column reference is ambiguous").
+          gmv: sql<string>`COALESCE(SUM(amount) FILTER (WHERE ${paymentTransactions.status} = 'success'), 0)`,
+          txnCount: sql<string>`COUNT(*) FILTER (WHERE ${paymentTransactions.status} = 'success')`,
           businessName: tenants.name,
           cogsRate: tenants.cogsRate,
         })
@@ -275,7 +277,7 @@ export const revenueRouter = router({
         .where(
           and(
             gte(paymentTransactions.createdAt, lastMonthStart),
-            sql`${paymentTransactions.createdAt} < ${thisMonthStart}`
+            lt(paymentTransactions.createdAt, thisMonthStart)
           )
         )
         .groupBy(paymentTransactions.tenantId);

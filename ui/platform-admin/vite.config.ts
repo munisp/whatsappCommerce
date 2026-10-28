@@ -91,7 +91,17 @@ export default defineConfig(({ command }) => ({
           if (!id.includes("node_modules")) return undefined;
           if (id.includes("recharts") || id.includes("d3-")) return "vendor-charts";
           if (/node_modules\/(react|react-dom|scheduler|wouter)\//.test(id)) return "vendor-react";
-          return "vendor";
+          // Only the shell-common stack goes to the shared vendor chunk; everything
+          // else stays in its entry/route chunk (matches the client's root config).
+          // A catch-all `return "vendor"` here swept React-context libs into a chunk
+          // that initialized before vendor-react → white screen ("Cannot read
+          // properties of undefined (reading 'createContext')").
+          if (
+            /node_modules\/(@tanstack|@trpc|superjson|lucide-react|@radix-ui|sonner|clsx|tailwind-merge|class-variance-authority|date-fns)\//.test(id)
+          ) {
+            return "vendor";
+          }
+          return undefined;
         },
       },
     },

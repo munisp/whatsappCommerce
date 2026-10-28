@@ -2,7 +2,7 @@ import { z } from "zod";
 import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { orders, customers, products, paymentTransactions } from "../../drizzle/schema";
-import { eq, gte, sql, and, desc } from "drizzle-orm";
+import { eq, gte, lt, sql, and, desc } from "drizzle-orm";
 
 export const tenantAnalyticsRouter = router({
   // ── Overview: GMV, order count, revenue, avg order value ─────────────────
@@ -33,7 +33,7 @@ export const tenantAnalyticsRouter = router({
       }).from(orders).where(and(
         eq(orders.tenantId, input.tenantId),
         gte(orders.createdAt, prevCutoff),
-        sql`${orders.createdAt} < ${cutoff}`
+        lt(orders.createdAt, cutoff)
       ));
 
       // New customers in period
