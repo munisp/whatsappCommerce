@@ -34,8 +34,12 @@ export const journey: Journey = {
       const { publishOrderEvent } = await import("../../server/kafka");
       await publishOrderEvent("ord-j309", TENANT_ID, "created", { total: 12345 });
 
-      const hit = received.find((r) => r.url === "/topics/wacommerce.orders/produce");
-      assert(hit, `fluvio produce endpoint called for wacommerce.orders (got ${JSON.stringify(received.map((r) => r.url))})`);
+      // Fluvio topic names MUST be hyphenated (dots are rejected by Fluvio with
+      // "Invalid topic name") — the producers were corrected from the dotted
+      // "wacommerce.orders" to "wacommerce-orders" this cycle; assert the real
+      // (hyphenated) endpoint the code now calls.
+      const hit = received.find((r) => r.url === "/topics/wacommerce-orders/produce");
+      assert(hit, `fluvio produce endpoint called for wacommerce-orders (got ${JSON.stringify(received.map((r) => r.url))})`);
       const body = JSON.parse(hit!.body);
       assert(body.key === "ord-j309", `fluvio record key is the order id (got ${body.key})`);
       const value = JSON.parse(body.value);
