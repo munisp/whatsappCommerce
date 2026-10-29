@@ -17,17 +17,26 @@
  * Directory replies are sent from the platform number's own creds. NEVER
  * throws — the webhook ack has already been sent.
  */
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { chunkWhatsAppText, normalizeWaPhone } from "./waSender";
 import { redactString } from "./logRedact";
 import {
   clearActiveShop,
+  clearPendingQuery,
   getActiveShop,
+  getCustomerLocation,
+  getPendingQuery,
+  isGreeting,
   isHomeCommand,
+  type LatLng,
   resolvePlatformWaCredentials,
   resolveShopRef,
   setActiveShop,
+  setCustomerLocation,
+  setPendingQuery,
 } from "./platformNumber";
+import { discoverNearbyPure, loadDiscoveryData } from "./geoDiscovery";
+import { formatDiscoveryMenu } from "./discoveryMenu";
 import { getDb } from "../db";
 import { tenants } from "../../drizzle/schema";
 
@@ -104,8 +113,62 @@ export async function platformActiveShop(opts: {
 }
 
 /**
- * POST-claim directory handler: leave a shop ("home"), enter a shop by
- * name/slug, or prompt. Sends its reply via the platform number.
+ * Search shops near `loc` that stock `query` and reply with them. Only SHARED
+ * shops (active + no own number) are listed — they're the ones reachable by
+ * name on the platform number. Sends via the platform number.
+ */
+async function discoverAndReply(phone: string, query: string, loc: LatLng): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    await sendPlatformText(phone, "Search is unavailable right now — please try again shortly.");
+    return;
+  }
+  const data = await loadDiscoveryData(db).catch(() => ({ merchants: [], sponsored: [] }));
+  const result = discoverNearbyPure({ lat: loc.lat, lng: loc.lng, query, sortBy: "distance" }, data);
+
+  // Keep only shops reachable here (shared: active + no own WhatsApp number).
+  let items = result.items;
+  const ids = items.map((i) => i.tenantId);
+  if (ids.length) {
+    const shared = await db
+      .select({ id: tenants.id })
+      .from(tenants)
+      .where(and(inArray(tenants.id, ids), eq(tenants.status, "active"), isNull(tenants.whatsappPhoneNumberId)))
+      .catch(() => [] as any[]);
+    const sharedIds = new Set(shared.map((r) => r.id));
+    items = items.filter((i) => sharedIds.has(i.tenantId));
+  }
+
+  if (items.length === 0) {
+    await sendPlatformText(
+      phone,
+      `I couldn't find a shop near you with "${query}" yet. Try another item, or reply with a shop's name if you know one.`,
+    );
+    return;
+  }
+  const menu = formatDiscoveryMenu(items, result.radiusKm);
+  await sendPlatformText(phone, `${menu}\n\n🛍️ Reply with a shop's name to start shopping there.`);
+}
+
+/** A product search: discover now if we know the customer's location, else ask for it. */
+async function runPlatformDiscovery(phone: string, query: string): Promise<void> {
+  const loc = await getCustomerLocation(phone);
+  if (loc) {
+    await discoverAndReply(phone, query, loc);
+    return;
+  }
+  await setPendingQuery(phone, query);
+  await sendPlatformText(
+    phone,
+    `To find shops near you with "${query}", please share your 📎 *location* (tap the clip → Location).`,
+  );
+}
+
+/**
+ * POST-claim directory handler: a shared-location message runs any pending
+ * product search; "home" leaves the current shop; a shop name/slug enters that
+ * shop; any other text is a product search (→ nearest shops); empty/other
+ * first contact gets the directory prompt. Sends via the platform number.
  */
 export async function handlePlatformDirectory(opts: {
   customerPhone: string;
@@ -113,7 +176,22 @@ export async function handlePlatformDirectory(opts: {
   contactName?: string;
 }): Promise<void> {
   const { customerPhone, msg, contactName } = opts;
-  const text = typeof msg?.text?.body === "string" ? msg.text.body : "";
+
+  // Location share → remember it, then run any pending product search.
+  if (msg?.type === "location" && typeof msg?.location?.latitude === "number" && typeof msg?.location?.longitude === "number") {
+    const loc: LatLng = { lat: msg.location.latitude, lng: msg.location.longitude };
+    await setCustomerLocation(customerPhone, loc);
+    const pending = await getPendingQuery(customerPhone);
+    if (pending) {
+      await clearPendingQuery(customerPhone);
+      await discoverAndReply(customerPhone, pending, loc);
+      return;
+    }
+    await sendPlatformText(customerPhone, '📍 Got your location! Now tell me what you\'re looking for (e.g. "toothpaste"), or reply with a shop\'s name.');
+    return;
+  }
+
+  const text = typeof msg?.text?.body === "string" ? msg.text.body.trim() : "";
 
   if (isHomeCommand(text)) {
     await clearActiveShop(customerPhone);
@@ -131,7 +209,12 @@ export async function handlePlatformDirectory(opts: {
     return;
   }
 
-  // Unrecognized text / non-text first contact → directory prompt.
-  // (Typing a product to get the nearest shops that stock it is Phase 3.)
-  await sendPlatformText(customerPhone, directoryPrompt(contactName));
+  // Greeting / empty / unsupported first contact → directory prompt.
+  if (!text || isGreeting(text)) {
+    await sendPlatformText(customerPhone, directoryPrompt(contactName));
+    return;
+  }
+
+  // Any other non-empty text is a product search → nearest shops that stock it.
+  await runPlatformDiscovery(customerPhone, text);
 }

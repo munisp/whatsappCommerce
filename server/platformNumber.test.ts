@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, afterEach } from "vitest";
 import {
+  isGreeting,
   isHomeCommand,
   isPlatformNumber,
   normalizeShopRef,
@@ -65,5 +66,19 @@ describe("normalizeShopRef", () => {
   it("trims + lowercases", () => {
     expect(normalizeShopRef("  Meridian ")).toBe("meridian");
     expect(normalizeShopRef(null)).toBe("");
+  });
+});
+
+describe("isGreeting (gets the directory prompt, not a product search)", () => {
+  it("is true for greetings / noise", () => {
+    for (const w of ["hi", "Hello", "hey", "hello there", "Good morning", "ok", "thanks"]) {
+      expect(isGreeting(w)).toBe(true);
+    }
+  });
+  it("is false for a real product search", () => {
+    expect(isGreeting("toothpaste")).toBe(false);
+    expect(isGreeting("phone charger")).toBe(false);
+    expect(isGreeting("")).toBe(false);
+    expect(isGreeting(null)).toBe(false);
   });
 });

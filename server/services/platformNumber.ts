@@ -53,6 +53,19 @@ export function isHomeCommand(text: string | null | undefined): boolean {
   return HOME_WORDS.has((text ?? "").trim().toLowerCase());
 }
 
+/**
+ * A greeting / noise message (not a shop name and not a product search) — gets
+ * the directory prompt rather than being treated as a product query, so a bare
+ * "hi" doesn't become "find shops with 'hi'".
+ */
+const GREETINGS = new Set(["hi", "hello", "hey", "yo", "hiya", "hola", "help", "ok", "okay", "thanks", "ty"]);
+export function isGreeting(text: string | null | undefined): boolean {
+  const t = (text ?? "").trim().toLowerCase();
+  if (!t) return false;
+  if (/^good\s+(morning|afternoon|evening|day)\b/.test(t)) return true;
+  return GREETINGS.has(t.split(/\s+/)[0]);
+}
+
 /** Normalize a shop reference (slug or name) for matching. */
 export function normalizeShopRef(text: string | null | undefined): string {
   return (text ?? "").trim().toLowerCase();
@@ -98,56 +111,78 @@ export async function resolveShopRef(text: string | null | undefined): Promise<R
   return null;
 }
 
-// ── Active-shop pointer (which shop a customer is currently inside) ───────────
-// Directory-level state keyed by the customer's phone (the shop-scoped chat
-// session is separate, keyed {tenantId}:{phone}). Redis with the same
-// dev/test in-memory fallback as chatSession; stateless in prod without Redis.
+// ── Per-customer directory state ─────────────────────────────────────────────
+// Keyed by the customer's phone (the shop-scoped chat session is separate,
+// keyed {tenantId}:{phone}): the active shop they're inside, a pending product
+// search awaiting their location, and their last shared location. Redis with
+// the same dev/test in-memory fallback as chatSession; stateless in prod
+// without Redis. One tiny generic KV backs all three.
 
 const ACTIVE_TTL_SECONDS = 1800;
-const activeMemory = new Map<string, { tenantId: string; exp: number }>();
-function activeKey(phone: string): string {
-  return `plat:active:${(phone ?? "").replace(/\D/g, "")}`;
+const PENDING_TTL_SECONDS = 600;
+const LOC_TTL_SECONDS = 3600;
+const kvMemory = new Map<string, { v: string; exp: number }>();
+function digits(phone: string): string {
+  return (phone ?? "").replace(/\D/g, "");
 }
 
-export async function getActiveShop(phone: string): Promise<string | null> {
-  const key = activeKey(phone);
+async function kvGet(key: string): Promise<string | null> {
   try {
     const redis = await getRedis();
     if (redis) return (await redis.get(key)) || null;
   } catch (e: any) {
-    console.warn("[platformNumber] active-shop get failed:", e?.message);
+    console.warn("[platformNumber] kv get failed:", e?.message);
   }
   if (isProd) return null;
-  const m = activeMemory.get(key);
-  if (m && m.exp > Date.now()) return m.tenantId;
-  if (m) activeMemory.delete(key);
+  const m = kvMemory.get(key);
+  if (m && m.exp > Date.now()) return m.v;
+  if (m) kvMemory.delete(key);
   return null;
 }
-
-export async function setActiveShop(phone: string, tenantId: string): Promise<void> {
-  const key = activeKey(phone);
+async function kvSet(key: string, val: string, ttl: number): Promise<void> {
   try {
     const redis = await getRedis();
-    if (redis) { await redis.setex(key, ACTIVE_TTL_SECONDS, tenantId); return; }
+    if (redis) { await redis.setex(key, ttl, val); return; }
   } catch (e: any) {
-    console.warn("[platformNumber] active-shop set failed:", e?.message);
+    console.warn("[platformNumber] kv set failed:", e?.message);
   }
   if (isProd) return;
-  activeMemory.set(key, { tenantId, exp: Date.now() + ACTIVE_TTL_SECONDS * 1000 });
+  kvMemory.set(key, { v: val, exp: Date.now() + ttl * 1000 });
 }
-
-export async function clearActiveShop(phone: string): Promise<void> {
-  const key = activeKey(phone);
+async function kvDel(key: string): Promise<void> {
   try {
     const redis = await getRedis();
     if (redis) { await redis.del(key); return; }
   } catch (e: any) {
-    console.warn("[platformNumber] active-shop clear failed:", e?.message);
+    console.warn("[platformNumber] kv del failed:", e?.message);
   }
-  activeMemory.delete(key);
+  kvMemory.delete(key);
 }
 
-/** Test-only: reset the in-memory active-shop map. */
+/** Which shop the customer is currently inside (tenantId), or null. */
+export const getActiveShop = (phone: string): Promise<string | null> => kvGet(`plat:active:${digits(phone)}`);
+export const setActiveShop = (phone: string, tenantId: string): Promise<void> => kvSet(`plat:active:${digits(phone)}`, tenantId, ACTIVE_TTL_SECONDS);
+export const clearActiveShop = (phone: string): Promise<void> => kvDel(`plat:active:${digits(phone)}`);
+
+/** A product search awaiting the customer's location (run once they share it). */
+export const getPendingQuery = (phone: string): Promise<string | null> => kvGet(`plat:pendq:${digits(phone)}`);
+export const setPendingQuery = (phone: string, q: string): Promise<void> => kvSet(`plat:pendq:${digits(phone)}`, q, PENDING_TTL_SECONDS);
+export const clearPendingQuery = (phone: string): Promise<void> => kvDel(`plat:pendq:${digits(phone)}`);
+
+export interface LatLng { lat: number; lng: number; }
+/** The customer's last shared location (for repeat searches without re-asking). */
+export async function getCustomerLocation(phone: string): Promise<LatLng | null> {
+  const raw = await kvGet(`plat:loc:${digits(phone)}`);
+  if (!raw) return null;
+  try {
+    const p = JSON.parse(raw);
+    if (typeof p?.lat === "number" && typeof p?.lng === "number") return { lat: p.lat, lng: p.lng };
+  } catch { /* corrupt → treat as absent */ }
+  return null;
+}
+export const setCustomerLocation = (phone: string, loc: LatLng): Promise<void> => kvSet(`plat:loc:${digits(phone)}`, JSON.stringify(loc), LOC_TTL_SECONDS);
+
+/** Test-only: reset all in-memory directory state. */
 export function __clearActiveShopMemory(): void {
-  activeMemory.clear();
+  kvMemory.clear();
 }
