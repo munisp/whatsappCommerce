@@ -3362,10 +3362,13 @@ export type NewIntegrationEvent = typeof integrationEvents.$inferInsert;
 // Insert-first claim at the WhatsApp webhook entry: the Meta wamid/event id is
 // the primary key, so concurrent/retry deliveries collide on the PK and are
 // skipped (ON CONFLICT DO NOTHING). Rows are swept after 7 days by the
-// /api/cron/webhook-dedupe-sweep cron. NOTE: id is varchar(64), not the usual
-// 36 — Meta wamids ("wamid.HBg…") routinely exceed 36 chars.
+// /api/cron/webhook-dedupe-sweep cron. NOTE: id is varchar(160), not the usual
+// 36 — Meta wamids ("wamid.HBg…") exceed even 64 (W58: a 66-char wamid overflowed
+// the old varchar(64), so the claim INSERT failed, the webhook handler failed
+// closed, and the inbound WhatsApp message was silently dropped), and
+// tenant-prefixed recon claim ids are sliced to 160. Widened to 160 (mig 0180).
 export const processedWebhookEvents = pgTable("processed_webhook_events", {
-  id: varchar("id", { length: 64 }).primaryKey(),
+  id: varchar("id", { length: 160 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
   type: varchar("type", { length: 64 }).notNull(),
   processedAt: timestamp("processedAt").defaultNow().notNull(),
