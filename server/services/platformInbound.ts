@@ -74,10 +74,18 @@ export async function sendPlatformText(toPhone: string, body: string): Promise<v
   }
 }
 
-function directoryPrompt(name?: string): string {
+/** The platform's display name (SHARED_WA_PLATFORM_NAME), or "" if unset. */
+function platformName(): string {
+  return (process.env.SHARED_WA_PLATFORM_NAME ?? "").trim();
+}
+
+function directoryPrompt(): string {
+  const brand = platformName();
   return (
-    `👋 Welcome${name ? ` ${name}` : ""}! To start shopping, reply with a *shop's name*.\n\n` +
-    `Or tell me what you're looking for (e.g. "toothpaste") and share your 📎 location to find shops near you.`
+    `👋 *Welcome${brand ? ` to ${brand}` : ""}!*\n\n` +
+    `I can help you shop from local stores right here on WhatsApp — just:\n\n` +
+    `🏪  Send a *store's name* to start shopping there\n` +
+    `🔎  Or tell me what you need (e.g. *toothpaste*) and share your 📎 *location*, and I'll find the nearest stores that have it`
   );
 }
 
@@ -142,12 +150,12 @@ async function discoverAndReply(phone: string, query: string, loc: LatLng): Prom
   if (items.length === 0) {
     await sendPlatformText(
       phone,
-      `I couldn't find a shop near you with "${query}" yet. Try another item, or reply with a shop's name if you know one.`,
+      `😕 I couldn't find a store near you with *${query}* yet — try another item, or send a *store's name* if you know one.`,
     );
     return;
   }
   const menu = formatDiscoveryMenu(items, result.radiusKm);
-  await sendPlatformText(phone, `${menu}\n\n🛍️ Reply with a shop's name to start shopping there.`);
+  await sendPlatformText(phone, `${menu}\n\n🛍️ Send a *store's name* from the list to start shopping there.`);
 }
 
 /** A product search: discover now if we know the customer's location, else ask for it. */
@@ -160,7 +168,7 @@ async function runPlatformDiscovery(phone: string, query: string): Promise<void>
   await setPendingQuery(phone, query);
   await sendPlatformText(
     phone,
-    `To find shops near you with "${query}", please share your 📎 *location* (tap the clip → Location).`,
+    `🔎 To find stores near you with *${query}*, share your 📎 *location* (tap 📎 → Location) and I'll show you the closest ones.`,
   );
 }
 
@@ -175,7 +183,7 @@ export async function handlePlatformDirectory(opts: {
   msg: any;
   contactName?: string;
 }): Promise<void> {
-  const { customerPhone, msg, contactName } = opts;
+  const { customerPhone, msg } = opts;
 
   // Location share → remember it, then run any pending product search.
   if (msg?.type === "location" && typeof msg?.location?.latitude === "number" && typeof msg?.location?.longitude === "number") {
@@ -187,7 +195,7 @@ export async function handlePlatformDirectory(opts: {
       await discoverAndReply(customerPhone, pending, loc);
       return;
     }
-    await sendPlatformText(customerPhone, '📍 Got your location! Now tell me what you\'re looking for (e.g. "toothpaste"), or reply with a shop\'s name.');
+    await sendPlatformText(customerPhone, '📍 Got your location! Now tell me what you\'re looking for (e.g. *toothpaste*), or send a *store\'s name*.');
     return;
   }
 
@@ -195,7 +203,7 @@ export async function handlePlatformDirectory(opts: {
 
   if (isHomeCommand(text)) {
     await clearActiveShop(customerPhone);
-    await sendPlatformText(customerPhone, directoryPrompt(contactName));
+    await sendPlatformText(customerPhone, directoryPrompt());
     return;
   }
 
@@ -204,14 +212,14 @@ export async function handlePlatformDirectory(opts: {
     await setActiveShop(customerPhone, shop.tenantId);
     await sendPlatformText(
       customerPhone,
-      `🛍️ You're now shopping at *${shop.name}*. Send "hi" to see the menu — or type *home* anytime to browse other shops.`,
+      `🛍️ You're now shopping at *${shop.name}*. Send *hi* to see what they've got — or type *home* anytime to browse other stores.`,
     );
     return;
   }
 
   // Greeting / empty / unsupported first contact → directory prompt.
   if (!text || isGreeting(text)) {
-    await sendPlatformText(customerPhone, directoryPrompt(contactName));
+    await sendPlatformText(customerPhone, directoryPrompt());
     return;
   }
 

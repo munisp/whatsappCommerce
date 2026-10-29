@@ -45,7 +45,7 @@ export const journey: Journey = {
       assert(row.status === "active", `shop is active (got ${row.status})`);
       assert(row.whatsappPhoneNumberId == null, "shop has NO own number (shared)");
 
-      const DIRECTORY_MARK = "To start shopping";
+      const DIRECTORY_MARK = "I can help you shop from local stores";
 
       // ── 1. Cold contact / unrecognized → directory prompt (via platform #) ─
       const cold = world.newPhone("plat-cold");
