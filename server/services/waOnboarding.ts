@@ -28,6 +28,7 @@ import {
   buildInteractivePayload,
   chunkWhatsAppText,
   normalizeWaPhone,
+  resolveTenantWaCredentials,
   WA_BUTTONS_MAX,
 } from "./waSender";
 import { isTranscriptionConfigured, transcribeAudio } from "./transcribe";
@@ -153,28 +154,48 @@ export function isOnboardingIntakeNumber(phoneNumberId: string | null | undefine
   return configured.length > 0 && !!phoneNumberId && phoneNumberId.trim() === configured;
 }
 
-// ── Outbound senders (platform onboarding number) ───────────────────────────
+// ── Outbound senders (platform onboarding number, or a tenant's own) ─────────
 
 const GRAPH_API_BASE = "https://graph.facebook.com/v21.0";
+
+/**
+ * Outbound credential selector for a copilot reply. Default (undefined, or a
+ * null tenantId) = the GLOBAL platform onboarding number (env creds). A set
+ * tenantId = BYO own-number onboarding: reply through THAT tenant's own
+ * WhatsApp creds (resolveTenantWaCredentials). Threaded from handleInbound.
+ */
+export interface OnboardingSendContext {
+  tenantId: string | null;
+}
 
 interface OnboardingSendResult {
   sent: boolean;
   simulated: boolean;
 }
 
+/** Resolve the creds for this send: tenant-own (BYO) or the global number. */
+async function resolveSendCredentials(
+  ctx?: OnboardingSendContext,
+): Promise<{ phoneNumberId: string; accessToken: string } | null> {
+  if (ctx?.tenantId) return resolveTenantWaCredentials(ctx.tenantId);
+  return resolveOnboardingWaCredentials();
+}
+
 /**
- * Single-payload delivery through the onboarding number's creds. Never
- * throws: unconfigured creds → simulation no-op; network/API errors → log.
+ * Single-payload delivery through the selected creds (global number, or a
+ * tenant's own for BYO). Never throws: unconfigured creds → simulation no-op;
+ * network/API errors → log.
  */
 async function postOnboardingMessage(
   toPhone: string,
   payload: Record<string, unknown>,
+  ctx?: OnboardingSendContext,
 ): Promise<OnboardingSendResult> {
   const to = normalizeWaPhone(toPhone);
-  const creds = resolveOnboardingWaCredentials();
+  const creds = await resolveSendCredentials(ctx);
   if (!creds) {
     console.info(
-      `[waOnboarding] send skipped (ONBOARDING_WA_TOKEN / ONBOARDING_PHONE_NUMBER_ID unset) → *${to.slice(-4)}`,
+      `[waOnboarding] send skipped (${ctx?.tenantId ? `tenant ${ctx.tenantId} creds` : "ONBOARDING_WA_TOKEN / ONBOARDING_PHONE_NUMBER_ID"} unset) → *${to.slice(-4)}`,
     );
     return { sent: false, simulated: true };
   }
@@ -209,6 +230,7 @@ async function postOnboardingMessage(
 export async function sendOnboardingText(
   toPhone: string,
   body: string,
+  ctx?: OnboardingSendContext,
 ): Promise<OnboardingSendResult> {
   const chunks = chunkWhatsAppText(body);
   let last: OnboardingSendResult = { sent: false, simulated: false };
@@ -216,7 +238,7 @@ export async function sendOnboardingText(
     last = await postOnboardingMessage(toPhone, {
       type: "text",
       text: { preview_url: true, body: chunk },
-    });
+    }, ctx);
   }
   return last;
 }
@@ -236,6 +258,7 @@ export async function sendOnboardingButtons(
   toPhone: string,
   body: string,
   actions: CopilotReplyAction[],
+  ctx?: OnboardingSendContext,
 ): Promise<OnboardingSendResult> {
   const buttons = actions.slice(0, WA_BUTTONS_MAX).map((a) => ({
     id: toWireActionId(a.id),
@@ -245,7 +268,7 @@ export async function sendOnboardingButtons(
     bodyText: body,
     action: { type: "button", buttons },
   });
-  return postOnboardingMessage(toPhone, { type: "interactive", interactive });
+  return postOnboardingMessage(toPhone, { type: "interactive", interactive }, ctx);
 }
 
 /** Numbered-list text fallback for cards with more than 3 actions. */
@@ -289,9 +312,10 @@ export function parseOnboardingActionId(
 async function transcribeOnboardingVoiceNote(
   mediaId: string,
   mimeType: string | null | undefined,
+  ctx?: OnboardingSendContext,
 ): Promise<string | null> {
   if (!isTranscriptionConfigured()) return null;
-  const creds = resolveOnboardingWaCredentials();
+  const creds = await resolveSendCredentials(ctx);
   if (!creds) return null;
   const meta = await fetch(`${GRAPH_API_BASE}/${mediaId}`, {
     headers: { Authorization: `Bearer ${creds.accessToken}` },
@@ -389,16 +413,20 @@ export function terminalStateMessage(state: string | null | undefined, lang?: st
 }
 
 /** Deliver a batch of copilot replies (text bubbles + proposal cards). */
-async function deliverCopilotReplies(toPhone: string, replies: CopilotReply[] | undefined): Promise<void> {
+async function deliverCopilotReplies(
+  toPhone: string,
+  replies: CopilotReply[] | undefined,
+  ctx?: OnboardingSendContext,
+): Promise<void> {
   for (const reply of replies ?? []) {
     if (!reply || typeof reply.text !== "string" || reply.text.trim().length === 0) continue;
     const actions = reply.type === "card" ? (reply.actions ?? []) : [];
     if (actions.length > 0 && actions.length <= WA_BUTTONS_MAX) {
-      await sendOnboardingButtons(toPhone, reply.text, actions);
+      await sendOnboardingButtons(toPhone, reply.text, actions, ctx);
     } else if (actions.length > WA_BUTTONS_MAX) {
-      await sendOnboardingText(toPhone, renderNumberedActionList(reply.text, actions));
+      await sendOnboardingText(toPhone, renderNumberedActionList(reply.text, actions), ctx);
     } else {
-      await sendOnboardingText(toPhone, reply.text);
+      await sendOnboardingText(toPhone, reply.text, ctx);
     }
   }
 }
@@ -408,30 +436,45 @@ async function deliverTerminalFollowUp(
   toPhone: string,
   state: string | null | undefined,
   lang?: string,
+  ctx?: OnboardingSendContext,
 ): Promise<void> {
   const msg = terminalStateMessage(state, lang);
-  if (msg) await sendOnboardingText(toPhone, msg);
+  if (msg) await sendOnboardingText(toPhone, msg, ctx);
 }
 
 /** Start a fresh onboarding session and send the greeting. */
 /** Start a fresh onboarding session and send the greeting. Returns false when throttled. */
-async function startFreshSession(toPhone: string, copilot: OnboardingCopilotApi): Promise<boolean> {
+async function startFreshSession(
+  toPhone: string,
+  copilot: OnboardingCopilotApi,
+  ctx?: OnboardingSendContext,
+): Promise<boolean> {
   // === W47 crosscutting (ONB-ABU-1): cap NEW sessions per phone per day —
   // otherwise an unauthenticated flood mints sessions (and LLM turns, and
   // eventually tenants) without bound. ===
   if (!(await bumpIntakeCounter("session", toPhone))) {
     console.warn(`[waOnboarding] new-session throttle tripped for *${toPhone.slice(-4)} (${INTAKE_LIMITS.sessionsPerDay}/day)`);
     const existing = await copilot.findActiveSessionByPhone(toPhone).catch(() => null);
-    await sendOnboardingText(toPhone, copilotT(intakeLang(existing), "throttled"));
+    await sendOnboardingText(toPhone, copilotT(intakeLang(existing), "throttled"), ctx);
     return false;
   }
   // === END W47 crosscutting ===
-  const { greeting } = await copilot.startSession({ channel: "whatsapp", phone: toPhone });
-  if (greeting?.trim()) await sendOnboardingText(toPhone, greeting);
+  // BYO (ctx.tenantId set): bind the session to the EXISTING draft tenant so
+  // the copilot configures it in place rather than minting a new tenant.
+  const { greeting } = await copilot.startSession({
+    channel: "whatsapp",
+    phone: toPhone,
+    tenantId: ctx?.tenantId ?? undefined,
+  });
+  if (greeting?.trim()) await sendOnboardingText(toPhone, greeting, ctx);
   return true;
 }
 
-async function processInbound(message: any, senderPhone: string): Promise<InboundOutcome> {
+async function processInbound(
+  message: any,
+  senderPhone: string,
+  ctx?: OnboardingSendContext,
+): Promise<InboundOutcome> {
   const copilot = await loadCopilot();
   const phone = normalizeWaPhone(senderPhone ?? "");
   if (!phone) {
@@ -445,7 +488,7 @@ async function processInbound(message: any, senderPhone: string): Promise<Inboun
   if (!(await bumpIntakeCounter("msg", phone))) {
     console.warn(`[waOnboarding] message throttle tripped for *${phone.slice(-4)} (${INTAKE_LIMITS.msgsPerHour}/h)`);
     const s = await copilot.findActiveSessionByPhone(phone).catch(() => null);
-    await sendOnboardingText(phone, copilotT(intakeLang(s), "throttled"));
+    await sendOnboardingText(phone, copilotT(intakeLang(s), "throttled"), ctx);
     return { handled: true, outcome: "throttled" };
   }
   // === END W47 crosscutting ===
@@ -457,17 +500,17 @@ async function processInbound(message: any, senderPhone: string): Promise<Inboun
     const session = await copilot.findActiveSessionByPhone(phone);
     if (!parsed) {
       console.warn(`[waOnboarding] unrecognized interactive reply id: ${reply?.id ?? "(none)"}`);
-      await sendOnboardingText(phone, copilotT(intakeLang(session), "malformedAction"));
+      await sendOnboardingText(phone, copilotT(intakeLang(session), "malformedAction"), ctx);
       return { handled: true, outcome: "malformed_action" };
     }
     if (!session) {
       // Stale button from an abandoned/expired session — begin fresh.
-      const started = await startFreshSession(phone, copilot);
+      const started = await startFreshSession(phone, copilot, ctx);
       return { handled: true, outcome: started ? "greeting" : "throttled" };
     }
     if (parsed.kind === "edit") {
       pendingEditProposals.set(phone, parsed.proposalId);
-      await sendOnboardingText(phone, copilotT(intakeLang(session), "editPrompt"));
+      await sendOnboardingText(phone, copilotT(intakeLang(session), "editPrompt"), ctx);
       return { handled: true, outcome: "edit_prompt" };
     }
     const decision = await copilot.decideProposal({
@@ -475,9 +518,9 @@ async function processInbound(message: any, senderPhone: string): Promise<Inboun
       proposalId: parsed.proposalId,
       approve: true,
     });
-    await deliverCopilotReplies(phone, decision.replies);
+    await deliverCopilotReplies(phone, decision.replies, ctx);
     const after = await copilot.getSession(session.id).catch(() => null);
-    await deliverTerminalFollowUp(phone, after?.state, intakeLang(after ?? session));
+    await deliverTerminalFollowUp(phone, after?.state, intakeLang(after ?? session), ctx);
     return { handled: true, outcome: "approve" };
   }
 
@@ -486,34 +529,35 @@ async function processInbound(message: any, senderPhone: string): Promise<Inboun
   if (message?.type === "text") {
     text = message.text?.body ?? "";
   } else if (message?.type === "audio" && message.audio?.id) {
-    const transcript = await transcribeOnboardingVoiceNote(message.audio.id, message.audio?.mime_type);
+    const transcript = await transcribeOnboardingVoiceNote(message.audio.id, message.audio?.mime_type, ctx);
     if (!transcript) {
       const s = await copilot.findActiveSessionByPhone(phone).catch(() => null);
-      await sendOnboardingText(phone, copilotT(intakeLang(s), "voiceUnavailable"));
+      await sendOnboardingText(phone, copilotT(intakeLang(s), "voiceUnavailable"), ctx);
       return { handled: true, outcome: "voice_unavailable" };
     }
     text = transcript;
     // Fall through to the text pipeline with outcome recorded below.
-    const outcome = await processText(phone, text, copilot);
+    const outcome = await processText(phone, text, copilot, ctx);
     return { handled: outcome.handled, outcome: outcome.outcome === "message" ? "voice_note" : outcome.outcome };
   } else {
     const s = await copilot.findActiveSessionByPhone(phone).catch(() => null);
-    await sendOnboardingText(phone, copilotT(intakeLang(s), "unsupported"));
+    await sendOnboardingText(phone, copilotT(intakeLang(s), "unsupported"), ctx);
     return { handled: true, outcome: "unsupported" };
   }
-  return processText(phone, text ?? "", copilot);
+  return processText(phone, text ?? "", copilot, ctx);
 }
 
 async function processText(
   phone: string,
   text: string,
   copilot: OnboardingCopilotApi,
+  ctx?: OnboardingSendContext,
 ): Promise<InboundOutcome> {
   // ── Restart intent — abandon the current session, begin fresh ────────────
   if (RESTART_PATTERN.test(text)) {
     // The C1 contract exposes no explicit abandon(); starting a fresh session
     // for the same phone supersedes (abandons) the prior active session.
-    const started = await startFreshSession(phone, copilot);
+    const started = await startFreshSession(phone, copilot, ctx);
     pendingEditProposals.delete(phone);
     return { handled: true, outcome: started ? "restart" : "throttled" };
   }
@@ -537,10 +581,10 @@ async function processText(
         console.warn(`[waOnboarding] edit-reject of proposal ${pendingProposal} failed:`, e?.message);
         return null;
       });
-    if (reject) await deliverCopilotReplies(phone, reject.replies);
+    if (reject) await deliverCopilotReplies(phone, reject.replies, ctx);
     const { replies, state } = await copilot.postMessage({ sessionId: session.id, text });
-    await deliverCopilotReplies(phone, replies);
-    await deliverTerminalFollowUp(phone, state, intakeLang(session));
+    await deliverCopilotReplies(phone, replies, ctx);
+    await deliverTerminalFollowUp(phone, state, intakeLang(session), ctx);
     return { handled: true, outcome: "edit_applied" };
   }
   // Stale pending edit with no live session — drop it and start over.
@@ -548,14 +592,14 @@ async function processText(
 
   // ── Unknown sender → new session + greeting ──────────────────────────────
   if (!session) {
-    const started = await startFreshSession(phone, copilot);
+    const started = await startFreshSession(phone, copilot, ctx);
     return { handled: true, outcome: started ? "greeting" : "throttled" };
   }
 
   // ── Resume mid-session ────────────────────────────────────────────────────
   const { replies, state } = await copilot.postMessage({ sessionId: session.id, text });
-  await deliverCopilotReplies(phone, replies);
-  await deliverTerminalFollowUp(phone, state, intakeLang(session));
+  await deliverCopilotReplies(phone, replies, ctx);
+  await deliverTerminalFollowUp(phone, state, intakeLang(session), ctx);
   return { handled: true, outcome: "message" };
 }
 
@@ -563,9 +607,13 @@ async function processText(
  * Entry point for the Meta webhook branch. NEVER throws — the webhook ack
  * (200) has already been sent and must never be jeopardized.
  */
-export async function handleInbound(message: any, senderPhone: string): Promise<InboundOutcome> {
+export async function handleInbound(
+  message: any,
+  senderPhone: string,
+  ctx?: OnboardingSendContext,
+): Promise<InboundOutcome> {
   try {
-    return await processInbound(message, senderPhone);
+    return await processInbound(message, senderPhone, ctx);
   } catch (e: any) {
     console.error("[waOnboarding] inbound processing failed:", e?.message ?? e);
     // W47: failsafe text is localized from the inbound text heuristic.
@@ -573,6 +621,7 @@ export async function handleInbound(message: any, senderPhone: string): Promise<
     await sendOnboardingText(
       normalizeWaPhone(senderPhone ?? "") || senderPhone,
       copilotT(intakeLang(null, text), "failsafe"),
+      ctx,
     ).catch(() => undefined);
     return { handled: true, outcome: "error" };
   }

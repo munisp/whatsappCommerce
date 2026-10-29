@@ -216,6 +216,22 @@ async function processWaWebhookValue(
   const valueTenant: any = isOnboardingIntakeValue
     ? null
     : await lookupTenantByPhoneNumberId(db, phoneNumberId);
+  // === W49 BYO own-number onboarding === A tenant that opted its OWN number
+  // into chat onboarding (settings.onboarding.chatOnboarding) and is not yet
+  // live routes to the onboarding copilot — bound to this tenant, replying via
+  // its own creds — instead of the store's customer bot. getOnboardingState
+  // masks the flag off once 'live', so a live store is never captured.
+  // Computed once per change value (the tenant is constant for the batch);
+  // fail-safe to NOT-BYO on any error so normal dispatch is never blocked.
+  let isByoOnboardingValue = false;
+  if (valueTenant && !isOnboardingIntakeValue) {
+    try {
+      const { getOnboardingState } = await import("../services/onboarding");
+      isByoOnboardingValue = getOnboardingState((valueTenant as any).settings).chatOnboarding === true;
+    } catch (e: any) {
+      console.error("[whatsapp-webhook] BYO onboarding flag read failed — treating as normal dispatch:", e?.message);
+    }
+  }
       for (const msg of messages) {
         // === W45 webhook-core (MSG-7): per-message try/catch → the
         // caller marks the DLQ event failed+lastError so the retry
@@ -232,6 +248,8 @@ async function processWaWebhookValue(
         // (cached lookup); identical row shape to the previous per-message
         // select — semantics unchanged.
         const tenant = valueTenant;
+        // W49 BYO: own-number chat-onboarding flag (resolved once per value).
+        const isByoOnboarding = isByoOnboardingValue;
         // === W40 tenancy (TEN-1): suspended/churned tenants get NO inbound
         // processing — drop with a structured log, before the dedupe claim,
         // metering, contact provisioning or NLP dispatch. The 200 ack was
@@ -254,7 +272,7 @@ async function processWaWebhookValue(
         // (cooldown map) instead of a silent dead-end; the message is not
         // dispatched. Telegram parity: same gate in telegramInbound's
         // dispatchToNlp (both via services/onboardingLifecycle). ===
-        if (tenant && !isOnboardingIntake) {
+        if (tenant && !isOnboardingIntake && !isByoOnboarding) {
           try {
             const { checkOrderIntakeAllowed } = await import("../services/onboardingLifecycle");
             const intake = await checkOrderIntakeAllowed(db, tenant as any);
@@ -327,7 +345,7 @@ async function processWaWebhookValue(
           claimedWamid = claimId;
           // ── Read receipt (blue ticks): fire-and-forget after the message ──
           // is accepted for processing — NEVER blocks or throws.
-          if (!isOnboardingIntake) {
+          if (!isOnboardingIntake && !isByoOnboarding) {
             markMessageRead(tenantId, msg.id).catch(() => {});
           }
         }
@@ -345,6 +363,22 @@ async function processWaWebhookValue(
           } catch (e: any) {
             // Fail-safe: the 200 ack was already sent; never rethrow.
             console.error("[whatsapp-webhook] onboarding intake error:", e?.message);
+          }
+          continue;
+        }
+        // ── W49 BYO: own-number chat onboarding ─────────────────────────────
+        // The sender messaged a tenant's OWN number while that tenant is in
+        // chat-onboarding mode (opted in, not yet live). Route to the same
+        // copilot, but BOUND to this tenant and replying via the tenant's own
+        // creds (ctx.tenantId) — not the global onboarding number. Skips the
+        // normal commerce dispatch (metering, NLP) entirely, like the global
+        // intake branch above. Fail-safe: the 200 ack was already sent.
+        if (isByoOnboarding) {
+          try {
+            const { handleInbound } = await import("../services/waOnboarding");
+            await handleInbound(msg, waPhoneNumber, { tenantId: (tenant as any).id });
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] BYO onboarding error:", e?.message);
           }
           continue;
         }

@@ -45,6 +45,9 @@ export interface OnboardingState {
   // === W49 partial-onboarding === true only for a merchant handed off from the
   // chat copilot to finish on the web and not yet live (see tenantConfig.ts).
   webHandoffPending: boolean;
+  // === W49 partial-onboarding === true only while a tenant's OWN WhatsApp
+  // number is in chat-onboarding mode (BYO) and not yet live (see tenantConfig).
+  chatOnboarding: boolean;
 }
 
 export interface ValidationCheckResult {
@@ -192,6 +195,9 @@ export function getOnboardingState(settings: unknown): OnboardingState {
     // A live tenant is never "pending web hand-off", regardless of a lingering
     // flag — so going live always exempts a merchant from the resume gate.
     webHandoffPending: status !== "live" && ob.webHandoffPending === true,
+    // Same masking: a live tenant's own number serves customers, never the
+    // onboarding copilot, regardless of a lingering chat-onboarding flag.
+    chatOnboarding: status !== "live" && ob.chatOnboarding === true,
   };
 }
 
@@ -242,6 +248,20 @@ export async function setOnboardingStatus(
       validationPassed: patch?.validationPassed ?? (status === "live" ? true : current.validationPassed),
       validatedAt: patch?.validatedAt !== undefined ? patch.validatedAt : current.validatedAt,
     };
+  });
+  return getOnboardingState(settings);
+}
+
+// === W49 partial-onboarding === Flip the BYO own-number chat-onboarding
+// opt-in. Preserves the rest of the onboarding block (spreads it + keeps a
+// valid status). The marker is also masked to false by getOnboardingState once
+// the tenant is 'live', so enabling it on a live tenant is a safe no-op.
+export async function setChatOnboardingEnabled(
+  tenantId: string,
+  enabled: boolean,
+): Promise<OnboardingState> {
+  const settings = await updateTenantSettings(tenantId, (s) => {
+    s.onboarding = { ...(s.onboarding ?? { status: "draft" }), chatOnboarding: enabled };
   });
   return getOnboardingState(settings);
 }

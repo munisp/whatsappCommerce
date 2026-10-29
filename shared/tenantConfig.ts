@@ -191,6 +191,13 @@ export interface TenantSettings {
     // merchant", so the existing active-but-not-live tenants (seed/demo/legacy)
     // are never routed into the wizard. Masked off once the tenant is 'live'.
     webHandoffPending?: boolean;
+    // === W49 partial-onboarding === BYO own-number opt-in: when true, inbound
+    // to THIS tenant's own WhatsApp number routes to the onboarding copilot
+    // (bound to this tenant, replying via its own creds) instead of the store's
+    // customer bot — until go-live. A POSITIVE marker so the existing not-live
+    // tenants' customer bots are never captured; masked off once 'live' (the
+    // number then serves customers normally).
+    chatOnboarding?: boolean;
     [k: string]: unknown;
   };
   [k: string]: unknown;

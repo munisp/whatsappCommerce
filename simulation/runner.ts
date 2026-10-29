@@ -792,6 +792,7 @@ export async function loadJourneys(): Promise<Journey[]> {
     // this branch's driver pool + discovery journeys (were J556/J557, which W54 also claimed) — J606/J607
     import("./journeys/j606-driver-pool-assignment"),
     import("./journeys/j607-discovery-no-hallucination"),
+    import("./journeys/j608-byo-own-number-onboarding"),
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),

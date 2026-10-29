@@ -10,6 +10,7 @@ import {
   createTenant,
   getOnboardingState,
   runTenantValidation,
+  setChatOnboardingEnabled,
   setOnboardingStatus,
   updateTenantSettings,
   validationFailureReasons,
@@ -647,6 +648,36 @@ export const onboardingRouter = router({
       });
       // === END W47 merchant ===
       return { ok: true, ...next };
+    }),
+
+  /**
+   * === W49 partial-onboarding === BYO own-number chat onboarding opt-in.
+   * When enabled, inbound to this tenant's OWN WhatsApp number routes to the
+   * onboarding copilot (bound to this tenant, replying via its own creds)
+   * instead of the store's customer bot — until go-live, after which the flag
+   * is masked and the number serves customers. Enabling requires the number to
+   * be connected first (nothing to route otherwise).
+   */
+  setOwnNumberChatOnboarding: protectedProcedure
+    .input(z.object({ tenantId: z.string(), enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const [tenant] = await db
+        .select({ id: tenants.id, whatsappPhoneNumberId: tenants.whatsappPhoneNumberId })
+        .from(tenants)
+        .where(eq(tenants.id, input.tenantId))
+        .limit(1);
+      if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      if (input.enabled && !tenant.whatsappPhoneNumberId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Connect your WhatsApp number before onboarding on it.",
+        });
+      }
+      const state = await setChatOnboardingEnabled(input.tenantId, input.enabled);
+      return { ok: true, ...state };
     }),
 
   /** Re-run validation after fixing failures (only from failed/validating). */
