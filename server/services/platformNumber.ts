@@ -16,6 +16,8 @@
  */
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "../db";
+import { getRedis } from "../redis";
+import { isProd } from "../_core/env";
 import { tenants } from "../../drizzle/schema";
 
 export interface PlatformWaCredentials {
@@ -56,11 +58,6 @@ export function normalizeShopRef(text: string | null | undefined): string {
   return (text ?? "").trim().toLowerCase();
 }
 
-/** Only live/active shops are reachable by name on the shared number. */
-function isReachableStatus(status: unknown): boolean {
-  return status === "active";
-}
-
 export interface ResolvedShop {
   tenantId: string;
   slug: string;
@@ -68,11 +65,13 @@ export interface ResolvedShop {
 }
 
 /**
- * Resolve a typed shop reference (its slug or exact name) to a reachable tenant
- * on the platform number. Exact slug match first (slugs are globally unique),
- * then exact case-insensitive name among active shops. Returns null when
- * nothing matches — the caller then treats the text as a product/discovery
- * query instead. Never matches suspended/draft/inactive shops.
+ * Resolve a typed shop reference (its slug or exact name) to a reachable shop
+ * ON the platform number. Matches only SHARED shops — active AND with no own
+ * WhatsApp number (whatsappPhoneNumberId IS NULL) — because a shop with its own
+ * number (BYO) is reached on that number, not here, and its replies must not go
+ * out from the platform number. Exact slug first (slugs are globally unique),
+ * then exact case-insensitive name. Returns null when nothing matches — the
+ * caller then treats the text as a product/discovery query.
  */
 export async function resolveShopRef(text: string | null | undefined): Promise<ResolvedShop | null> {
   const ref = normalizeShopRef(text);
@@ -81,23 +80,74 @@ export async function resolveShopRef(text: string | null | undefined): Promise<R
   if (!db) return null;
 
   const [bySlug] = await db
-    .select({ id: tenants.id, slug: tenants.slug, name: tenants.name, status: tenants.status })
+    .select({ id: tenants.id, slug: tenants.slug, name: tenants.name })
     .from(tenants)
-    .where(eq(tenants.slug, ref))
+    .where(sql`${tenants.slug} = ${ref} and ${tenants.status} = 'active' and ${tenants.whatsappPhoneNumberId} is null`)
     .limit(1)
     .catch(() => [] as any[]);
-  if (bySlug && isReachableStatus(bySlug.status)) {
-    return { tenantId: bySlug.id, slug: bySlug.slug, name: bySlug.name };
-  }
+  if (bySlug) return { tenantId: bySlug.id, slug: bySlug.slug, name: bySlug.name };
 
   const [byName] = await db
     .select({ id: tenants.id, slug: tenants.slug, name: tenants.name })
     .from(tenants)
-    .where(sql`lower(${tenants.name}) = ${ref} and ${tenants.status} = 'active'`)
+    .where(sql`lower(${tenants.name}) = ${ref} and ${tenants.status} = 'active' and ${tenants.whatsappPhoneNumberId} is null`)
     .limit(1)
     .catch(() => [] as any[]);
-  if (byName) {
-    return { tenantId: byName.id, slug: byName.slug, name: byName.name };
-  }
+  if (byName) return { tenantId: byName.id, slug: byName.slug, name: byName.name };
+
   return null;
+}
+
+// ── Active-shop pointer (which shop a customer is currently inside) ───────────
+// Directory-level state keyed by the customer's phone (the shop-scoped chat
+// session is separate, keyed {tenantId}:{phone}). Redis with the same
+// dev/test in-memory fallback as chatSession; stateless in prod without Redis.
+
+const ACTIVE_TTL_SECONDS = 1800;
+const activeMemory = new Map<string, { tenantId: string; exp: number }>();
+function activeKey(phone: string): string {
+  return `plat:active:${(phone ?? "").replace(/\D/g, "")}`;
+}
+
+export async function getActiveShop(phone: string): Promise<string | null> {
+  const key = activeKey(phone);
+  try {
+    const redis = await getRedis();
+    if (redis) return (await redis.get(key)) || null;
+  } catch (e: any) {
+    console.warn("[platformNumber] active-shop get failed:", e?.message);
+  }
+  if (isProd) return null;
+  const m = activeMemory.get(key);
+  if (m && m.exp > Date.now()) return m.tenantId;
+  if (m) activeMemory.delete(key);
+  return null;
+}
+
+export async function setActiveShop(phone: string, tenantId: string): Promise<void> {
+  const key = activeKey(phone);
+  try {
+    const redis = await getRedis();
+    if (redis) { await redis.setex(key, ACTIVE_TTL_SECONDS, tenantId); return; }
+  } catch (e: any) {
+    console.warn("[platformNumber] active-shop set failed:", e?.message);
+  }
+  if (isProd) return;
+  activeMemory.set(key, { tenantId, exp: Date.now() + ACTIVE_TTL_SECONDS * 1000 });
+}
+
+export async function clearActiveShop(phone: string): Promise<void> {
+  const key = activeKey(phone);
+  try {
+    const redis = await getRedis();
+    if (redis) { await redis.del(key); return; }
+  } catch (e: any) {
+    console.warn("[platformNumber] active-shop clear failed:", e?.message);
+  }
+  activeMemory.delete(key);
+}
+
+/** Test-only: reset the in-memory active-shop map. */
+export function __clearActiveShopMemory(): void {
+  activeMemory.clear();
 }

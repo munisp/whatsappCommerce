@@ -40,6 +40,7 @@ import { runSlaScan } from "../routers/sla";
 import { finalizeWalletWithdrawal } from "../routers/escrow";
 import { sendWhatsAppInteractive, sendWhatsAppMedia, sendWhatsAppText, applyWaDeliveryStatus, markMessageRead } from "../services/waSender";
 import { isOnboardingIntakeNumber } from "../services/waOnboarding";
+import { isPlatformNumber } from "../services/platformNumber";
 // === W48 integrations (PERF-INT-6): cached phone_number_id → tenant lookup ===
 import { lookupTenantByPhoneNumberId } from "../services/waTenantLookup";
 import { handleInboundReceiptImage } from "../services/receiptVerification";
@@ -213,7 +214,11 @@ async function processWaWebhookValue(
   // Redis read-through cache (waTenantLookup) instead of an uncached
   // Postgres select on every message of every webhook.
   const isOnboardingIntakeValue = isOnboardingIntakeNumber(phoneNumberId);
-  const valueTenant: any = isOnboardingIntakeValue
+  // W50 shared platform number: this number is not any single shop's — the
+  // effective shop is resolved per message (active shop / shop-ref / directory).
+  // Unset WHATSAPP_PLATFORM_NUMBER_ID → always false → fully inert.
+  const isPlatformInboundValue = !isOnboardingIntakeValue && isPlatformNumber(phoneNumberId);
+  const valueTenant: any = isOnboardingIntakeValue || isPlatformInboundValue
     ? null
     : await lookupTenantByPhoneNumberId(db, phoneNumberId);
   // === W49 BYO own-number onboarding === A tenant that opted its OWN number
@@ -247,9 +252,26 @@ async function processWaWebhookValue(
         // W48 (PERF-INT-6): tenant resolved once per change value above
         // (cached lookup); identical row shape to the previous per-message
         // select — semantics unchanged.
-        const tenant = valueTenant;
+        let tenant = valueTenant;
         // W49 BYO: own-number chat-onboarding flag (resolved once per value).
         const isByoOnboarding = isByoOnboardingValue;
+        // W50 shared platform number: if the customer is already inside a shop,
+        // process this message AS that shop (replies go via the platform number's
+        // creds — waSender's fallback). Otherwise it's a directory action (enter a
+        // shop / "home" / prompt), handled post-claim so Meta retries dedupe first.
+        let platformDirectory = false;
+        if (isPlatformInboundValue) {
+          try {
+            const { platformActiveShop } = await import("../services/platformInbound");
+            const pText = typeof msg?.text?.body === "string" ? msg.text.body : "";
+            const active = await platformActiveShop({ customerPhone: waPhoneNumber, text: pText });
+            if (active) tenant = active.shopRow;
+            else platformDirectory = true;
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] platform active-shop resolve failed:", e?.message);
+            platformDirectory = true; // fail safe: show the directory, never mis-dispatch
+          }
+        }
         // === W40 tenancy (TEN-1): suspended/churned tenants get NO inbound
         // processing — drop with a structured log, before the dedupe claim,
         // metering, contact provisioning or NLP dispatch. The 200 ack was
@@ -300,7 +322,7 @@ async function processWaWebhookValue(
         // shared-default fallback is allowed only when
         // WHATSAPP_DEFAULT_TENANT_ID is explicitly configured. Quarantined
         // messages raise a platform ops alert and are NOT processed. ===
-        if (!isOnboardingIntake && !tenant) {
+        if (!isOnboardingIntake && !platformDirectory && !tenant) {
           const allowSharedDefault = !isProd && !!process.env.WHATSAPP_DEFAULT_TENANT_ID;
           if (!allowSharedDefault) {
             result.quarantined++;
@@ -310,7 +332,9 @@ async function processWaWebhookValue(
         }
         const tenantId: string = isOnboardingIntake
           ? "onboarding"
-          : ((tenant as any)?.id ?? process.env.WHATSAPP_DEFAULT_TENANT_ID ?? "default");
+          : platformDirectory
+            ? "platform"
+            : ((tenant as any)?.id ?? process.env.WHATSAPP_DEFAULT_TENANT_ID ?? "default");
         // ── Platform ops: webhook idempotency (insert-first claim) ──────────
         // Meta retries deliveries until a 200; the wamid is the ledger PK, so
         // a retry collides (ON CONFLICT DO NOTHING) and is skipped — a
@@ -345,7 +369,7 @@ async function processWaWebhookValue(
           claimedWamid = claimId;
           // ── Read receipt (blue ticks): fire-and-forget after the message ──
           // is accepted for processing — NEVER blocks or throws.
-          if (!isOnboardingIntake && !isByoOnboarding) {
+          if (!isOnboardingIntake && !isByoOnboarding && !platformDirectory) {
             markMessageRead(tenantId, msg.id).catch(() => {});
           }
         }
@@ -379,6 +403,20 @@ async function processWaWebhookValue(
             await handleInbound(msg, waPhoneNumber, { tenantId: (tenant as any).id });
           } catch (e: any) {
             console.error("[whatsapp-webhook] BYO onboarding error:", e?.message);
+          }
+          continue;
+        }
+        // ── W50 shared platform number: directory action ────────────────────
+        // The customer is NOT inside a shop (or is leaving one): enter a shop by
+        // name/slug, go "home", or get the directory prompt. The reply goes via
+        // the platform number; the message was already claimed above, so Meta
+        // retries dedupe before any reply is sent.
+        if (platformDirectory) {
+          try {
+            const { handlePlatformDirectory } = await import("../services/platformInbound");
+            await handlePlatformDirectory({ customerPhone: waPhoneNumber, msg, contactName });
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] platform directory error:", e?.message);
           }
           continue;
         }

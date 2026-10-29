@@ -793,6 +793,7 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j606-driver-pool-assignment"),
     import("./journeys/j607-discovery-no-hallucination"),
     import("./journeys/j608-byo-own-number-onboarding"),
+    import("./journeys/j609-platform-shared-number"),
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),
