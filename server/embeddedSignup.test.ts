@@ -201,6 +201,25 @@ describe("completeEmbeddedSignup", () => {
     expect(patchText).toContain("waba-9");
     expect(patchText).toContain("pn-7");
     expect(patchText).toContain("meta-token-abc123");
+    // W49: connecting a not-yet-live tenant's own number arms BYO chat onboarding.
+    expect(patchText).toContain("chatOnboarding");
+  });
+
+  it("arms BYO chat onboarding for a not-live tenant, preserving the onboarding block", async () => {
+    const { db, updates } = makeDb({ settings: { onboarding: { status: "configuring", completedSteps: ["whatsapp"] } } });
+    await completeEmbeddedSignup(db, { tenantId: "t1", code: "code-1" }, routeFetch(FULL_ROUTES));
+    const patchText = sqlStrings(updates[0].settings);
+    expect(patchText).toContain("chatOnboarding");
+    // The existing onboarding block is carried forward (shallow jsonb merge
+    // replaces it), not dropped.
+    expect(patchText).toContain("configuring");
+    expect(patchText).toContain("completedSteps");
+  });
+
+  it("does NOT arm BYO chat onboarding for an already-live tenant", async () => {
+    const { db, updates } = makeDb({ settings: { onboarding: { status: "live" } } });
+    await completeEmbeddedSignup(db, { tenantId: "t1", code: "code-1" }, routeFetch(FULL_ROUTES));
+    expect(sqlStrings(updates[0].settings)).not.toContain("chatOnboarding");
   });
 
   it("honours session-info hints without discovery calls", async () => {

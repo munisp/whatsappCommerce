@@ -295,7 +295,7 @@ export async function completeEmbeddedSignup(
   //   settings.whatsapp.{wabaId,phoneNumberId,accessToken,displayPhoneNumber}
   // are the keys waSender / waTemplates already resolve from. The
   // embeddedSignup block is bookkeeping (idempotency + coexistence state).
-  const patch = {
+  const patch: Record<string, unknown> = {
     whatsapp: {
       ...((((tenant.settings as any)?.whatsapp) ?? {}) as Record<string, unknown>),
       wabaId,
@@ -307,6 +307,16 @@ export async function completeEmbeddedSignup(
     },
     embeddedSignup: record,
   };
+  // === W49 partial-onboarding === Arm BYO own-number chat onboarding for a
+  // NOT-yet-live tenant: connecting your own number during onboarding routes
+  // its inbound to the onboarding copilot (bound to this tenant) until go-live.
+  // The shallow jsonb `||` merge REPLACES the onboarding block, so carry the
+  // whole existing block forward plus the flag. A live tenant is left untouched
+  // (its number serves customers; getOnboardingState masks the flag anyway).
+  const existingOnboarding = (((tenant.settings as any)?.onboarding) ?? {}) as Record<string, unknown>;
+  if (existingOnboarding.status !== "live") {
+    patch.onboarding = { ...existingOnboarding, chatOnboarding: true };
+  }
   await db
     .update(tenants)
     .set({

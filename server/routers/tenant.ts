@@ -184,6 +184,13 @@ export const tenantRouter = router({
         // Encrypt at rest (v1: envelope) — reads decrypt transparently.
         accessToken: encryptSecret(input.accessToken),
       };
+      // === W49 partial-onboarding === Connecting your own number while NOT
+      // live arms BYO chat onboarding on it (inbound routes to the onboarding
+      // copilot until go-live; masked once live, so a live tenant is untouched).
+      const onb = (settings.onboarding ?? {}) as Record<string, unknown>;
+      if (onb.status !== "live") {
+        settings.onboarding = { ...onb, chatOnboarding: true };
+      }
       await db.updateTenant(input.tenantId, {
         whatsappPhoneNumberId: input.phoneNumberId,
         whatsappBusinessAccountId: input.wabaId,
