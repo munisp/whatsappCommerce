@@ -66,6 +66,10 @@ export const journey: Journey = {
         bodyText(results).includes("Fresh Mart"),
         `nearest-shops reply lists the shop stocking toothpaste (got: ${bodyText(results).slice(0, 180)})`,
       );
+      assert(
+        bodyText(results).includes("Toothpaste"),
+        `reply lists the matching PRODUCT under the store (got: ${bodyText(results).slice(0, 220)})`,
+      );
       assert((await pn.getPendingQuery(buyer)) === null, "pending query cleared after it ran");
 
       // ── 3. Repeat search with the saved location → immediate results ──────

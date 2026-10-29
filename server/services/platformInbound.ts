@@ -17,7 +17,7 @@
  * Directory replies are sent from the platform number's own creds. NEVER
  * throws — the webhook ack has already been sent.
  */
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { chunkWhatsAppText, normalizeWaPhone } from "./waSender";
 import { redactString } from "./logRedact";
 import {
@@ -36,9 +36,8 @@ import {
   setPendingQuery,
 } from "./platformNumber";
 import { defaultRadiusKm, discoverNearbyPure, loadDiscoveryData, maxRadiusKm, type DiscoverItem } from "./geoDiscovery";
-import { formatDiscoveryMenu } from "./discoveryMenu";
 import { getDb } from "../db";
-import { tenants } from "../../drizzle/schema";
+import { products, tenants } from "../../drizzle/schema";
 
 const GRAPH_API_BASE = "https://graph.facebook.com/v21.0";
 
@@ -125,6 +124,46 @@ export async function platformActiveShop(opts: {
  * shops (active + no own number) are listed — they're the ones reachable by
  * name on the platform number. Sends via the platform number.
  */
+interface MatchedProduct { name: string; price: string; currency: string | null }
+
+/** Up to 3 active products per tenant whose name/description/category contains the query. */
+async function matchingProductsByTenant(
+  db: any,
+  tenantIds: string[],
+  query: string,
+): Promise<Map<string, MatchedProduct[]>> {
+  const out = new Map<string, MatchedProduct[]>();
+  if (!tenantIds.length) return out;
+  const like = `%${query.toLowerCase()}%`;
+  const rows = await db
+    .select({ tenantId: products.tenantId, name: products.name, price: products.price, currency: products.currency })
+    .from(products)
+    .where(and(
+      inArray(products.tenantId, tenantIds),
+      eq(products.status, "active"),
+      sql`(lower(${products.name}) like ${like} or lower(coalesce(${products.description}, '')) like ${like} or lower(coalesce(${products.category}, '')) like ${like})`,
+    ))
+    .catch(() => [] as any[]);
+  for (const r of rows) {
+    const arr = out.get(r.tenantId) ?? [];
+    if (arr.length < 3) arr.push({ name: r.name, price: r.price, currency: r.currency });
+    out.set(r.tenantId, arr);
+  }
+  return out;
+}
+
+function money(price: string, currency: string | null): string {
+  const n = Number(price);
+  const amt = Number.isFinite(n) ? n.toLocaleString("en-NG", { maximumFractionDigits: 0 }) : String(price);
+  const sym = currency === "NGN" ? "₦" : currency === "USD" ? "$" : currency ? `${currency} ` : "";
+  return `${sym}${amt}`;
+}
+
+function formatKm(km: number): string {
+  if (km >= 10) return String(Math.round(km));
+  return Number.isInteger(km) ? String(km) : km.toFixed(1);
+}
+
 /** Keep only shops reachable on the platform number (shared: active + no own number). */
 async function filterSharedItems(db: any, items: DiscoverItem[]): Promise<DiscoverItem[]> {
   const ids = items.map((i) => i.tenantId);
@@ -154,10 +193,8 @@ async function discoverAndReply(phone: string, query: string, loc: LatLng): Prom
   const firstRadius = Math.min(defaultRadiusKm(), maxR);
   let radius = firstRadius;
   let items: DiscoverItem[] = [];
-  let shownRadius = radius;
   for (;;) {
     const result = discoverNearbyPure({ lat: loc.lat, lng: loc.lng, query, radiusKm: radius, sortBy: "distance" }, data);
-    shownRadius = result.radiusKm;
     items = await filterSharedItems(db, result.items);
     if (items.length > 0 || radius >= maxR) break;
     radius = Math.min(radius * 2, maxR);
@@ -170,9 +207,24 @@ async function discoverAndReply(phone: string, query: string, loc: LatLng): Prom
     );
     return;
   }
-  const widened = radius > firstRadius ? `\n_(Nothing within ${firstRadius} km, so I widened the search to find the nearest.)_` : "";
-  const menu = formatDiscoveryMenu(items, shownRadius);
-  await sendPlatformText(phone, `${menu}${widened}\n\n🛍️ Send a *store's name* from the list to start shopping there.`);
+  // List each store with the matching products (name + price) it stocks.
+  const shown = items.slice(0, 10);
+  const prodByTenant = await matchingProductsByTenant(db, shown.map((i) => i.tenantId), query);
+  const blocks = shown.map((it, n) => {
+    let block = `${n + 1}. *${it.businessName}* · ${formatKm(it.distanceKm)} km`;
+    for (const p of prodByTenant.get(it.tenantId) ?? []) {
+      block += `\n   • ${p.name} — ${money(p.price, p.currency)}`;
+    }
+    return block;
+  });
+  const widened = radius > firstRadius
+    ? `\n_(Nothing within ${firstRadius} km, so I widened the search.)_`
+    : "";
+  await sendPlatformText(
+    phone,
+    `🛍️ *Stores near you with "${query}":*${widened}\n\n${blocks.join("\n\n")}\n\n` +
+      `Send a *store's name* to start shopping there.`,
+  );
 }
 
 /** A product search: discover now if we know the customer's location, else ask for it. */
