@@ -35,7 +35,7 @@ import {
   setCustomerLocation,
   setPendingQuery,
 } from "./platformNumber";
-import { discoverNearbyPure, loadDiscoveryData } from "./geoDiscovery";
+import { defaultRadiusKm, discoverNearbyPure, loadDiscoveryData, maxRadiusKm, type DiscoverItem } from "./geoDiscovery";
 import { formatDiscoveryMenu } from "./discoveryMenu";
 import { getDb } from "../db";
 import { tenants } from "../../drizzle/schema";
@@ -125,6 +125,19 @@ export async function platformActiveShop(opts: {
  * shops (active + no own number) are listed — they're the ones reachable by
  * name on the platform number. Sends via the platform number.
  */
+/** Keep only shops reachable on the platform number (shared: active + no own number). */
+async function filterSharedItems(db: any, items: DiscoverItem[]): Promise<DiscoverItem[]> {
+  const ids = items.map((i) => i.tenantId);
+  if (!ids.length) return [];
+  const shared = await db
+    .select({ id: tenants.id })
+    .from(tenants)
+    .where(and(inArray(tenants.id, ids), eq(tenants.status, "active"), isNull(tenants.whatsappPhoneNumberId)))
+    .catch(() => [] as any[]);
+  const sharedIds = new Set(shared.map((r: any) => r.id));
+  return items.filter((i) => sharedIds.has(i.tenantId));
+}
+
 async function discoverAndReply(phone: string, query: string, loc: LatLng): Promise<void> {
   const db = await getDb();
   if (!db) {
@@ -132,30 +145,34 @@ async function discoverAndReply(phone: string, query: string, loc: LatLng): Prom
     return;
   }
   const data = await loadDiscoveryData(db).catch(() => ({ merchants: [], sponsored: [] }));
-  const result = discoverNearbyPure({ lat: loc.lat, lng: loc.lng, query, sortBy: "distance" }, data);
 
-  // Keep only shops reachable here (shared: active + no own WhatsApp number).
-  let items = result.items;
-  const ids = items.map((i) => i.tenantId);
-  if (ids.length) {
-    const shared = await db
-      .select({ id: tenants.id })
-      .from(tenants)
-      .where(and(inArray(tenants.id, ids), eq(tenants.status, "active"), isNull(tenants.whatsappPhoneNumberId)))
-      .catch(() => [] as any[]);
-    const sharedIds = new Set(shared.map((r) => r.id));
-    items = items.filter((i) => sharedIds.has(i.tenantId));
+  // Auto-widen: start at the default radius and DOUBLE it until reachable
+  // (shared) stores appear or we hit the max — so a sparse area still returns
+  // the nearest store rather than nothing. Each shop's own service radius is
+  // still respected inside discoverNearbyPure.
+  const maxR = maxRadiusKm();
+  const firstRadius = Math.min(defaultRadiusKm(), maxR);
+  let radius = firstRadius;
+  let items: DiscoverItem[] = [];
+  let shownRadius = radius;
+  for (;;) {
+    const result = discoverNearbyPure({ lat: loc.lat, lng: loc.lng, query, radiusKm: radius, sortBy: "distance" }, data);
+    shownRadius = result.radiusKm;
+    items = await filterSharedItems(db, result.items);
+    if (items.length > 0 || radius >= maxR) break;
+    radius = Math.min(radius * 2, maxR);
   }
 
   if (items.length === 0) {
     await sendPlatformText(
       phone,
-      `😕 I couldn't find a store near you with *${query}* yet — try another item, or send a *store's name* if you know one.`,
+      `😕 No store has *${query}* near you yet — try another item, or send a *store's name* if you know one.`,
     );
     return;
   }
-  const menu = formatDiscoveryMenu(items, result.radiusKm);
-  await sendPlatformText(phone, `${menu}\n\n🛍️ Send a *store's name* from the list to start shopping there.`);
+  const widened = radius > firstRadius ? `\n_(Nothing within ${firstRadius} km, so I widened the search to find the nearest.)_` : "";
+  const menu = formatDiscoveryMenu(items, shownRadius);
+  await sendPlatformText(phone, `${menu}${widened}\n\n🛍️ Send a *store's name* from the list to start shopping there.`);
 }
 
 /** A product search: discover now if we know the customer's location, else ask for it. */
@@ -168,7 +185,9 @@ async function runPlatformDiscovery(phone: string, query: string): Promise<void>
   await setPendingQuery(phone, query);
   await sendPlatformText(
     phone,
-    `🔎 To find stores near you with *${query}*, share your 📎 *location* (tap 📎 → Location) and I'll show you the closest ones.`,
+    `🔎 To find stores near you with *${query}*, send your 📎 *location*:\n` +
+      `tap 📎 → *Location* → *Send your current location* (allow location access if WhatsApp asks).\n\n` +
+      `Or just send a *store's name* if you already know one.`,
   );
 }
 
