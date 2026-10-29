@@ -111,6 +111,16 @@ export const ENV = {
   // Both OPTIONAL — unset = feature off, the webhook branch stays inert.
   onboardingPhoneNumberId: process.env.ONBOARDING_PHONE_NUMBER_ID ?? "",
   onboardingWaToken: process.env.ONBOARDING_WA_TOKEN ?? "",
+  // Chat onboarding mode. "partial": collect the business basics in chat, create
+  // the draft tenant + owner, then hand the merchant a web invite link to finish
+  // setup (products/branding/payments/go-live) on the website. "full": run the
+  // whole proposal→go-live flow in chat. Default "full" (preserves prior behavior).
+  onboardingChatMode: ((process.env.ONBOARDING_CHAT_MODE ?? "full").toLowerCase() === "partial"
+    ? "partial"
+    : "full") as "partial" | "full",
+  // Telegram conversational onboarding bot (parity with WhatsApp onboarding).
+  // OPTIONAL — unset = Telegram onboarding off. Token from BotFather.
+  onboardingTelegramBotToken: process.env.ONBOARDING_TELEGRAM_BOT_TOKEN ?? "",
   // Payment gateways
   paystackSecretKey: process.env.PAYSTACK_SECRET_KEY ?? "",
   flwSecretKey: process.env.FLW_SECRET_KEY ?? "",

@@ -122,6 +122,9 @@ export interface CopilotTextPack {
   voiceUnavailable: string;
   /** Unsupported message type (not text/audio). */
   unsupported: string;
+  /** Partial-onboarding web hand-off ({businessName}, {url}): the draft shop is
+   *  created and the merchant finishes setup on the website. */
+  handoffToWeb: string;
   /** Terminal "live" follow-up ({appUrl}) — points at the phone-bound
    *  invite login, never a bare portal the merchant can't log into. */
   terminalLive: string;
@@ -215,6 +218,7 @@ const en: CopilotTextPack = {
     "Sorry, that button didn't work (it may have expired). Tell me what you'd like to do, or type *restart* to begin again.",
   voiceUnavailable: "I couldn't process that voice note — could you type it out instead? ✍️",
   unsupported: "I can only read text and voice notes for now — tell me about your business in words. 🙂",
+  handoffToWeb: "Nice — {businessName} is created! 🎉 Finish your setup (products, branding, payments) on the web — about 2 mins, then you go live: {url}",
   terminalLive:
     "🎉 Congratulations — your store is live!\n\n" +
     "Next steps:\n" +
@@ -311,6 +315,7 @@ const fr: CopilotTextPack = {
     "Désolé, ce bouton n'a pas fonctionné (il a peut-être expiré). Dites-moi ce que vous souhaitez faire, ou tapez *restart* pour recommencer.",
   voiceUnavailable: "Je n'ai pas pu traiter cette note vocale — pouvez-vous l'écrire en texte ? ✍️",
   unsupported: "Je ne peux lire que du texte et des notes vocales pour l'instant — décrivez votre commerce en mots. 🙂",
+  handoffToWeb: "Super — {businessName} est créé ! 🎉 Terminez la configuration (produits, image, paiements) sur le web — environ 2 min, puis vous passez en ligne : {url}",
   terminalLive:
     "🎉 Félicitations — votre boutique est en ligne !\n\n" +
     "Prochaines étapes :\n" +
@@ -407,6 +412,7 @@ const ha: CopilotTextPack = {
     "Yi hakuri, wannan maɓallin bai yi aiki ba (wataƙila ya ƙare). Faɗa min abin da kake son yi, ko rubuta *restart* don farawa sake.",
   voiceUnavailable: "Ban iya sarrafa wannan saƙon murya ba — za ka iya rubuta shi? ✍️",
   unsupported: "A yanzu ina iya karanta saƙon rubutu da murya kawai — faɗa min game da kasuwancinka da kalmomi. 🙂",
+  handoffToWeb: "Madalla — an ƙirƙiri {businessName}! 🎉 Kammala saitin ka (kayayyaki, kamanni, biyan kuɗi) a yanar gizo — kusan minti 2, sannan za ka tafi kai tsaye: {url}",
   terminalLive:
     "🎉 Taya murna — shagönanka yana aiki yanzu!\n\n" +
     "Matakai na gaba:\n" +
@@ -503,6 +509,7 @@ const yo: CopilotTextPack = {
     "Má bínú, bọ́tìnnì yẹn kò ṣiṣẹ́ (ó lè ti parí). Sọ ohun tí o fẹ́ ṣe fún mi, tàbí tẹ *restart* láti bẹ̀rẹ̀ lẹ́ẹ̀kansi.",
   voiceUnavailable: "Mi ò lè ṣe àtúnwò sí nọ́ńta ohun yẹn — ṣé o lè kọ ọ́ sílẹ̀? ✍️",
   unsupported: "Ọ̀rọ̀ kíkọ àti nọ́ńta ohun nìkan ni m lè kà fún ìsìnyí — sọ nípa iṣẹ́ òwò rẹ ní ọ̀rọ̀. 🙂",
+  handoffToWeb: "Dáadáa — {businessName} ti ṣẹ̀dá! 🎉 Parí ìṣètò rẹ (ọjà, àwòrán, ìsanwó) lórí wẹ́ẹ̀bù — nǹkan bí ìṣẹ́jú 2, lẹ́yìn náà o máa gòkè: {url}",
   terminalLive:
     "🎉 Ẹ ku àyọ — ìtajá yín ti bẹ̀rẹ̀ iṣẹ́!\n\n" +
     "Àwọn ìgbésẹ̀ tókàn:\n" +
@@ -599,6 +606,7 @@ const ig: CopilotTextPack = {
     "Ndo, bọtịnụ ahụ adịghị arụ ọrụ (ọ nwere ike ịgụla). Gwara m ihe ị chọrọ ime, ma ọ bụ dee *restart* iji malite ọzọ.",
   voiceUnavailable: "Enweghị m ike ịgụ nke ozi olu ahụ — ị nwere ike ide ya? ✍️",
   unsupported: "Ugbu a m na-agụ naanị ederede na ozi olu — gwaa m banyere azụmahịa gị n'okwu. 🙂",
+  handoffToWeb: "Ọ dị mma — e kere {businessName}! 🎉 Mechaa nhazi gị (ngwaahịa, ọdịdị, ịkwụ ụgwọ) na webụ — ihe dị ka nkeji 2, mgbe ahụ ị ga-amalite: {url}",
   terminalLive:
     "🎉 Ekele — ụlọ ahịa gị arụla ọrụ!\n\n" +
     "Ihe ọzọ ị ga-eme:\n" +
@@ -695,6 +703,7 @@ const pcm: CopilotTextPack = {
     "Sorry, dat button no work (e fit don expire). Tell me wetin you wan do, or type *restart* to start again.",
   voiceUnavailable: "I no fit process dat voice note — abeg type am instead? ✍️",
   unsupported: "Na only text and voice note I fit read for now — tell me about your business with words. 🙂",
+  handoffToWeb: "Nice one — we don create {businessName}! 🎉 Finish your setup (products, branding, payment) for web — na like 2 mins, then you go live: {url}",
   terminalLive:
     "🎉 Congrats — your shop don live!\n\n" +
     "Next steps:\n" +

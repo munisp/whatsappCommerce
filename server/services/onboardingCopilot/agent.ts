@@ -13,6 +13,7 @@
  * converts checkpoint violations into user-facing refusals.
  */
 import { invokeLLM, type Message } from "../../_core/llm";
+import { ENV } from "../../_core/env";
 import { captureException } from "../observability";
 import { eq } from "drizzle-orm";
 import { getDb } from "../../db";
@@ -25,6 +26,7 @@ import {
   buildRankedUseCases,
   buildTemplateWaMenu,
   executeCopilotTool,
+  handoffToWeb,
   auditStateTransition,
   type ToolResult,
 } from "./tools";
@@ -227,7 +229,33 @@ async function handleIntake(session: OnboardingSession, text: string): Promise<C
     return [reply];
   }
 
-  // 2) We have enough to propose — generate proposal cards.
+  // 2) We have the business basics. In partial mode, create the draft tenant +
+  //    owner now and hand the merchant a web link to finish setup on the website;
+  //    otherwise run the full proposal→go-live flow in chat.
+  if (ENV.onboardingChatMode === "partial") {
+    const lang = sessionLanguage(session);
+    try {
+      const { inviteUrl } = await handoffToWeb(session);
+      await transition(session, "handed_off");
+      const text = t(lang, "handoffToWeb", {
+        businessName: facts.businessName ?? "your shop",
+        url: inviteUrl,
+      });
+      appendTranscript(session, "agent", text);
+      return [{ type: "text", text }];
+    } catch (e: any) {
+      // Never dead-end: if the hand-off can't mint the invite, fall through to
+      // the full in-chat flow so the merchant can still be onboarded.
+      captureException(e, {
+        service: "onboardingCopilot",
+        operation: "handoffToWeb",
+        severity: "warn",
+        extra: { sessionId: session.id },
+      });
+    }
+  }
+
+  // Full mode (or hand-off fallback): generate proposal cards in chat.
   return generateProposals(session, loop.usedLlm);
 }
 

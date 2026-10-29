@@ -342,6 +342,37 @@ async function ensureTenant(session: OnboardingSession): Promise<string> {
   return tenantId;
 }
 
+/**
+ * Partial-onboarding web hand-off (ONBOARDING_CHAT_MODE=partial): create the
+ * draft tenant, bootstrap its owner identity + a phone-bound first-login invite
+ * (bootstrapTenantOwner), and return the web invite URL so the merchant finishes
+ * setup (products/branding/payments/go-live) on the website. Requires a verified
+ * session.phone (webhook delivery on WhatsApp / shared contact on Telegram).
+ * Idempotent: ensureTenant/bootstrapTenantOwner are both safe to re-run.
+ */
+export async function handoffToWeb(session: OnboardingSession): Promise<{
+  tenantId: string;
+  inviteUrl: string;
+  inviteExpiresAt: string;
+}> {
+  if (!session.phone) {
+    throw new Error("web hand-off requires a verified phone on the session");
+  }
+  const tenantId = await ensureTenant(session);
+  const boot = await bootstrapTenantOwner({
+    tenantId,
+    phone: session.phone,
+    actorId: `copilot:${session.id}`,
+  });
+  await auditCopilot(
+    session,
+    "onboarding_copilot.web_handoff",
+    `web invite minted for chat-onboarded tenant ${tenantId}`,
+    { tenantId, inviteJti: boot.inviteJti, inviteExpiresAt: boot.inviteExpiresAt },
+  );
+  return { tenantId, inviteUrl: boot.inviteUrl, inviteExpiresAt: boot.inviteExpiresAt };
+}
+
 // ─── Tool handlers ───────────────────────────────────────────────────────────
 
 export interface ToolResult {

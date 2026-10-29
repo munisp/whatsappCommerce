@@ -35,16 +35,20 @@ export const COPILOT_STATES = [
   "configuring",
   "validating",
   "live",
+  // Partial onboarding (ONBOARDING_CHAT_MODE=partial): the draft tenant + owner
+  // are created and a web invite link is sent; the merchant finishes setup on
+  // the website. Terminal for the chat session.
+  "handed_off",
   "failed",
   "abandoned",
 ] as const;
 export type CopilotState = (typeof COPILOT_STATES)[number];
 
-export const COPILOT_CHANNELS = ["admin", "whatsapp"] as const;
+export const COPILOT_CHANNELS = ["admin", "whatsapp", "telegram"] as const;
 export type CopilotChannel = (typeof COPILOT_CHANNELS)[number];
 
 /** Terminal states — an "active" session is any non-terminal one. */
-export const TERMINAL_STATES: readonly CopilotState[] = ["live", "failed", "abandoned"];
+export const TERMINAL_STATES: readonly CopilotState[] = ["live", "handed_off", "failed", "abandoned"];
 
 /** Repair loop cap: after this many failed validation rounds → 'failed'. */
 export const MAX_REPAIR_ROUNDS = 3;
