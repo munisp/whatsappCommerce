@@ -42,6 +42,9 @@ export interface OnboardingState {
   completedSteps: OnboardingStep[];
   validationPassed: boolean;
   validatedAt: string | null;
+  // === W49 partial-onboarding === true only for a merchant handed off from the
+  // chat copilot to finish on the web and not yet live (see tenantConfig.ts).
+  webHandoffPending: boolean;
 }
 
 export interface ValidationCheckResult {
@@ -173,10 +176,11 @@ export async function sweepOrphanedTrialTenants(olderThanDays = 7): Promise<stri
 export function getOnboardingState(settings: unknown): OnboardingState {
   const s = (settings ?? {}) as TenantSettings;
   const ob: NonNullable<TenantSettings["onboarding"]> = s.onboarding ?? { status: "draft" };
+  const status: OnboardingStatus = (ONBOARDING_STATUSES as readonly string[]).includes(ob.status as string)
+    ? (ob.status as OnboardingStatus)
+    : "draft";
   return {
-    status: (ONBOARDING_STATUSES as readonly string[]).includes(ob.status as string)
-      ? (ob.status as OnboardingStatus)
-      : "draft",
+    status,
     reasons: Array.isArray(ob.reasons) ? (ob.reasons as string[]) : [],
     completedSteps: Array.isArray(ob.completedSteps)
       ? (ob.completedSteps as OnboardingStep[]).filter((x) =>
@@ -185,6 +189,9 @@ export function getOnboardingState(settings: unknown): OnboardingState {
       : [],
     validationPassed: ob.validationPassed === true,
     validatedAt: typeof ob.validatedAt === "string" ? ob.validatedAt : null,
+    // A live tenant is never "pending web hand-off", regardless of a lingering
+    // flag — so going live always exempts a merchant from the resume gate.
+    webHandoffPending: status !== "live" && ob.webHandoffPending === true,
   };
 }
 

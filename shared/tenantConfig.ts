@@ -184,6 +184,13 @@ export interface TenantSettings {
     completedSteps?: string[];
     validationPassed?: boolean;
     validatedAt?: string | null;
+    // === W49 partial-onboarding === Set true by handoffToWeb when a merchant
+    // is handed from the chat copilot (WhatsApp/Telegram) to the website to
+    // finish setup; read by the tenant-portal OnboardingGate to route them to
+    // /portal/setup. A POSITIVE marker — its ABSENCE means "not a chat-handoff
+    // merchant", so the existing active-but-not-live tenants (seed/demo/legacy)
+    // are never routed into the wizard. Masked off once the tenant is 'live'.
+    webHandoffPending?: boolean;
     [k: string]: unknown;
   };
   [k: string]: unknown;

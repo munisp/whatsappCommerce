@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
 import { Route, Router as WouterRouter, Switch, useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { trpc } from "@/lib/trpc";
 
 // Derived from BASE_URL (set directly from vite.config.ts's `base`, which
 // only depends on the build `command`) rather than PROD/MODE — those follow
@@ -279,6 +280,10 @@ function Router() {
 const PUBLIC_PREFIXES = ["/track/", "/evidence/", "/sla-extension/", "/shop/"];
 
 const ONBOARDING_PATH = "/onboarding-wizard";
+// The resume-and-go-live wizard (reads onboardingProgress, runs validate +
+// activate). A chat-handoff merchant already HAS a draft tenant, so they go
+// here to finish — not to /onboarding-wizard, which CREATES a tenant.
+const WEB_RESUME_PATH = "/portal/setup";
 
 // Generic client-side redirect for retired routes — /dashboard
 // (client/src/pages/Dashboard.tsx showed a platform-wide "Active Tenants"
@@ -299,15 +304,43 @@ function RouteRedirect({ to }: { to: string }) {
 function OnboardingGate({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [location, navigate] = useLocation();
-  const needsOnboarding = !!user && user.role !== "admin" && !user.tenantId;
+
+  // Brand-new users have no tenant yet (users.tenantId is null until
+  // onboarding.start creates one) — route to the tenant-CREATING wizard.
+  const noTenant = !!user && user.role !== "admin" && !user.tenantId;
+
+  // Merchants who began onboarding over WhatsApp/Telegram already HAVE a draft
+  // tenant (handoffToWeb created it), so they fall through the no-tenant check.
+  // Route them to the resume-and-go-live wizard — but ONLY on the positive
+  // webHandoffPending marker, never merely on "status !== live": existing
+  // active-but-not-live tenants (seed/demo/legacy) must never be trapped.
+  // FAIL-OPEN: the query runs only when there's a tenant to query for, and we
+  // redirect only on a definitive success carrying the marker — any loading,
+  // error, or unknown state lets the user straight through to their dashboard.
+  const canFinishOnboarding = !!user && user.role !== "admin" && !!user.tenantId;
+  const progress = trpc.onboardingProgress.getProgress.useQuery(undefined, {
+    enabled: canFinishOnboarding,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const canonical = progress.data?.canonical;
+  const needsWebResume =
+    canFinishOnboarding &&
+    progress.isSuccess &&
+    canonical?.webHandoffPending === true &&
+    canonical?.status !== "live";
+
+  // noTenant and needsWebResume are mutually exclusive (one needs !tenantId,
+  // the other needs tenantId), so at most one target is ever set.
+  const target = noTenant ? ONBOARDING_PATH : needsWebResume ? WEB_RESUME_PATH : null;
 
   useEffect(() => {
-    if (needsOnboarding && location !== ONBOARDING_PATH) {
-      navigate(ONBOARDING_PATH);
+    if (target && location !== target) {
+      navigate(target);
     }
-  }, [needsOnboarding, location, navigate]);
+  }, [target, location, navigate]);
 
-  if (needsOnboarding && location !== ONBOARDING_PATH) return null;
+  if (target && location !== target) return null;
   return <>{children}</>;
 }
 

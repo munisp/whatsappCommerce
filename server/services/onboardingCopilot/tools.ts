@@ -364,11 +364,18 @@ export async function handoffToWeb(session: OnboardingSession): Promise<{
     phone: session.phone,
     actorId: `copilot:${session.id}`,
   });
+  // Positive marker so the tenant-portal OnboardingGate routes this merchant to
+  // /portal/setup to finish. Set ONLY here; read ONLY by the gate; masked off
+  // once live. Spreads the existing onboarding block (keeps its status) and
+  // never flips status itself — provisioning left the tenant at 'draft'.
+  await updateTenantSettings(tenantId, (s) => {
+    s.onboarding = { ...(s.onboarding ?? { status: "draft" }), webHandoffPending: true };
+  });
   await auditCopilot(
     session,
     "onboarding_copilot.web_handoff",
     `web invite minted for chat-onboarded tenant ${tenantId}`,
-    { tenantId, inviteJti: boot.inviteJti, inviteExpiresAt: boot.inviteExpiresAt },
+    { tenantId, inviteJti: boot.inviteJti, inviteExpiresAt: boot.inviteExpiresAt, webHandoffPending: true },
   );
   return { tenantId, inviteUrl: boot.inviteUrl, inviteExpiresAt: boot.inviteExpiresAt };
 }
