@@ -26,7 +26,7 @@ import { and, eq, isNotNull, lte, lt, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import { tenants, whatsappNotificationLog } from "../../drizzle/schema";
 import { decryptSecret } from "./crypto/secrets";
-import { resolvePlatformWaCredentials } from "./platformNumber";
+import { resolvePlatformWaCredentialsFull } from "./platformNumber";
 import { isBanCircuitOpen, recordWaSendErrorSignal } from "./banCircuitBreaker";
 import { redactString } from "./logRedact"; // W46 platform-p2 (PLT-25)
 
@@ -120,7 +120,7 @@ export async function resolveTenantWaCredentials(tenantId: string | null | undef
   // W50 shared platform number: a shop with no own creds (a SHARED shop) replies
   // via the platform number — the number the customer actually messaged.
   // Preferred over the legacy global env fallback; inert when unconfigured.
-  const plat = resolvePlatformWaCredentials();
+  const plat = await resolvePlatformWaCredentialsFull();
   if (plat) return { phoneNumberId: plat.phoneNumberId, accessToken: plat.accessToken, source: "platform" };
   const accessToken = process.env.WAC_WHATSAPP_TOKEN || process.env.WHATSAPP_TOKEN || "";
   const phoneNumberId = process.env.WAC_WHATSAPP_PHONE_ID || process.env.WHATSAPP_PHONE_NUMBER_ID || "";

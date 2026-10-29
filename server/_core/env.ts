@@ -128,6 +128,11 @@ export const ENV = {
   // — unset = no platform number exists, the webhook branch stays fully inert.
   platformNumberId: process.env.WHATSAPP_PLATFORM_NUMBER_ID ?? "",
   platformWaToken: process.env.WHATSAPP_PLATFORM_TOKEN ?? "",
+  // When WHATSAPP_PLATFORM_TOKEN is unset, the platform number's send creds are
+  // read from THIS tenant's existing encrypted settings.whatsapp.accessToken —
+  // so an operating shop's already-stored token can back the platform number
+  // without ever copying the plaintext into env/secrets.
+  platformCredsTenantId: process.env.WHATSAPP_PLATFORM_CREDS_TENANT_ID ?? "",
   // Payment gateways
   paystackSecretKey: process.env.PAYSTACK_SECRET_KEY ?? "",
   flwSecretKey: process.env.FLW_SECRET_KEY ?? "",

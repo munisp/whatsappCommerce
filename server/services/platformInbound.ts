@@ -29,7 +29,7 @@ import {
   isGreeting,
   isHomeCommand,
   type LatLng,
-  resolvePlatformWaCredentials,
+  resolvePlatformWaCredentialsFull,
   resolveShopRef,
   setActiveShop,
   setCustomerLocation,
@@ -45,7 +45,7 @@ const GRAPH_API_BASE = "https://graph.facebook.com/v21.0";
 /** Send a text from the platform number (chunked). No-op when unconfigured. */
 export async function sendPlatformText(toPhone: string, body: string): Promise<void> {
   const to = normalizeWaPhone(toPhone);
-  const creds = resolvePlatformWaCredentials();
+  const creds = await resolvePlatformWaCredentialsFull();
   if (!creds) {
     console.info(`[platformInbound] send skipped (WHATSAPP_PLATFORM_* unset) → *${to.slice(-4)}`);
     return;

@@ -19,6 +19,7 @@ import { getDb } from "../db";
 import { getRedis } from "../redis";
 import { isProd } from "../_core/env";
 import { tenants } from "../../drizzle/schema";
+import { decryptSecret } from "./crypto/secrets";
 
 export interface PlatformWaCredentials {
   phoneNumberId: string;
@@ -31,6 +32,38 @@ export function resolvePlatformWaCredentials(): PlatformWaCredentials | null {
   const accessToken = (process.env.WHATSAPP_PLATFORM_TOKEN ?? "").trim();
   if (!phoneNumberId || !accessToken) return null;
   return { phoneNumberId, accessToken };
+}
+
+/**
+ * Platform send creds, full resolution: the env token when set, otherwise the
+ * designated creds tenant's OWN encrypted token (WHATSAPP_PLATFORM_CREDS_TENANT_ID
+ * + WHATSAPP_PLATFORM_NUMBER_ID) — so a shop's already-stored token can back the
+ * platform number without copying the plaintext anywhere. null when unconfigured.
+ */
+export async function resolvePlatformWaCredentialsFull(): Promise<PlatformWaCredentials | null> {
+  const env = resolvePlatformWaCredentials();
+  if (env) return env;
+  const phoneNumberId = (process.env.WHATSAPP_PLATFORM_NUMBER_ID ?? "").trim();
+  const credsTenantId = (process.env.WHATSAPP_PLATFORM_CREDS_TENANT_ID ?? "").trim();
+  if (!phoneNumberId || !credsTenantId) return null;
+  try {
+    const db = await getDb();
+    if (!db) return null;
+    const [t] = await db
+      .select({ settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, credsTenantId))
+      .limit(1)
+      .catch(() => [] as any[]);
+    const raw = (((t?.settings as any)?.whatsapp ?? {}) as any).accessToken;
+    if (typeof raw !== "string" || !raw) return null;
+    const accessToken = decryptSecret(raw);
+    if (!accessToken) return null;
+    return { phoneNumberId, accessToken };
+  } catch (e: any) {
+    console.warn("[platformNumber] creds-tenant resolve failed:", e?.message);
+    return null;
+  }
 }
 
 /**
