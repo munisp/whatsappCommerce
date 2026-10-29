@@ -200,7 +200,9 @@ describe("completeEmbeddedSignup", () => {
     const patchText = sqlStrings(updates[0].settings);
     expect(patchText).toContain("waba-9");
     expect(patchText).toContain("pn-7");
-    expect(patchText).toContain("meta-token-abc123");
+    // The access token is encrypted at rest (v2 envelope), never stored plaintext.
+    expect(patchText).not.toContain("meta-token-abc123");
+    expect(patchText).toContain("v2:");
     // W49: connecting a not-yet-live tenant's own number arms BYO chat onboarding.
     expect(patchText).toContain("chatOnboarding");
   });

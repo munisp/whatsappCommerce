@@ -29,6 +29,7 @@ import { eq, sql } from "drizzle-orm";
 import type { getDb } from "../../db";
 import { tenants } from "../../../drizzle/schema";
 import { ENV } from "../../_core/env";
+import { encryptSecret } from "../crypto/secrets";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 type FetchFn = typeof fetch;
@@ -300,7 +301,10 @@ export async function completeEmbeddedSignup(
       ...((((tenant.settings as any)?.whatsapp) ?? {}) as Record<string, unknown>),
       wabaId,
       phoneNumberId,
-      accessToken: token,
+      // Encrypt at rest (v2 envelope) — reads decrypt transparently via
+      // resolveTenantWaCredentials. Matches tenant.updateWhatsAppConfig; closes
+      // the inconsistency where embedded-signup tokens were stored plaintext.
+      accessToken: encryptSecret(token),
       displayPhoneNumber,
       coexistence: record.coexistence,
       onboardingStatus: "completed",
