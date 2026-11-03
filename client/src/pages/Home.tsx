@@ -1,3 +1,4 @@
+import { ADMIN_APP_PATH, belongsInAdminApp } from "@/lib/tenantAccess";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -14,14 +15,16 @@ import { useLocation } from "wouter";
 // legacy root supposedly had nothing to return to), which just meant two
 // clicks through what looked like the same landing page before Keycloak.
 export default function Home() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [, navigate] = useLocation();
 
   // Signed-in visitors still see the landing page (no auto-redirect/blank
   // flash) — the CTA just becomes a way back into the app they're already
   // signed into instead of a login prompt.
   const handleCta = () => {
-    if (isAuthenticated) {
+    if (isAuthenticated && belongsInAdminApp(user)) {
+      window.location.assign(ADMIN_APP_PATH);
+    } else if (isAuthenticated) {
       navigate("/dashboard");
     } else {
       startLogin();

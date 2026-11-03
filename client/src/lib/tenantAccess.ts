@@ -29,6 +29,14 @@ export const NO_BUSINESS_ALLOWED_PATHS = ["/onboarding-wizard"] as const;
 /** Platform admins are tenant-agnostic by design: they pick a tenant with the switcher and may have none of their own. */
 export const isPlatformAdmin = (u: SessionUser): boolean => u?.role === "admin";
 
+export const ADMIN_APP_PATH = "/platform-admin/";
+
+/**
+ * A platform admin only uses the admin app, never the shop menus. An admin account that also belongs
+ * to a shop (tenantId set) keeps its shop, or it would be locked out of it.
+ */
+export const belongsInAdminApp = (u: SessionUser): boolean => isPlatformAdmin(u) && !u?.tenantId;
+
 /** A signed-in, non-admin user who has not created (or been given) a business yet — i.e. anyone who has just registered. */
 export function needsBusinessSetup(u: SessionUser): boolean {
   return !!u && !isPlatformAdmin(u) && !u.tenantId;

@@ -1,7 +1,7 @@
 /** QA-043: the rules behind "which business am I looking at" and "what does the shell show me". Pure, so no rendering can fool them. */
 import { describe, it, expect } from "vitest";
 import {
-  accountSubtitle, displayNameFor, initialFor, isAllowedWithoutBusiness, isPlatformAdmin, needsBusinessSetup, resolveActiveTenant, NO_BUSINESS_ALLOWED_PATHS,
+  accountSubtitle, displayNameFor, initialFor, isAllowedWithoutBusiness, belongsInAdminApp, isPlatformAdmin, needsBusinessSetup, resolveActiveTenant, NO_BUSINESS_ALLOWED_PATHS,
 } from "./tenantAccess";
 
 const merchant = { role: "user", tenantId: "t-acme", name: "Ada", email: "ada@acme.example" };
@@ -22,6 +22,13 @@ describe("resolveActiveTenant — never a default", () => {
   });
   it("a platform admin gets the tenant they picked in the switcher", () => {
     expect(resolveActiveTenant(admin, "t-picked")).toBe("t-picked");
+  });
+  it("only an admin with no shop of its own belongs in the admin app", () => {
+    expect(belongsInAdminApp({ role: "admin" } as any)).toBe(true);
+    expect(belongsInAdminApp({ role: "admin", tenantId: "t-1" } as any)).toBe(false);
+    expect(belongsInAdminApp({ role: "user", tenantId: "t-1" } as any)).toBe(false);
+    expect(belongsInAdminApp({ role: "user" } as any)).toBe(false);
+    expect(belongsInAdminApp(null as any)).toBe(false);
   });
   it("a role that merely LOOKS like admin is not admin", () => {
     for (const role of ["Admin", "administrator", "admin ", "superadmin", null, undefined, ""]) {

@@ -54,7 +54,7 @@ import NotificationCenter from "./NotificationCenter";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import { NoBusinessYet } from "./NoBusinessYet";
 import {
-  accountSubtitle, displayNameFor, initialFor, isAllowedWithoutBusiness, isPlatformAdmin, needsBusinessSetup,
+  ADMIN_APP_PATH, accountSubtitle, belongsInAdminApp, displayNameFor, initialFor, isAllowedWithoutBusiness, isPlatformAdmin, needsBusinessSetup,
 } from "@/lib/tenantAccess";
 
 type NavItem = {
@@ -423,12 +423,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
   });
   const { loading, user } = useAuth();
+  const leaveForAdminApp = !IS_PLATFORM_ADMIN && belongsInAdminApp(user);
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
   }, [sidebarWidth]);
 
-  if (loading) {
+  useEffect(() => {
+    if (leaveForAdminApp) window.location.replace(ADMIN_APP_PATH);
+  }, [leaveForAdminApp]);
+
+  if (loading || leaveForAdminApp) {
     return <DashboardLayoutSkeleton />;
   }
 
