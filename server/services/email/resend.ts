@@ -52,6 +52,9 @@ export async function sendEmail(input: SendEmailInput): Promise<boolean> {
 }
 
 /** Mirrors phoneAuth.ts's OTP purposes — "login" for sign-in, "verify" for linking a phone. */
+// Text, not an image, so the name still shows when a mail client blocks images.
+const OAK_EMAIL_HEADER = `<div style="max-width: 480px; margin: 0 auto 20px; padding: 16px 20px; background: #1F3A2D; color: #F7F2E7; font-family: Georgia, serif; font-size: 24px; letter-spacing: 3px; border-bottom: 3px solid #B08D45;">OAK</div>`;
+
 export async function sendOtpEmail(
   to: string,
   otp: string,
@@ -60,14 +63,14 @@ export async function sendOtpEmail(
   const action = purpose === "verify" ? "verify your phone number" : "sign in";
   return sendEmail({
     to,
-    subject: `Your WhatsApp Commerce code: ${otp}`,
+    subject: `Your OAK code: ${otp}`,
     text: `Your one-time code is ${otp}. It expires in 10 minutes. Use it to ${action}.`,
     html: `
-      <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
-        <h2>Your one-time code</h2>
+      ${OAK_EMAIL_HEADER}<div style="font-family: Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; color: #23211C;">
+        <h2 style="font-family: Georgia, serif; font-weight: 500; color: #1F3A2D;">Your one-time code</h2>
         <p style="font-size: 32px; font-weight: bold; letter-spacing: 4px;">${otp}</p>
         <p>Use this code to ${action}. It expires in 10 minutes.</p>
-        <p style="color: #888; font-size: 12px;">If you didn't request this, you can safely ignore this email.</p>
+        <p style="color: #5F5545; font-size: 12px;">If you didn't request this, you can safely ignore this email.</p>
       </div>
     `,
   });
@@ -93,11 +96,11 @@ export async function notifyOtpRequestedEmail(
       `The code is ONLY on WhatsApp — we never email codes. If this wasn't you, ` +
       `secure your account immediately and contact support.`,
     html: `
-      <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
-        <h2>Sign-in code sent via WhatsApp</h2>
+      ${OAK_EMAIL_HEADER}<div style="font-family: Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; color: #23211C;">
+        <h2 style="font-family: Georgia, serif; font-weight: 500; color: #1F3A2D;">Sign-in code sent via WhatsApp</h2>
         <p>A one-time code was just sent to your phone on WhatsApp to ${action}.</p>
         <p><strong>The code is only on WhatsApp — we never email codes.</strong></p>
-        <p style="color: #888; font-size: 12px;">If this wasn't you, secure your account immediately and contact support.</p>
+        <p style="color: #5F5545; font-size: 12px;">If this wasn't you, secure your account immediately and contact support.</p>
       </div>
     `,
   });
@@ -108,11 +111,11 @@ export async function sendWelcomeEmail(to: string, name: string | null): Promise
   const greeting = name ? `Hi ${name},` : "Hi,";
   return sendEmail({
     to,
-    subject: "Welcome to WhatsApp Commerce",
+    subject: "Welcome to OAK",
     text: `${greeting}\n\nYour account is ready. Sign in to set up your business and start selling on WhatsApp.`,
     html: `
-      <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
-        <h2>Welcome to WhatsApp Commerce</h2>
+      ${OAK_EMAIL_HEADER}<div style="font-family: Helvetica, Arial, sans-serif; max-width: 480px; margin: 0 auto; color: #23211C;">
+        <h2 style="font-family: Georgia, serif; font-weight: 500; color: #1F3A2D;">Welcome to OAK</h2>
         <p>${greeting}</p>
         <p>Your account is ready. Sign in to set up your business and start selling on WhatsApp.</p>
       </div>

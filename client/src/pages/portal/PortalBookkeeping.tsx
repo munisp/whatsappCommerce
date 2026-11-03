@@ -64,7 +64,7 @@ function PortalBookkeepingInner() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-white">Bookkeeping</h1>
+        <h1 className="text-2xl font-bold text-foreground">Bookkeeping</h1>
 
         {/* ── Sales summary ─────────────────────────────────────────── */}
         <div className="flex gap-2">
@@ -75,15 +75,15 @@ function PortalBookkeepingInner() {
           ))}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="bg-slate-800 border-slate-700">
-            <CardHeader><CardTitle className="text-slate-300 text-sm">Sales ({frequency})</CardTitle></CardHeader>
+          <Card className="bg-card border-border">
+            <CardHeader><CardTitle className="text-foreground text-sm">Sales ({frequency})</CardTitle></CardHeader>
             <CardContent>
               <p className="text-2xl font-bold text-emerald-400">{fmt(summary?.salesCents ?? 0)}</p>
               <p className="text-xs text-slate-400 mt-1">{summary?.orderCount ?? 0} orders</p>
             </CardContent>
           </Card>
-          <Card className="bg-slate-800 border-slate-700">
-            <CardHeader><CardTitle className="text-slate-300 text-sm">vs previous {frequency === "daily" ? "day" : "week"}</CardTitle></CardHeader>
+          <Card className="bg-card border-border">
+            <CardHeader><CardTitle className="text-foreground text-sm">vs previous {frequency === "daily" ? "day" : "week"}</CardTitle></CardHeader>
             <CardContent>
               <p className={`text-2xl font-bold ${changePct == null ? "text-slate-400" : changePct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                 {changePct == null ? "—" : `${changePct >= 0 ? "+" : ""}${changePct}%`}
@@ -91,22 +91,22 @@ function PortalBookkeepingInner() {
               <p className="text-xs text-slate-400 mt-1">{fmt(summary?.prevSalesCents ?? 0)} previous</p>
             </CardContent>
           </Card>
-          <Card className="bg-slate-800 border-slate-700">
-            <CardHeader><CardTitle className="text-slate-300 text-sm">Digest message</CardTitle></CardHeader>
-            <CardContent><p className="text-sm text-slate-300">{summary?.message ?? "…"}</p></CardContent>
+          <Card className="bg-card border-border">
+            <CardHeader><CardTitle className="text-foreground text-sm">Digest message</CardTitle></CardHeader>
+            <CardContent><p className="text-sm text-foreground">{summary?.message ?? "…"}</p></CardContent>
           </Card>
         </div>
 
         {/* ── Expenses ──────────────────────────────────────────────── */}
-        <Card className="bg-slate-800 border-slate-700">
-          <CardHeader><CardTitle className="text-slate-200">Expenses</CardTitle></CardHeader>
+        <Card className="bg-card border-border">
+          <CardHeader><CardTitle className="text-foreground">Expenses</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap gap-2 items-center">
-              <input className="bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-white w-32"
+              <input className="bg-card border border-border rounded px-3 py-1.5 text-sm text-foreground w-32"
                 placeholder="Amount (₦)" value={expAmount} onChange={(e) => setExpAmount(e.target.value)} />
-              <input className="bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-white w-48"
+              <input className="bg-card border border-border rounded px-3 py-1.5 text-sm text-foreground w-48"
                 placeholder="Vendor" value={expVendor} onChange={(e) => setExpVendor(e.target.value)} />
-              <select className="bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-white"
+              <select className="bg-card border border-border rounded px-3 py-1.5 text-sm text-foreground"
                 value={expCategory} onChange={(e) => setExpCategory(e.target.value)}>
                 {["stock", "transport", "rent", "utilities", "wages", "packaging", "marketing", "fees", "general"].map((c) => (
                   <option key={c} value={c}>{c}</option>
@@ -120,7 +120,7 @@ function PortalBookkeepingInner() {
             </div>
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-700 text-slate-400 text-xs">
+                <tr className="border-b border-border text-slate-400 text-xs">
                   <th className="text-left p-2">Date</th>
                   <th className="text-left p-2">Vendor</th>
                   <th className="text-left p-2">Category</th>
@@ -132,13 +132,13 @@ function PortalBookkeepingInner() {
               </thead>
               <tbody>
                 {(expenseRows ?? []).map((x: any) => (
-                  <tr key={x.id} className="border-b border-slate-700/50">
-                    <td className="p-2 text-slate-300">{new Date(x.expenseDate).toISOString().slice(0, 10)}</td>
-                    <td className="p-2 text-slate-300">{x.vendor ?? "—"}</td>
+                  <tr key={x.id} className="border-b border-border/50">
+                    <td className="p-2 text-foreground">{new Date(x.expenseDate).toISOString().slice(0, 10)}</td>
+                    <td className="p-2 text-foreground">{x.vendor ?? "—"}</td>
                     <td className="p-2 text-slate-400 capitalize">{x.category}</td>
                     <td className="p-2 text-slate-500 text-xs">{x.source === "receipt_photo" ? "📷 receipt" : "manual"}</td>
                     <td className="p-2"><Badge className="text-xs">{x.status}</Badge></td>
-                    <td className="p-2 text-right text-red-300">{fmt(x.amountCents)}</td>
+                    <td className="p-2 text-right text-red-700">{fmt(x.amountCents)}</td>
                     <td className="p-2 text-right">
                       <button className="text-xs text-slate-500 hover:text-red-400"
                         onClick={() => removeExpense.mutate({ id: x.id })}>delete</button>
@@ -152,14 +152,14 @@ function PortalBookkeepingInner() {
         </Card>
 
         {/* ── Tax-ready export ──────────────────────────────────────── */}
-        <Card className="bg-slate-800 border-slate-700">
-          <CardHeader><CardTitle className="text-slate-200">Tax-ready export</CardTitle></CardHeader>
+        <Card className="bg-card border-border">
+          <CardHeader><CardTitle className="text-foreground">Tax-ready export</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap gap-2 items-center">
-              <input type="date" className="bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-white"
+              <input type="date" className="bg-card border border-border rounded px-3 py-1.5 text-sm text-foreground"
                 value={from} onChange={(e) => setFrom(e.target.value)} />
               <span className="text-slate-500 text-sm">to</span>
-              <input type="date" className="bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-white"
+              <input type="date" className="bg-card border border-border rounded px-3 py-1.5 text-sm text-foreground"
                 value={to} onChange={(e) => setTo(e.target.value)} />
               <Button size="sm" variant="outline" onClick={async () => {
                 const r = await csvQuery.refetch();
@@ -172,17 +172,17 @@ function PortalBookkeepingInner() {
             </div>
             {exportData && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                <div className="bg-slate-900 rounded p-4">
+                <div className="bg-card rounded p-4">
                   <p className="text-slate-400 text-xs">Total sales</p>
                   <p className="text-emerald-400 font-bold text-lg">{fmt(exportData.totalSalesCents)}</p>
                 </div>
-                <div className="bg-slate-900 rounded p-4">
+                <div className="bg-card rounded p-4">
                   <p className="text-slate-400 text-xs">Total expenses</p>
-                  <p className="text-red-300 font-bold text-lg">{fmt(exportData.totalExpensesCents)}</p>
+                  <p className="text-red-700 font-bold text-lg">{fmt(exportData.totalExpensesCents)}</p>
                 </div>
-                <div className="bg-slate-900 rounded p-4">
+                <div className="bg-card rounded p-4">
                   <p className="text-slate-400 text-xs">Net income</p>
-                  <p className="text-white font-bold text-lg">{fmt(exportData.netCents)}</p>
+                  <p className="text-foreground font-bold text-lg">{fmt(exportData.netCents)}</p>
                   <p className="text-slate-500 text-xs mt-1">Formalization-friendly summary for banks / MFIs</p>
                 </div>
               </div>

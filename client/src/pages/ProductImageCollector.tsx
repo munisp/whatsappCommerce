@@ -37,7 +37,7 @@ function BboxEditor({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     if (bbox) {
-      ctx.strokeStyle = "#22c55e"; ctx.lineWidth = 2;
+      ctx.strokeStyle = "#2F6B46"; ctx.lineWidth = 2;
       ctx.strokeRect(bbox.x * canvas.width, bbox.y * canvas.height, bbox.w * canvas.width, bbox.h * canvas.height);
       ctx.fillStyle = "rgba(34,197,94,0.15)";
       ctx.fillRect(bbox.x * canvas.width, bbox.y * canvas.height, bbox.w * canvas.width, bbox.h * canvas.height);
@@ -64,7 +64,7 @@ function BboxEditor({
   const onMouseUp = () => setDrawing(false);
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-card rounded-xl shadow-2xl max-w-lg w-full p-4 space-y-3">
+      <div className="bg-card rounded-xl shadow-md max-w-lg w-full p-4 space-y-3">
         <div className="flex items-center justify-between">
           <span className="font-semibold text-sm">Draw Bounding Box</span>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xs">Cancel</button>
@@ -537,7 +537,7 @@ export function ProductImageCollectorContent() {
             <CardContent>
               <div
                 ref={logScrollRef}
-                className="bg-zinc-950 text-green-400 font-mono text-xs rounded-lg p-3 h-52 overflow-y-auto"
+                className="bg-card text-green-400 font-mono text-xs rounded-lg p-3 h-52 overflow-y-auto"
               >
                 {ftStream.logs.length === 0 ? (
                   <span className="text-zinc-500">
@@ -917,7 +917,7 @@ export function ProductImageCollectorContent() {
                           {[1,2,3,4,5].map(n => (
                             <button key={n}
                               onClick={() => rateMutation.mutate({ id: img.id, qualityScore: n })}
-                              className={`${n <= (img.qualityScore ?? 0) ? "text-yellow-400" : "text-white/40"}`}>
+                              className={`${n <= (img.qualityScore ?? 0) ? "text-yellow-400" : "text-muted-foreground"}`}>
                               <Star className="w-3 h-3 fill-current" />
                             </button>
                           ))}
@@ -929,7 +929,7 @@ export function ProductImageCollectorContent() {
                       </div>
                       <button onClick={() => setBboxEditorImg({ id: img.id, url: img.imageUrl, bbox: (img as any).bbox ?? null })}
                         className="absolute top-1 left-1 bg-black/60 rounded p-0.5 opacity-0 group-hover:opacity-100 transition-opacity" title="Edit bounding box">
-                        <Pencil className="w-3 h-3 text-white" />
+                        <Pencil className="w-3 h-3 text-foreground" />
                       </button>
                       {(img as any).bbox && <div className="absolute top-1 right-1 bg-green-500/80 rounded px-1 py-0.5 text-white" style={{ fontSize: "9px" }}>bbox</div>}
                       <div className="mt-1">

@@ -414,8 +414,8 @@ export function WaMenuBuilderContent() {
                   </Button>
                 </CardHeader>
                 <CardContent className="flex flex-col items-center">
-                  <div className="relative w-[280px] bg-zinc-900 rounded-[2.5rem] border-4 border-zinc-700 shadow-2xl overflow-hidden">
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-6 bg-zinc-900 rounded-b-2xl z-10" />
+                  <div className="relative w-[280px] bg-card rounded-[2.5rem] border-4 border-border shadow-md overflow-hidden">
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-6 bg-card rounded-b-2xl z-10" />
                     <div className="bg-[#0b141a] min-h-[480px] pt-8 pb-4 flex flex-col">
                       {/* WhatsApp header */}
                       <div className="bg-[#1f2c34] px-3 py-2 flex items-center gap-2">
@@ -426,7 +426,7 @@ export function WaMenuBuilderContent() {
                           <div className="text-white text-xs font-semibold truncate max-w-[160px]">
                             {preview?.data.businessName ?? "Your store"}
                           </div>
-                          <div className="text-white/60 text-[10px]">online</div>
+                          <div className="text-muted-foreground text-[10px]">online</div>
                         </div>
                       </div>
                       {/* Chat area */}
@@ -434,7 +434,7 @@ export function WaMenuBuilderContent() {
                         <div className="flex justify-end">
                           <div className="bg-[#005c4b] rounded-xl rounded-tr-none px-3 py-2 max-w-[85%]">
                             <p className="text-white text-[11px]">Hi</p>
-                            <p className="text-white/40 text-[9px] text-right mt-0.5">10:30 ✓✓</p>
+                            <p className="text-muted-foreground text-[9px] text-right mt-0.5">10:30 ✓✓</p>
                           </div>
                         </div>
                         <div className="flex justify-start">
@@ -442,12 +442,12 @@ export function WaMenuBuilderContent() {
                             <p className="text-white text-[11px] whitespace-pre-wrap font-mono leading-relaxed">
                               {previewText}
                             </p>
-                            <p className="text-white/40 text-[9px] text-right mt-1">10:30</p>
+                            <p className="text-muted-foreground text-[9px] text-right mt-1">10:30</p>
                           </div>
                         </div>
                         <div className="flex justify-start">
                           <div className="bg-[#1f2c34]/60 rounded-xl px-3 py-1.5 max-w-[92%]">
-                            <p className="text-white/50 text-[10px] italic">
+                            <p className="text-muted-foreground text-[10px] italic">
                               {menu.fallback === "nlp"
                                 ? "Unrecognized replies go to the AI assistant."
                                 : "Unrecognized replies re-send this menu."}

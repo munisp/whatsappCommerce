@@ -27,14 +27,14 @@ export default defineConfig(({ command }) => ({
       injectRegister: false,
       includeAssets: ["offline.html", "icons/*.png"],
       manifest: {
-        name: "WA Commerce — Platform Admin",
+        name: "OAK Platform Admin",
         short_name: "Platform Admin",
         description: "Platform administration: tenants, users, infrastructure, and configuration.",
         start_url: command === "build" ? "/platform-admin/" : "/",
         scope: command === "build" ? "/platform-admin/" : "/",
         display: "standalone",
-        background_color: "#09090b",
-        theme_color: "#22c55e",
+        background_color: "#F7F2E7",
+        theme_color: "#1F3A2D",
         categories: ["business", "productivity"],
         icons: [
           { src: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png", purpose: "maskable any" },

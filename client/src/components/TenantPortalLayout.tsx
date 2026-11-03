@@ -1,4 +1,5 @@
 import { Link, useLocation } from "wouter";
+import { OakSignIn } from "@/components/OakSignIn";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
 import { Button } from "@/components/ui/button";
@@ -72,29 +73,13 @@ export function TenantPortalLayout({ children }: { children: React.ReactNode }) 
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-950 to-slate-900">
-        <div className="bg-slate-800 border border-slate-700 rounded-2xl p-10 w-full max-w-md text-center shadow-2xl">
-          <div className="flex justify-center mb-6">
-            <div className="bg-emerald-500/20 p-4 rounded-full">
-              <Building2 className="h-10 w-10 text-emerald-400" />
-            </div>
-          </div>
-          <h1 className="text-2xl font-bold text-white mb-2">Merchant Portal</h1>
-          <p className="text-slate-400 mb-8 text-sm">
-            Sign in to manage your store, orders, and customers on the WhatsApp Commerce platform.
-          </p>
-          <Button
-            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3"
-            onClick={() => startLogin()}
-          >
-            Sign In
-          </Button>
+      <OakSignIn title="Merchant Portal" description="Sign in to manage your store, orders and customers on OAK." photo="boutique-owner" alt="A boutique owner among the clothes in his shop">
           {/* Keycloak SSO section */}
           <div className="mt-6">
             <div className="flex items-center gap-3 mb-4">
-              <div className="flex-1 h-px bg-slate-600" />
+              <div className="flex-1 h-px bg-muted" />
               <span className="text-slate-500 text-xs">or sign in with SSO</span>
-              <div className="flex-1 h-px bg-slate-600" />
+              <div className="flex-1 h-px bg-muted" />
             </div>
             <div className="flex gap-2">
               <input
@@ -103,11 +88,11 @@ export function TenantPortalLayout({ children }: { children: React.ReactNode }) 
                 value={tenantId}
                 onChange={e => setTenantId(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && handleSsoLogin()}
-                className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                className="flex-1 bg-muted border border-border rounded-lg px-3 py-2 text-foreground text-sm placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
               />
               <Button
                 variant="outline"
-                className="border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white bg-transparent"
+                className="border-border text-foreground hover:bg-muted hover:text-white bg-transparent"
                 onClick={handleSsoLogin}
                 disabled={ssoLoading}
               >
@@ -124,25 +109,24 @@ export function TenantPortalLayout({ children }: { children: React.ReactNode }) 
               Start onboarding
             </Link>
           </p>
-        </div>
-      </div>
+      </OakSignIn>
     );
   }
 
   return (
-    <div className="flex h-screen bg-slate-900 text-slate-100 overflow-hidden">
+    <div className="flex h-screen bg-card text-foreground overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-60 flex-shrink-0 bg-slate-800 border-r border-slate-700 flex flex-col">
-        <div className="p-5 border-b border-slate-700">
+      <aside className="w-60 flex-shrink-0 bg-card border-r border-border flex flex-col">
+        <div className="p-5 border-b border-border">
           <div className="flex items-center gap-3">
             <div className="bg-emerald-500/20 p-2 rounded-lg">
               <Building2 className="h-5 w-5 text-emerald-400" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-white">Merchant Portal</p>
+              <p className="text-sm font-semibold text-foreground">Merchant Portal</p>
               {/* QA-043: this used to show `user.name ?? user.openId` — for a newly registered person with no display name that is
                   the identity provider's raw UUID. displayNameFor falls back to the email's local part, never an internal id. */}
-              <p className="text-xs text-slate-300 truncate max-w-[140px]" data-testid="portal-account-name">{displayNameFor(user)}</p>
+              <p className="text-xs text-foreground truncate max-w-[140px]" data-testid="portal-account-name">{displayNameFor(user)}</p>
               {user.email && <p className="text-[11px] text-slate-500 truncate max-w-[140px]" data-testid="portal-account-email">{user.email}</p>}
             </div>
           </div>
@@ -154,7 +138,7 @@ export function TenantPortalLayout({ children }: { children: React.ReactNode }) 
                 "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors",
                 location === path
                   ? "bg-emerald-600 text-white"
-                  : "text-slate-400 hover:bg-slate-700 hover:text-white",
+                  : "text-slate-400 hover:bg-muted hover:text-white",
               )}>
                 <Icon className="h-4 w-4 flex-shrink-0" />
                 {label}
@@ -162,11 +146,11 @@ export function TenantPortalLayout({ children }: { children: React.ReactNode }) 
             </Link>
           ))}
         </nav>
-        <div className="p-3 border-t border-slate-700">
+        <div className="p-3 border-t border-border">
           <Button
             variant="ghost"
             size="sm"
-            className="w-full justify-start text-slate-400 hover:text-white hover:bg-slate-700"
+            className="w-full justify-start text-slate-400 hover:text-white hover:bg-muted"
             onClick={() => logout()}
           >
             <LogOut className="h-4 w-4 mr-2" />
@@ -177,7 +161,7 @@ export function TenantPortalLayout({ children }: { children: React.ReactNode }) 
       {/* Main content */}
       <main className="flex-1 overflow-y-auto flex flex-col">
         {/* Portal top bar with notification bell */}
-        <div className="flex items-center justify-end px-6 py-3 border-b border-slate-700 bg-slate-800/50">
+        <div className="flex items-center justify-end px-6 py-3 border-b border-border bg-card/50">
           <NotificationCenter />
         </div>
         <div className="flex-1 overflow-y-auto p-6">{children}</div>

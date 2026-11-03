@@ -170,7 +170,7 @@ function IntegrationCard({ integration, onConfigure }: {
 }) {
   const Icon = integration.icon;
   return (
-    <Card className="bg-[#0f1923] border-white/10 hover:border-white/20 transition-all group cursor-pointer" onClick={onConfigure}>
+    <Card className="bg-[#FDFAF3] border-border hover:border-border transition-all group cursor-pointer" onClick={onConfigure}>
       <CardContent className="p-5">
         <div className="flex items-start gap-4">
           <div className={`w-12 h-12 rounded-xl ${integration.bgColor} flex items-center justify-center flex-shrink-0`}>
@@ -178,10 +178,10 @@ function IntegrationCard({ integration, onConfigure }: {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between">
-              <h3 className="text-white font-medium">{integration.name}</h3>
+              <h3 className="text-foreground font-medium">{integration.name}</h3>
               <ChevronRight className="w-4 h-4 text-white/20 group-hover:text-white/50 transition-colors" />
             </div>
-            <p className="text-white/40 text-xs mt-1">{integration.description}</p>
+            <p className="text-muted-foreground text-xs mt-1">{integration.description}</p>
             <a
               href={integration.docsUrl}
               target="_blank"
@@ -335,22 +335,22 @@ function ConfigurePanel({ integration, onClose }: { integration: typeof INTEGRAT
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-[#0f1923] border border-white/10 rounded-2xl w-full max-w-lg">
-        <div className="flex items-center gap-3 p-5 border-b border-white/10">
+      <div className="bg-[#FDFAF3] border border-border rounded-lg w-full max-w-lg">
+        <div className="flex items-center gap-3 p-5 border-b border-border">
           <div className={`w-10 h-10 rounded-xl ${integration.bgColor} flex items-center justify-center`}>
             <Icon className={`w-5 h-5 ${integration.color}`} />
           </div>
           <div>
-            <h2 className="text-white font-semibold">{integration.name}</h2>
-            <p className="text-white/40 text-xs">{integration.description}</p>
+            <h2 className="text-foreground font-semibold">{integration.name}</h2>
+            <p className="text-muted-foreground text-xs">{integration.description}</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose} className="text-white/50 ml-auto">✕</Button>
+          <Button variant="ghost" size="sm" onClick={onClose} className="text-muted-foreground ml-auto">✕</Button>
         </div>
 
         <div className="p-5 space-y-4">
           {integration.fields.map(field => (
             <div key={field.key}>
-              <Label className="text-white/60 text-xs">
+              <Label className="text-muted-foreground text-xs">
                 {field.label}
                 {field.required && <span className="text-red-400 ml-1">*</span>}
               </Label>
@@ -361,7 +361,7 @@ function ConfigurePanel({ integration, onClose }: { integration: typeof INTEGRAT
                   onChange={e => handleChange(field.key, e.target.value, field.required, field.type)}
                   onBlur={e => handleBlur(field.key, e.target.value, field.required, field.type)}
                   placeholder={field.placeholder}
-                  className={`bg-white/5 border-white/10 text-white pr-10 ${fieldErrors[field.key] && touched[field.key] ? "border-red-500/60 focus-visible:ring-red-500/30" : ""}`}
+                  className={`bg-muted border-border text-foreground pr-10 ${fieldErrors[field.key] && touched[field.key] ? "border-red-500/60 focus-visible:ring-red-500/30" : ""}`}
                 />
                 {field.type === "password" && (
                   <button
@@ -388,9 +388,9 @@ function ConfigurePanel({ integration, onClose }: { integration: typeof INTEGRAT
           {/* Test result */}
           {status !== "idle" && (
             <div className={`rounded-xl p-3 flex items-start gap-2 text-sm ${
-              status === "testing" ? "bg-blue-500/10 border border-blue-500/30 text-blue-300" :
-              status === "success" ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-300" :
-              "bg-red-500/10 border border-red-500/30 text-red-300"
+              status === "testing" ? "bg-blue-500/10 border border-blue-500/30 text-blue-700" :
+              status === "success" ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-700" :
+              "bg-red-500/10 border border-red-500/30 text-red-700"
             }`}>
               {status === "testing" && <Loader2 className="w-4 h-4 animate-spin mt-0.5 flex-shrink-0" />}
               {status === "success" && <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />}
@@ -399,20 +399,20 @@ function ConfigurePanel({ integration, onClose }: { integration: typeof INTEGRAT
             </div>
           )}
 
-          <div className="flex items-center gap-1 text-xs text-white/30">
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <Shield className="w-3 h-3" />
             Credentials are stored securely and never exposed to the frontend.
           </div>
         </div>
 
-        <div className="flex items-center justify-between p-5 border-t border-white/10">
-          <Button variant="outline" size="sm" className="border-white/10 text-white/70 gap-1.5"
+        <div className="flex items-center justify-between p-5 border-t border-border">
+          <Button variant="outline" size="sm" className="border-border text-foreground/70 gap-1.5"
             onClick={handleTest} disabled={!allRequired || hasFieldErrors || status === "testing"}>
             {status === "testing" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             Test Connection
           </Button>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={onClose} className="border-white/10 text-white/70">Cancel</Button>
+            <Button variant="outline" size="sm" onClick={onClose} className="border-border text-foreground/70">Cancel</Button>
             <Button size="sm" onClick={handleSave}
               disabled={!allRequired || hasFieldErrors || status === "testing"}
               className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5">
@@ -439,21 +439,21 @@ function CredentialWizardInner() {
       <div className="p-6 space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-2xl font-bold text-white">Connection Wizard</h1>
-          <p className="text-white/50 text-sm mt-1">
+          <h1 className="text-2xl font-bold text-foreground">Connection Wizard</h1>
+          <p className="text-muted-foreground text-sm mt-1">
             Configure live credentials for all platform integrations
           </p>
         </div>
 
         {/* Progress */}
-        <Card className="bg-[#0f1923] border-white/10">
+        <Card className="bg-[#FDFAF3] border-border">
           <CardContent className="p-5">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-white/70 text-sm">Setup Progress</span>
-              <span className="text-white font-semibold">{completedCount} / {INTEGRATIONS.length} configured</span>
+              <span className="text-foreground/70 text-sm">Setup Progress</span>
+              <span className="text-foreground font-semibold">{completedCount} / {INTEGRATIONS.length} configured</span>
             </div>
-            <Progress value={(completedCount / INTEGRATIONS.length) * 100} className="h-2 bg-white/10" />
-            <p className="text-white/30 text-xs mt-2">
+            <Progress value={(completedCount / INTEGRATIONS.length) * 100} className="h-2 bg-muted" />
+            <p className="text-muted-foreground text-xs mt-2">
               Configure all integrations to enable full platform functionality
             </p>
           </CardContent>
@@ -475,8 +475,8 @@ function CredentialWizardInner() {
           <CardContent className="p-4 flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-amber-300 text-sm font-medium">Credentials Not Configured</p>
-              <p className="text-amber-300/60 text-xs mt-1">
+              <p className="text-amber-700 text-sm font-medium">Credentials Not Configured</p>
+              <p className="text-amber-700/60 text-xs mt-1">
                 These integrations are not configured yet — enter credentials below to enable them. WhatsApp messages, Odoo syncs, and payment processing stay disabled until valid API keys from each provider are saved here.
               </p>
             </div>

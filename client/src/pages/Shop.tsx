@@ -78,7 +78,7 @@ export default function Shop() {
   // progressive enhancement — desktop browsers without it fall back to a
   // wa.me share link (same channel the chat share pack targets).
   const shopUrl = typeof window !== "undefined" ? window.location.href : "";
-  const shareText = `${shop.businessName} — order on WhatsApp Commerce: ${shopUrl}`;
+  const shareText = `${shop.businessName} — order on OAK: ${shopUrl}`;
   const waShareUrl = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
   const canNativeShare =
     typeof navigator !== "undefined" && typeof navigator.share === "function";
@@ -93,14 +93,14 @@ export default function Shop() {
   return (
     <div className="min-h-screen bg-background">
       {/* Hero / branding */}
-      <header className="text-white" style={{ backgroundColor: theme }}>
+      <header className="text-foreground" style={{ backgroundColor: theme }}>
         <div className="max-w-3xl mx-auto px-4 py-10">
           <h1 className="text-3xl font-bold">{shop.businessName}</h1>
-          {shop.heroText && <p className="mt-2 text-white/90">{shop.heroText}</p>}
+          {shop.heroText && <p className="mt-2 text-foreground/90">{shop.heroText}</p>}
           {(chatUrl || telegramUrl) && (
             <div className="mt-4 flex flex-wrap gap-2">
               {chatUrl && (
-                <Button asChild className="bg-white text-black hover:bg-white/90">
+                <Button asChild className="bg-white text-black hover:bg-muted">
                   <a href={chatUrl} target="_blank" rel="noopener noreferrer">
                     <MessageCircle className="mr-2 h-4 w-4" />
                     Order on WhatsApp
@@ -108,7 +108,7 @@ export default function Shop() {
                 </Button>
               )}
               {telegramUrl && (
-                <Button asChild variant="outline" className="border-white/40 bg-transparent text-white hover:bg-white/10">
+                <Button asChild variant="outline" className="border-border bg-transparent text-foreground hover:bg-muted">
                   <a href={telegramUrl} target="_blank" rel="noopener noreferrer">
                     <Send className="mr-2 h-4 w-4" />
                     Order on Telegram
@@ -123,13 +123,13 @@ export default function Shop() {
               type="button"
               onClick={handleShare}
               variant="outline"
-              className="mt-4 ml-2 border-white text-white hover:bg-white/10 bg-transparent"
+              className="mt-4 ml-2 border-white text-foreground hover:bg-muted bg-transparent"
             >
               <Share2 className="mr-2 h-4 w-4" />
               Share shop
             </Button>
           ) : (
-            <Button asChild variant="outline" className="mt-4 ml-2 border-white text-white hover:bg-white/10 bg-transparent">
+            <Button asChild variant="outline" className="mt-4 ml-2 border-white text-foreground hover:bg-muted bg-transparent">
               <a href={waShareUrl} target="_blank" rel="noopener noreferrer">
                 <Share2 className="mr-2 h-4 w-4" />
                 Share on WhatsApp

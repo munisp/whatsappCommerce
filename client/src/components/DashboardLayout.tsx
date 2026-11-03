@@ -1,3 +1,4 @@
+import { OakMark } from "@/components/OakLogo";
 import { ALWAYS_ON_FEATURES, featureForPath } from "@shared/featureRollout";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
@@ -464,7 +465,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <Button
             onClick={() => startLogin()}
             size="lg"
-            className="w-full shadow-lg hover:shadow-xl transition-all"
+            className="w-full shadow-md hover:shadow-md transition-all"
           >
             Sign in
           </Button>
@@ -786,20 +787,13 @@ function DashboardLayoutContent({
                     <img
                       src={myTenant.logoUrl}
                       alt={myTenant.name ?? "Tenant logo"}
-                      className="w-7 h-7 rounded-lg object-contain shrink-0 bg-white/10"
+                      className="w-7 h-7 rounded-lg object-contain shrink-0 bg-muted"
                      loading="lazy" decoding="async" />
                   ) : (
-                    <div
-                      className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shrink-0"
-                      style={!IS_PLATFORM_ADMIN && myTenant?.primaryColor ? { backgroundColor: myTenant.primaryColor } : undefined}
-                    >
-                      {IS_PLATFORM_ADMIN
-                        ? <Shield className="h-4 w-4 text-primary-foreground" />
-                        : <ShoppingBag className="h-4 w-4 text-primary-foreground" />}
-                    </div>
+                    <OakMark tone="light" className="h-8 w-8 shrink-0" />
                   )}
-                  <span className="font-bold text-sm truncate">
-                    {IS_PLATFORM_ADMIN ? "Platform Admin" : (myTenant?.name ?? "WhatsApp Commerce")}
+                  <span className="oak-display text-lg truncate">
+                    {IS_PLATFORM_ADMIN ? "Platform Admin" : (myTenant?.name ?? "OAK")}
                   </span>
                 </div>
               )}
@@ -823,7 +817,7 @@ function DashboardLayoutContent({
                   className="w-full h-8 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary"
                 />
                 {searchResults.length > 0 && (
-                  <div className="absolute left-2 right-2 top-full z-50 mt-1 rounded-md border bg-popover shadow-lg overflow-hidden">
+                  <div className="absolute left-2 right-2 top-full z-50 mt-1 rounded-md border bg-popover shadow-md overflow-hidden">
                     {searchResults.map(item => (
                       <button
                         key={item.path}
@@ -838,7 +832,7 @@ function DashboardLayoutContent({
                   </div>
                 )}
                 {searchQuery && searchResults.length === 0 && (
-                  <div className="absolute left-2 right-2 top-full z-50 mt-1 rounded-md border bg-popover shadow-lg px-3 py-2 text-sm text-muted-foreground">
+                  <div className="absolute left-2 right-2 top-full z-50 mt-1 rounded-md border bg-popover shadow-md px-3 py-2 text-sm text-muted-foreground">
                     No results
                   </div>
                 )}

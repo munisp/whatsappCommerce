@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const COLORS = ["#22d3ee", "#4ade80", "#fbbf24", "#a78bfa", "#f87171", "#fb923c"];
+const COLORS = ["#33507A", "#2F6B46", "#B08D45", "#5A3E2B", "#A63A24", "#B4552F"];
 
 function fmt(n: number, decimals = 0) {
   if (n >= 1_000_000) return `₦${(n / 1_000_000).toFixed(1)}M`;
@@ -65,7 +65,7 @@ function KpiCard({
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border bg-card p-3 shadow-lg text-xs space-y-1">
+    <div className="rounded-lg border bg-card p-3 shadow-md text-xs space-y-1">
       <p className="font-semibold text-foreground mb-2">{label}</p>
       {payload.map((p: any) => (
         <div key={p.name} className="flex items-center gap-2">
@@ -211,21 +211,21 @@ function RevenueDashboardInner() {
                     <AreaChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
                       <defs>
                         <linearGradient id="gmvGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#22d3ee" stopOpacity={0} />
+                          <stop offset="5%" stopColor="#33507A" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#33507A" stopOpacity={0} />
                         </linearGradient>
                         <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#4ade80" stopOpacity={0.4} />
-                          <stop offset="95%" stopColor="#4ade80" stopOpacity={0} />
+                          <stop offset="5%" stopColor="#2F6B46" stopOpacity={0.4} />
+                          <stop offset="95%" stopColor="#2F6B46" stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                      <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} />
-                      <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => fmt(v)} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#DDD3BD" />
+                      <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#75695A" }} />
+                      <YAxis tick={{ fontSize: 11, fill: "#75695A" }} tickFormatter={(v) => fmt(v)} />
                       <Tooltip content={<CustomTooltip />} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Area type="monotone" dataKey="gmv" name="GMV (₦)" stroke="#22d3ee" fill="url(#gmvGrad)" strokeWidth={2} />
-                      <Area type="monotone" dataKey="platformRevenue" name="Platform Revenue ($)" stroke="#4ade80" fill="url(#revGrad)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="gmv" name="GMV (₦)" stroke="#33507A" fill="url(#gmvGrad)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="platformRevenue" name="Platform Revenue ($)" stroke="#2F6B46" fill="url(#revGrad)" strokeWidth={2} />
                     </AreaChart>
                   </ResponsiveContainer>
                 )}
@@ -239,13 +239,13 @@ function RevenueDashboardInner() {
                 {trendLoading ? <Skeleton className="h-48" /> : (
                   <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={trend} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                      <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} />
-                      <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#DDD3BD" />
+                      <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#75695A" }} />
+                      <YAxis tick={{ fontSize: 11, fill: "#75695A" }} />
                       <Tooltip content={<CustomTooltip />} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Bar dataKey="txnCount" name="Successful" fill="#4ade80" radius={[3, 3, 0, 0]} />
-                      <Bar dataKey="failedCount" name="Failed" fill="#f87171" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="txnCount" name="Successful" fill="#2F6B46" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="failedCount" name="Failed" fill="#A63A24" radius={[3, 3, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 )}
@@ -328,17 +328,17 @@ function RevenueDashboardInner() {
                     <AreaChart data={combinedForecast} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
                       <defs>
                         <linearGradient id="foreGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#4ade80" stopOpacity={0.35} />
-                          <stop offset="95%" stopColor="#4ade80" stopOpacity={0} />
+                          <stop offset="5%" stopColor="#2F6B46" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="#2F6B46" stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                      <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} />
-                      <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => fmtUsd(v)} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#DDD3BD" />
+                      <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#75695A" }} />
+                      <YAxis tick={{ fontSize: 11, fill: "#75695A" }} tickFormatter={(v) => fmtUsd(v)} />
                       <Tooltip content={<CustomTooltip />} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Area type="monotone" dataKey="platformRevenue" name="Platform Revenue ($)" stroke="#4ade80" fill="url(#foreGrad)" strokeWidth={2} connectNulls />
-                      <Area type="monotone" dataKey="gmv" name="GMV (₦)" stroke="#22d3ee" fill="none" strokeWidth={1.5} connectNulls />
+                      <Area type="monotone" dataKey="platformRevenue" name="Platform Revenue ($)" stroke="#2F6B46" fill="url(#foreGrad)" strokeWidth={2} connectNulls />
+                      <Area type="monotone" dataKey="gmv" name="GMV (₦)" stroke="#33507A" fill="none" strokeWidth={1.5} connectNulls />
                     </AreaChart>
                   </ResponsiveContainer>
                 )}
@@ -405,7 +405,7 @@ function RevenueDashboardInner() {
                           .map((t, i) => (
                             <tr key={t.tenantId} className="border-b border-border/40 hover:bg-muted/30 transition-colors">
                               <td className="py-2 pr-4">
-                                <span className={cn("text-xs font-bold", i === 0 ? "text-yellow-400" : i === 1 ? "text-slate-300" : i === 2 ? "text-amber-600" : "text-muted-foreground")}>
+                                <span className={cn("text-xs font-bold", i === 0 ? "text-yellow-400" : i === 1 ? "text-foreground" : i === 2 ? "text-amber-600" : "text-muted-foreground")}>
                                   #{i + 1}
                                 </span>
                               </td>
@@ -464,13 +464,13 @@ function RevenueDashboardInner() {
                     <>
                       <div className="flex justify-between items-center py-2 border-b border-border/40">
                         <span className="text-sm text-muted-foreground">Profit share rate</span>
-                        <Badge className="bg-cyan-500/20 text-cyan-300 border-cyan-500/30">
+                        <Badge className="bg-cyan-500/20 text-cyan-700 border-cyan-500/30">
                           {(config.profitShareRate * 100).toFixed(0)}% of net profit
                         </Badge>
                       </div>
                       <div className="flex justify-between items-center py-2 border-b border-border/40">
                         <span className="text-sm text-muted-foreground">Transaction revenue share</span>
-                        <Badge className="bg-green-500/20 text-green-300 border-green-500/30">
+                        <Badge className="bg-green-500/20 text-green-700 border-green-500/30">
                           {(config.txnShareRate * 100).toFixed(1)}% of GMV
                         </Badge>
                       </div>

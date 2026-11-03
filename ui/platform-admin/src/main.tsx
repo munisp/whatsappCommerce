@@ -9,10 +9,12 @@ import App from "./App";
 import { isLoggingOut, startLogin } from "@/const";
 import "@/index.css";
 // === W48 perf (PERF-FE-6): self-hosted fonts (latin subsets) ===
-import "@fontsource/inter/latin-400.css";
-import "@fontsource/inter/latin-500.css";
-import "@fontsource/inter/latin-600.css";
-import "@fontsource/inter/latin-700.css";
+import "@fontsource/newsreader/latin-400.css";
+import "@fontsource/newsreader/latin-500.css";
+import "@fontsource/hanken-grotesk/latin-400.css";
+import "@fontsource/hanken-grotesk/latin-500.css";
+import "@fontsource/hanken-grotesk/latin-600.css";
+import "@fontsource/hanken-grotesk/latin-700.css";
 import "@fontsource/jetbrains-mono/latin-400.css";
 import "@fontsource/jetbrains-mono/latin-500.css";
 import { TenantProvider } from "@/contexts/TenantContext";

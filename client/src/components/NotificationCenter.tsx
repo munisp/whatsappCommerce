@@ -118,7 +118,7 @@ export default function NotificationCenter() {
       {/* Dropdown panel */}
       {open && (
         <div
-          className="absolute right-0 top-11 z-50 w-80 rounded-xl border border-border bg-card shadow-xl"
+          className="absolute right-0 top-11 z-50 w-80 rounded-xl border border-border bg-card shadow-md"
           style={{ animation: "fadeInDown 150ms cubic-bezier(0.23,1,0.32,1)" }}
         >
           {/* Header */}

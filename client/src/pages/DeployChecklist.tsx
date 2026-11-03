@@ -102,7 +102,7 @@ export default function DeployChecklist() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
               <Rocket className="h-6 w-6 text-emerald-400" />
               Production Deploy Checklist
             </h1>
@@ -111,7 +111,7 @@ export default function DeployChecklist() {
             </p>
           </div>
           <div className="text-right">
-            <div className="text-3xl font-bold text-white">{pct}%</div>
+            <div className="text-3xl font-bold text-foreground">{pct}%</div>
             <div className="text-xs text-slate-400">{allDone}/{CHECKLIST.length} complete</div>
             {requiredDone < required.length && (
               <Badge className="mt-1 bg-red-600/20 text-red-400 border-red-600/30 text-xs">
@@ -127,14 +127,14 @@ export default function DeployChecklist() {
         </div>
 
         {/* Progress bar */}
-        <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+        <div className="h-2 bg-muted rounded-full overflow-hidden">
           <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${pct}%` }} />
         </div>
 
         {CATEGORIES.map(cat => (
-          <Card key={cat} className="bg-slate-800 border-slate-700">
+          <Card key={cat} className="bg-card border-border">
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm text-slate-300 uppercase tracking-wider">{cat}</CardTitle>
+              <CardTitle className="text-sm text-foreground uppercase tracking-wider">{cat}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {CHECKLIST.filter(c => c.category === cat).map(item => (
@@ -144,7 +144,7 @@ export default function DeployChecklist() {
                     "flex gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
                     checked.has(item.id)
                       ? "bg-emerald-900/20 border-emerald-700/40"
-                      : "bg-slate-700/30 border-slate-700 hover:bg-slate-700/50",
+                      : "bg-muted/30 border-border hover:bg-muted/50",
                   )}
                   onClick={() => toggle(item.id)}
                 >
@@ -155,7 +155,7 @@ export default function DeployChecklist() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className={cn("text-sm font-medium", checked.has(item.id) ? "text-emerald-300 line-through" : "text-white")}>
+                      <span className={cn("text-sm font-medium", checked.has(item.id) ? "text-emerald-700 line-through" : "text-foreground")}>
                         {item.title}
                       </span>
                       {item.required && (
@@ -165,7 +165,7 @@ export default function DeployChecklist() {
                     <p className="text-xs text-slate-400">{item.description}</p>
                     {item.command && (
                       <div className="mt-2 flex items-center gap-2">
-                        <code className="flex-1 text-xs bg-slate-900 text-emerald-300 px-3 py-1.5 rounded font-mono truncate">
+                        <code className="flex-1 text-xs bg-card text-emerald-700 px-3 py-1.5 rounded font-mono truncate">
                           {item.command}
                         </code>
                         <Button

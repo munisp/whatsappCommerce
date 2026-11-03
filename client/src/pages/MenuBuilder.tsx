@@ -49,19 +49,19 @@ function PhonePreview({ menuName, items }: { menuName: string; items: MenuItem[]
   return (
     <div className="flex flex-col items-center">
       {/* Phone shell */}
-      <div className="relative w-[260px] bg-zinc-900 rounded-[2.5rem] border-4 border-zinc-700 shadow-2xl overflow-hidden">
+      <div className="relative w-[260px] bg-card rounded-[2.5rem] border-4 border-border shadow-md overflow-hidden">
         {/* Notch */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-6 bg-zinc-900 rounded-b-2xl z-10" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-6 bg-card rounded-b-2xl z-10" />
         {/* Screen */}
         <div className="bg-[#0a1929] min-h-[520px] pt-8 pb-4 flex flex-col">
           {/* WhatsApp header */}
           <div className="bg-[#128C7E] px-3 py-2 flex items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold text-white">
+            <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-foreground">
               {menuName[0]?.toUpperCase() ?? "M"}
             </div>
             <div>
               <div className="text-white text-xs font-semibold">{menuName || "My Store"}</div>
-              <div className="text-white/70 text-[10px]">online</div>
+              <div className="text-foreground/70 text-[10px]">online</div>
             </div>
           </div>
 
@@ -71,7 +71,7 @@ function PhonePreview({ menuName, items }: { menuName: string; items: MenuItem[]
             <div className="flex justify-start">
               <div className="bg-[#1f2c34] rounded-xl rounded-tl-none px-3 py-2 max-w-[85%]">
                 <p className="text-white text-[11px]">Hello! 👋 How can I help you today?</p>
-                <p className="text-white/40 text-[9px] text-right mt-1">10:30 AM</p>
+                <p className="text-muted-foreground text-[9px] text-right mt-1">10:30 AM</p>
               </div>
             </div>
 
@@ -79,34 +79,34 @@ function PhonePreview({ menuName, items }: { menuName: string; items: MenuItem[]
             <div className="flex justify-start">
               <div className="bg-[#1f2c34] rounded-xl rounded-tl-none max-w-[90%] overflow-hidden">
                 <div className="px-3 pt-2 pb-1">
-                  <p className="text-white/80 text-[10px] font-semibold mb-1">Welcome! 👋</p>
+                  <p className="text-foreground/80 text-[10px] font-semibold mb-1">Welcome! 👋</p>
                   <p className="text-white text-[11px]">Please select an option from the menu below:</p>
                 </div>
                 {sections.length > 0 ? (
-                  <div className="border-t border-white/10 mt-1">
+                  <div className="border-t border-border mt-1">
                     {sections.slice(0, 3).map(section => {
                       const children = items.filter(i => i.parentId === section.id).slice(0, 3);
                       return (
                         <div key={section.id} className="px-3 py-1.5">
                           <p className="text-[#128C7E] text-[9px] font-bold uppercase tracking-wide mb-1">{section.title}</p>
                           {children.map(child => (
-                            <div key={child.id} className="flex items-center justify-between py-1 border-b border-white/5 last:border-0">
+                            <div key={child.id} className="flex items-center justify-between py-1 border-b border-border last:border-0">
                               <div>
-                                <p className="text-white text-[10px] font-medium">{child.title.slice(0, 20)}</p>
-                                {child.description && <p className="text-white/50 text-[9px]">{child.description.slice(0, 30)}</p>}
+                                <p className="text-foreground text-[10px] font-medium">{child.title.slice(0, 20)}</p>
+                                {child.description && <p className="text-muted-foreground text-[9px]">{child.description.slice(0, 30)}</p>}
                               </div>
-                              <ChevronRight className="w-3 h-3 text-white/30 shrink-0" />
+                              <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />
                             </div>
                           ))}
                         </div>
                       );
                     })}
-                    <div className="border-t border-white/10 px-3 py-2">
+                    <div className="border-t border-border px-3 py-2">
                       <button className="w-full text-[#128C7E] text-[11px] font-semibold text-center">Open Menu ›</button>
                     </div>
                   </div>
                 ) : topItems.length > 0 ? (
-                  <div className="border-t border-white/10 px-3 py-2 space-y-1">
+                  <div className="border-t border-border px-3 py-2 space-y-1">
                     {topItems.slice(0, 4).map(item => (
                       <button key={item.id} className="w-full text-left text-[10px] text-[#128C7E] border border-[#128C7E]/30 rounded px-2 py-1">
                         {item.title}
@@ -114,9 +114,9 @@ function PhonePreview({ menuName, items }: { menuName: string; items: MenuItem[]
                     ))}
                   </div>
                 ) : (
-                  <div className="px-3 py-3 text-white/30 text-[10px] text-center">Add items to preview menu</div>
+                  <div className="px-3 py-3 text-muted-foreground text-[10px] text-center">Add items to preview menu</div>
                 )}
-                <p className="text-white/40 text-[9px] text-right px-3 pb-2">10:31 AM</p>
+                <p className="text-muted-foreground text-[9px] text-right px-3 pb-2">10:31 AM</p>
               </div>
             </div>
           </div>
@@ -125,7 +125,7 @@ function PhonePreview({ menuName, items }: { menuName: string; items: MenuItem[]
           <div className="px-2 flex items-center gap-1">
             <div className="flex-1 bg-[#1f2c34] rounded-full px-3 py-1.5 text-white/30 text-[10px]">Message</div>
             <div className="w-7 h-7 rounded-full bg-[#128C7E] flex items-center justify-center">
-              <Send className="w-3 h-3 text-white" />
+              <Send className="w-3 h-3 text-foreground" />
             </div>
           </div>
         </div>

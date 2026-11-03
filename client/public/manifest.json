@@ -1,11 +1,11 @@
 {
-  "name": "WhatsApp Commerce Platform",
-  "short_name": "WA Commerce",
-  "description": "Multi-tenant WhatsApp Commerce Platform with AI agent, CRM, and ERP integration",
+  "name": "OAK",
+  "short_name": "OAK",
+  "description": "OAK: sell, get paid and grow through the chat apps your customers already use.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#09090b",
-  "theme_color": "#22c55e",
+  "background_color": "#F7F2E7",
+  "theme_color": "#1F3A2D",
   "orientation": "portrait-primary",
   "categories": ["business", "productivity"],
   "icons": [

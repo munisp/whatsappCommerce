@@ -8,12 +8,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const state: { user: any; loading: boolean; path: string; tenantName: string | null; tenantRole: string | null } = { user: null, loading: false, path: "/orders", tenantName: null, tenantRole: null };
+const state: { user: any; loading: boolean; path: string; tenantName: string | null; tenantRole: string | null; hiddenFeatures?: string[] } = { user: null, loading: false, path: "/orders", tenantName: null, tenantRole: null };
 
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ user: state.user, loading: state.loading, logout: vi.fn() }) }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     tenant: { myTenant: { useQuery: () => ({ data: state.tenantName ? { name: state.tenantName, logoUrl: null, primaryColor: null } : { name: null, logoUrl: null, primaryColor: null } }) } },
+    featureRollout: { mine: { useQuery: () => ({ data: { hidden: state.hiddenFeatures ?? [], fresh: [] }, isError: false }) } },
     membership: { myRole: { useQuery: () => ({ data: { role: state.tenantRole } }) } },
   },
 }));
@@ -26,7 +27,7 @@ beforeEach(() => {
   const store = new Map<string, string>();
   vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) });
   vi.stubGlobal("document", { cookie: "" });
-  state.user = null; state.loading = false; state.path = "/orders"; state.tenantName = null; state.tenantRole = null;
+  state.hiddenFeatures = []; state.user = null; state.loading = false; state.path = "/orders"; state.tenantName = null; state.tenantRole = null;
 });
 
 // Nav groups are collapsible and only the active one starts expanded, so a link in a collapsed group is absent from the
@@ -112,12 +113,23 @@ describe("DashboardLayout — a merchant (has a business)", () => {
     expect(html).toMatch(/data-testid="sidebar-account-subtitle"[^>]*>\s*Acme Stores\s*</);
   });
 
-  it("is NOT offered the links only admins can use (each would be a 403): Escrow and Revenue", async () => {
+  it("sees Escrow and Revenue unless they're hidden in Feature Rollout", async () => {
+    const shown = await render();
+    expect(shown).toContain(">Escrow<");
+    expect(shown).toContain(">Revenue<");
+    state.hiddenFeatures = ["/escrow", "/revenue"];
+    const hidden = await render();
+    expect(hidden).not.toContain(">Escrow<");
+    expect(hidden).not.toContain(">Revenue<");
+    expect(hidden).toContain(">Orders<");
+    expect(hidden).toContain(">Products<");
+  });
+
+  it("gets a plain message, not the page, at the address of a hidden feature", async () => {
+    state.hiddenFeatures = ["/orders"];
     const html = await render();
-    expect(html).not.toContain(">Escrow<");
-    expect(html).not.toContain(">Revenue<");
-    expect(html).toContain(">Orders<");
-    expect(html).toContain(">Products<");
+    expect(html).toContain("available for your shop yet");
+    expect(html).not.toContain("PAGE-CONTENT");
   });
 
   it("falls back to the email's local part — never the word 'User' — when the identity provider gave no name", async () => {
@@ -222,19 +234,19 @@ describe("DashboardLayout — a merchant (has a business)", () => {
 });
 
 describe("DashboardLayout — a platform admin", () => {
-  it("is offered Escrow and Revenue, and is labelled as the platform admin", async () => {
-    state.user = { id: 1, role: "admin", tenantId: null, name: "Root", email: "root@x.example" };
-    const html = await render();
-    expect(html).toContain(">Escrow<");
-    expect(html).toContain(">Revenue<");
-    expect(html).toMatch(/data-testid="sidebar-account-subtitle"[^>]*>\s*Platform admin\s*</);
-  });
-
-  it("is never gated by the no-business screen (admins are tenant-agnostic by design)", async () => {
+  it("never sees the shop menu: with no shop of their own, they're sent to the admin app", async () => {
     state.user = { id: 1, role: "admin", tenantId: null, name: "Root", email: "root@x.example" };
     state.path = "/products";
     const html = await render();
-    expect(html).toContain("PAGE-CONTENT");
+    expect(html).not.toContain("PAGE-CONTENT");
+    expect(html).not.toContain(">Orders<");
     expect(html).not.toContain('data-testid="no-business-yet"');
+  });
+
+  it("keeps their shop if they also belong to one, labelled as the platform admin", async () => {
+    state.user = { id: 1, role: "admin", tenantId: "t-1", name: "Root", email: "root@x.example" };
+    const html = await render();
+    expect(html).toContain("PAGE-CONTENT");
+    expect(html).toMatch(/data-testid="sidebar-account-subtitle"[^>]*>\s*Platform admin\s*</);
   });
 });

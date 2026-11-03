@@ -34,7 +34,7 @@ function Sparkline({ points, color }: { points: HealthPoint[]; color: string }) 
     <div className="space-y-1">
       <svg width={W} height={H} className="overflow-visible">
         {points.map((p, i) => !p.online ? (
-          <rect key={i} x={(xs[i] - 2).toFixed(1)} y="0" width="4" height={H} fill="#ef4444" opacity="0.25" rx="1" />
+          <rect key={i} x={(xs[i] - 2).toFixed(1)} y="0" width="4" height={H} fill="#A63A24" opacity="0.25" rx="1" />
         ) : null)}
         <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
         <circle cx={xs[xs.length - 1].toFixed(1)} cy={ys[ys.length - 1].toFixed(1)} r="3" fill={color} />
@@ -286,7 +286,7 @@ function HermesDashboardInner() {
                 <>
                   {(["bridge", "skills", "router"] as const).map((layer, idx) => {
                     const pts = (healthHistoryQ.data?.[layer] ?? []) as HealthPoint[];
-                    const colors = ["#8b5cf6", "#06b6d4", "#10b981"];
+                    const colors = ["#5A3E2B", "#33507A", "#2F6B46"];
                     const labels: Record<string, string> = { bridge: "Hermes Bridge", skills: "Hermes Skills", router: "Hermes Router" };
                     const latest = pts[pts.length - 1];
                     return (

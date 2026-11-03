@@ -224,7 +224,7 @@ function LiveLogisticsMapInner() {
             {!isLoading && shipments.length > 0 && withCoords.length === 0 && (
               <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
                 <MapPinOff className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
-                <p className="text-xs text-amber-300">
+                <p className="text-xs text-amber-700">
                   No shipments with coordinates yet — markers appear as soon as a shipment's
                   recipient/sender address carries lat/lng. The list on the right still tracks every
                   shipment with status and ETA.

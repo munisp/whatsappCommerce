@@ -103,7 +103,7 @@ function WebhookDLQInner() {
             const cfg = STATUS_CONFIG[event.status] ?? STATUS_CONFIG.received;
             const Icon = cfg.icon;
             return (
-              <Card key={event.id} className="border-l-4" style={{ borderLeftColor: event.status === "dead" ? "#6b7280" : event.status === "failed" ? "#ef4444" : event.status === "processed" ? "#22c55e" : "#3b82f6" }}>
+              <Card key={event.id} className="border-l-4" style={{ borderLeftColor: event.status === "dead" ? "#75695A" : event.status === "failed" ? "#A63A24" : event.status === "processed" ? "#2F6B46" : "#33507A" }}>
                 <CardContent className="pt-3 pb-3">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">

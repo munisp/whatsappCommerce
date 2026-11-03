@@ -154,7 +154,7 @@ function TenantsInner() {
                           e.stopPropagation();
                           await updateTenant.mutateAsync({ id: t.id, smsFailoverEnabled: !(t as any).smsFailoverEnabled });
                         }}
-                        className={`relative w-9 h-5 rounded-full transition-colors ${(t as any).smsFailoverEnabled ? "bg-emerald-600" : "bg-zinc-700"}`}
+                        className={`relative w-9 h-5 rounded-full transition-colors ${(t as any).smsFailoverEnabled ? "bg-emerald-600" : "bg-muted"}`}
                         title="Toggle SMS failover — auto-send via SMS when WhatsApp delivery fails"
                       >
                         <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${(t as any).smsFailoverEnabled ? "translate-x-4" : ""}`} />

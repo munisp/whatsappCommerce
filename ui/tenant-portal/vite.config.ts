@@ -27,15 +27,15 @@ export default defineConfig(({ command }) => ({
       injectRegister: false,
       includeAssets: ["offline.html", "icons/*.png"],
       manifest: {
-        name: "WA Commerce — Merchant Portal",
+        name: "OAK Merchant Portal",
         short_name: "Merchant Portal",
         description:
-          "Manage your business on WhatsApp Commerce: products, orders, customers, payments, and integrations.",
+          "Manage your business on OAK: products, orders, customers, payments, and integrations.",
         start_url: command === "build" ? "/tenant-portal/" : "/",
         scope: command === "build" ? "/tenant-portal/" : "/",
         display: "standalone",
-        background_color: "#09090b",
-        theme_color: "#22c55e",
+        background_color: "#F7F2E7",
+        theme_color: "#1F3A2D",
         orientation: "portrait-primary",
         categories: ["business", "productivity"],
         icons: [

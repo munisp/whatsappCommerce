@@ -4439,7 +4439,7 @@ async function startServer() {
           campaignId: campaign.id,
           phone: c.phone!,
           name: c.name ?? null,
-          variables: { customer_name: c.name ?? "Customer", store_name: "WhatsApp Commerce", ...campaignVarMap },
+          variables: { customer_name: c.name ?? "Customer", store_name: "OAK", ...campaignVarMap },
           status: "pending" as const,
           createdAt: now,
         }));
@@ -4448,7 +4448,7 @@ async function startServer() {
           campaignId: campaign.id,
           phone: `+1555${String(i).padStart(7, "0")}`,
           name: `Customer ${i + 1}`,
-          variables: { customer_name: `Customer ${i + 1}`, store_name: "WhatsApp Commerce", ...campaignVarMap },
+          variables: { customer_name: `Customer ${i + 1}`, store_name: "OAK", ...campaignVarMap },
           status: "pending" as const,
           createdAt: now,
         }));

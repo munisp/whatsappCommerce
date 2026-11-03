@@ -108,7 +108,7 @@ export const procurementRouter = router({
           if (typeof adminPhone === "string" && adminPhone) {
             const { sendCustomerText } = await import("../services/channelParity");
             await sendCustomerText(input.tenantId, adminPhone, "staff_membership",
-              "Your supplier profile is now ACTIVE on WhatsApp Commerce — buyers can now send you purchase orders.",
+              "Your supplier profile is now ACTIVE on OAK — buyers can now send you purchase orders.",
               { notifType: "supplier_profile_active" });
           }
         } catch (e: any) {

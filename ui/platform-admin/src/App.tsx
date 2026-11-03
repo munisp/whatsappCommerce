@@ -135,13 +135,13 @@ function Router() {
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider defaultTheme="dark">
+      <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster />
           <AuthGate
             allow={user => user.role === "admin"}
             deniedTitle="Platform admins only"
-            deniedMessage="This application is restricted to platform administrators. If you manage a business on WhatsApp Commerce, use the Merchant Portal instead."
+            deniedMessage="This application is restricted to platform administrators. If you manage a business on OAK, use the Merchant Portal instead."
           >
             <WouterRouter base={BASE_PATH}>
               <Router />

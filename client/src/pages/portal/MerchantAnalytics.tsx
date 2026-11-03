@@ -196,7 +196,7 @@ function MerchantAnalyticsInner() {
                   <Line
                     type="monotone"
                     dataKey="gmv"
-                    stroke="#10b981"
+                    stroke="#2F6B46"
                     strokeWidth={2}
                     dot={false}
                     activeDot={{ r: 5 }}
@@ -206,7 +206,7 @@ function MerchantAnalyticsInner() {
                       type="monotone"
                       data={data?.prevDailyTrend}
                       dataKey="gmv"
-                      stroke="#94a3b8"
+                      stroke="#75695A"
                       strokeWidth={1.5}
                       strokeDasharray="4 2"
                       dot={false}

@@ -52,7 +52,7 @@ function IntegrationCard({ name, icon: Icon, description, status, lastSync, onCo
     connected: { color: "text-green-500", bg: "border-green-200 bg-green-50/20", label: "Connected", icon: CheckCircle2 },
     disconnected: { color: "text-gray-400", bg: "border-gray-200", label: "Not Connected", icon: XCircle },
     error: { color: "text-red-500", bg: "border-red-200 bg-red-50/20", label: "Error", icon: AlertTriangle },
-    partial: { color: "text-yellow-500", bg: "border-yellow-200 bg-yellow-50/20", label: "Partial", icon: AlertTriangle },
+    partial: { color: "text-amber-700", bg: "border-yellow-200 bg-yellow-50/20", label: "Partial", icon: AlertTriangle },
     // W30 (V3#6): honest state when no live health signal feeds this card.
     unknown: { color: "text-gray-400", bg: "border-gray-200", label: "Unknown — no live check", icon: AlertTriangle },
   }[status];

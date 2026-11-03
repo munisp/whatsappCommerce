@@ -117,7 +117,7 @@ function HealthStatusInner() {
             }`}
           />
           <div>
-            <p className={`font-semibold ${overallOk ? "text-emerald-300" : loading ? "text-foreground" : "text-red-300"}`}>
+            <p className={`font-semibold ${overallOk ? "text-emerald-700" : loading ? "text-foreground" : "text-red-700"}`}>
               {loading
                 ? "Probing dependencies…"
                 : error

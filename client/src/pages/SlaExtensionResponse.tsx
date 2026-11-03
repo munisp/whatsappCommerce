@@ -261,7 +261,7 @@ export default function SlaExtensionResponse() {
         <div className="text-center text-xs text-muted-foreground space-y-1 pb-4">
           <div className="flex items-center justify-center gap-1">
             <ShieldCheck className="h-3.5 w-3.5" />
-            <span>Secured by WhatsApp Commerce Platform</span>
+            <span>Secured by OAK</span>
           </div>
           <p>Your payment is held safely in escrow and will only be released when you confirm delivery.</p>
         </div>

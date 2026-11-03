@@ -367,7 +367,7 @@ export function VisualInventoryContent() {
                         className="text-sm mb-1"
                       />
                       {showHintsSuggestions && hintsData?.hints && hintsData.hints.length > 0 && (
-                        <div className="absolute z-50 w-full bg-popover border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                        <div className="absolute z-50 w-full bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
                           {hintsData.hints.map((h) => (
                             <button
                               key={h.id}
@@ -584,7 +584,7 @@ export function VisualInventoryContent() {
                                 ) : null
                               ))}
                               <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 hover:opacity-100 transition-opacity">
-                                <Eye className="w-4 h-4 text-white" />
+                                <Eye className="w-4 h-4 text-foreground" />
                               </div>
                             </div>
                           ) : (

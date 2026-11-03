@@ -17,7 +17,7 @@ export function BrandKitPreview({ payload }: { payload: unknown }) {
           <img
             src={kit.logoSvgDataUri}
             alt={`${kit.brandName} logo`}
-            className="h-16 w-16 shrink-0 rounded-md border bg-white/5 object-contain"
+            className="h-16 w-16 shrink-0 rounded-md border bg-muted object-contain"
           />
         ) : (
           <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md border bg-muted/30">

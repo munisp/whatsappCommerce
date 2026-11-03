@@ -64,7 +64,7 @@ function ScoreGauge({ score }: { score: number }) {
           />
         )}
         <text x="100" y="88" textAnchor="middle" fontSize="34" fontWeight="700" fill={color}>{score}</text>
-        <text x="100" y="106" textAnchor="middle" fontSize="11" fill="#6b7280">out of 1000</text>
+        <text x="100" y="106" textAnchor="middle" fontSize="11" fill="#75695A">out of 1000</text>
       </svg>
       <Badge variant={score >= 600 ? "default" : "secondary"}>
         {score >= 800 ? "Excellent" : score >= 600 ? "Good" : score >= 400 ? "Fair" : "Building"}

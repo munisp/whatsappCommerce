@@ -36,7 +36,7 @@ export default function PortalProducts() {
   return (
     <TenantPortalLayout>
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-white">My Products</h1>
+        <h1 className="text-2xl font-bold text-foreground">My Products</h1>
         {/* Low-stock alert banner */}
         {(() => {
           const lowStockItems = ((products ?? []) as ProductRow[]).filter(
@@ -59,17 +59,17 @@ export default function PortalProducts() {
         })()}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {((products ?? []) as ProductRow[]).map(p => (
-            <Card key={p.id} className="bg-slate-800 border-slate-700">
+            <Card key={p.id} className="bg-card border-border">
               <CardContent className="p-4">
                 <div className="flex items-start justify-between mb-3">
-                  <div className="bg-slate-700 p-2 rounded-lg">
-                    <Package className="h-5 w-5 text-slate-300" />
+                  <div className="bg-muted p-2 rounded-lg">
+                    <Package className="h-5 w-5 text-foreground" />
                   </div>
-                  <Badge className={p.status === "active" ? "bg-emerald-600/20 text-emerald-400 border-emerald-600/30" : "bg-slate-600/20 text-slate-400 border-slate-600/30"}>
+                  <Badge className={p.status === "active" ? "bg-emerald-600/20 text-emerald-400 border-emerald-600/30" : "bg-muted/20 text-slate-400 border-border/30"}>
                     {p.status}
                   </Badge>
                 </div>
-                <p className="font-semibold text-white text-sm mb-1 truncate">{p.name}</p>
+                <p className="font-semibold text-foreground text-sm mb-1 truncate">{p.name}</p>
                 <p className="text-xs text-slate-400 mb-2">SKU: {p.sku}</p>
                 <div className="flex items-center justify-between">
                   <span className="text-emerald-400 font-bold">${Number(p.price).toFixed(2)}</span>
@@ -80,7 +80,7 @@ export default function PortalProducts() {
                     <span>{p.stockQuantity} in stock</span>
                   </div>
                 </div>
-                <Button size="sm" variant="outline" className="w-full mt-3 border-slate-600 text-slate-300 hover:bg-slate-700"
+                <Button size="sm" variant="outline" className="w-full mt-3 border-border text-foreground hover:bg-muted"
                   onClick={() => openEdit(p)}>
                   <Edit2 className="h-3 w-3 mr-1" /> Edit
                 </Button>
@@ -91,24 +91,24 @@ export default function PortalProducts() {
       </div>
 
       <Dialog open={!!editing} onOpenChange={() => setEditing(null)}>
-        <DialogContent className="bg-slate-800 border-slate-700 text-white">
+        <DialogContent className="bg-card border-border text-foreground">
           <DialogHeader><DialogTitle>Edit Product</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div><label className="text-xs text-slate-400">Name</label>
               <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                className="bg-slate-700 border-slate-600 text-white mt-1" /></div>
+                className="bg-muted border-border text-foreground mt-1" /></div>
             <div><label className="text-xs text-slate-400">Price</label>
               <Input value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
-                className="bg-slate-700 border-slate-600 text-white mt-1" /></div>
+                className="bg-muted border-border text-foreground mt-1" /></div>
             <div><label className="text-xs text-slate-400">Stock Quantity</label>
               <Input type="number" value={form.stockQuantity} onChange={e => setForm(f => ({ ...f, stockQuantity: Number(e.target.value) }))}
-                className="bg-slate-700 border-slate-600 text-white mt-1" /></div>
+                className="bg-muted border-border text-foreground mt-1" /></div>
             <div><label className="text-xs text-slate-400">Status</label>
               <Select value={form.status} onValueChange={(v: "active" | "inactive" | "archived") => setForm(f => ({ ...f, status: v }))}>
-                <SelectTrigger className="bg-slate-700 border-slate-600 text-white mt-1">
+                <SelectTrigger className="bg-muted border-border text-foreground mt-1">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700">
+                <SelectContent className="bg-card border-border">
                   <SelectItem value="active">Active</SelectItem>
                   <SelectItem value="inactive">Inactive</SelectItem>
                   <SelectItem value="archived">Archived</SelectItem>

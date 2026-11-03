@@ -123,10 +123,12 @@ describe("the shell", () => {
     }
   });
 
-  it("marks exactly the links whose pages only admins can use as adminOnly (Escrow, Revenue), so a merchant is not offered a 403", () => {
+  it("offers shops no admin-only links: Escrow and Revenue now have shop pages of their own, controlled in Feature Rollout", () => {
     const tenantNav = layout.slice(layout.indexOf("const TENANT_NAV_GROUPS"), layout.indexOf("const GET_STARTED_GROUP"));
     const adminOnly = [...tenantNav.matchAll(/path:\s*"([^"]+)",\s*adminOnly:\s*true/g)].map((m) => m[1]).sort();
-    expect(adminOnly).toEqual(["/escrow", "/revenue"]);
+    expect(adminOnly).toEqual([]);
+    expect(read("client/src/App.tsx")).toMatch(/<Route path="\/escrow" component=\{MerchantEscrow\}/);
+    expect(read("client/src/App.tsx")).toMatch(/<Route path="\/revenue" component=\{MerchantRevenue\}/);
   });
 
   it("the portal layout does not show an identity-provider id as the person's name", () => {

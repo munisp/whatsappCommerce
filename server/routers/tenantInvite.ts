@@ -159,7 +159,7 @@ export const tenantInviteRouter = router({
         tenantId: input.tenantId,
         tenantName: tenant.name,
         expiresAt: minted.expiresAt.toISOString(),
-        whatsappMessage: `Hello ${tenant.name}! Your WhatsApp Commerce merchant portal is ready. Click the link below to access your dashboard:\n\n${minted.portalUrl}\n\nThis link expires in ${input.expiryHours} hours.`,
+        whatsappMessage: `Hello ${tenant.name}! Your OAK merchant portal is ready. Click the link below to access your dashboard:\n\n${minted.portalUrl}\n\nThis link expires in ${input.expiryHours} hours.`,
         whatsappPhoneNumberId: tenant.whatsappPhoneNumberId,
       };
     }),

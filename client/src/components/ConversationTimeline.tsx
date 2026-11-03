@@ -70,9 +70,9 @@ export default function ConversationTimeline({
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-      <SheetContent className="w-full sm:max-w-xl bg-slate-900 border-slate-700 text-slate-100 overflow-y-auto">
-        <SheetHeader className="pb-4 border-b border-slate-700">
-          <SheetTitle className="text-slate-100 flex items-center gap-2">
+      <SheetContent className="w-full sm:max-w-xl bg-card border-border text-foreground overflow-y-auto">
+        <SheetHeader className="pb-4 border-b border-border">
+          <SheetTitle className="text-foreground flex items-center gap-2">
             <div className="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white text-sm font-bold">
               {conversation.customerName.charAt(0).toUpperCase()}
             </div>
@@ -89,14 +89,14 @@ export default function ConversationTimeline({
         </SheetHeader>
 
         {/* Meta row */}
-        <div className="flex gap-4 py-3 text-xs text-slate-400 border-b border-slate-700">
+        <div className="flex gap-4 py-3 text-xs text-slate-400 border-b border-border">
           {conversation.intent && (
             <span className="flex items-center gap-1">
-              <Bot className="h-3 w-3" /> Intent: <span className="text-slate-200">{conversation.intent}</span>
+              <Bot className="h-3 w-3" /> Intent: <span className="text-foreground">{conversation.intent}</span>
             </span>
           )}
           {conversation.aiConfidence != null && (
-            <span>Confidence: <span className="text-slate-200">{Math.round(conversation.aiConfidence * 100)}%</span></span>
+            <span>Confidence: <span className="text-foreground">{Math.round(conversation.aiConfidence * 100)}%</span></span>
           )}
           <span className="flex items-center gap-1">
             <MessageSquare className="h-3 w-3" /> {conversation.messageCount} msgs
@@ -111,7 +111,7 @@ export default function ConversationTimeline({
         {conversation.status === "escalated" && (
           <div className="flex items-start gap-2 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 my-3">
             <AlertTriangle className="h-4 w-4 text-yellow-400 mt-0.5 shrink-0" />
-            <p className="text-xs text-yellow-300">
+            <p className="text-xs text-yellow-700">
               This conversation was escalated from the AI bot. An operator should respond directly.
             </p>
           </div>
@@ -123,7 +123,7 @@ export default function ConversationTimeline({
             <div className="space-y-3">
               {[...Array(4)].map((_, i) => (
                 <div key={i} className={`flex ${i % 2 === 0 ? "justify-start" : "justify-end"}`}>
-                  <Skeleton className={`h-14 ${i % 2 === 0 ? "w-3/4" : "w-2/3"} bg-slate-700`} />
+                  <Skeleton className={`h-14 ${i % 2 === 0 ? "w-3/4" : "w-2/3"} bg-muted`} />
                 </div>
               ))}
             </div>
@@ -134,7 +134,7 @@ export default function ConversationTimeline({
                 <>
                   <p className="text-sm">This conversation has {conversation?.messageCount} message{conversation?.messageCount === 1 ? "" : "s"}, but they could not be loaded.</p>
                   <p className="text-xs mt-1 text-slate-600">The message history for this channel may not be synced yet.</p>
-                  <Button variant="outline" size="sm" className="mt-3 text-xs border-slate-600 text-slate-300" onClick={() => refetch()}>
+                  <Button variant="outline" size="sm" className="mt-3 text-xs border-border text-foreground" onClick={() => refetch()}>
                     Retry
                   </Button>
                 </>
@@ -152,19 +152,19 @@ export default function ConversationTimeline({
                 className={`flex gap-2 ${msg.direction === "outbound" ? "justify-end" : "justify-start"}`}
               >
                 {msg.direction === "inbound" && (
-                  <div className="w-6 h-6 rounded-full bg-slate-600 flex items-center justify-center shrink-0 mt-1">
-                    <User className="h-3 w-3 text-slate-300" />
+                  <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center shrink-0 mt-1">
+                    <User className="h-3 w-3 text-foreground" />
                   </div>
                 )}
                 <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm ${
+                  className={`max-w-[80%] rounded-lg px-4 py-2.5 text-sm ${
                     msg.direction === "outbound"
                       ? "bg-green-600 text-white rounded-tr-sm"
-                      : "bg-slate-700 text-slate-100 rounded-tl-sm"
+                      : "bg-muted text-foreground rounded-tl-sm"
                   }`}
                 >
                   <p>{msg.body}</p>
-                  <p className={`text-[10px] mt-1 ${msg.direction === "outbound" ? "text-green-200" : "text-slate-400"}`}>
+                  <p className={`text-[10px] mt-1 ${msg.direction === "outbound" ? "text-green-700" : "text-slate-400"}`}>
                     {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     {msg.direction === "outbound" && (
                       <span className="ml-1">✓</span>
@@ -173,7 +173,7 @@ export default function ConversationTimeline({
                 </div>
                 {msg.direction === "outbound" && (
                   <div className="w-6 h-6 rounded-full bg-green-700 flex items-center justify-center shrink-0 mt-1">
-                    <Bot className="h-3 w-3 text-white" />
+                    <Bot className="h-3 w-3 text-foreground" />
                   </div>
                 )}
               </div>
@@ -182,14 +182,14 @@ export default function ConversationTimeline({
         </div>
 
         {/* Reply input */}
-        <div className="border-t border-slate-700 pt-4 mt-auto">
+        <div className="border-t border-border pt-4 mt-auto">
           <div className="flex gap-2">
             <textarea
               value={messageText}
               onChange={(e) => setMessageText(e.target.value)}
               placeholder="Type a reply…"
               rows={2}
-              className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-green-500 resize-none"
+              className="flex-1 bg-card border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-green-500 resize-none"
             />
             <Button
               size="icon"
