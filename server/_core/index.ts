@@ -1533,6 +1533,13 @@ function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
     const server = net.createServer();
     server.listen(port, () => {
+      // Keep Permify's admin list in step with users.role, or the shared adminProcedure refuses admins.
+      const syncAdmins = () =>
+        import("../services/permifyAdmins")
+          .then(({ syncPermifyAdmins }) => syncPermifyAdmins())
+          .catch((e: any) => console.error("[permifyAdmins] sync failed:", e?.message));
+      void syncAdmins();
+      setInterval(syncAdmins, 5 * 60_000).unref();
       server.close(() => resolve(true));
     });
     server.on("error", () => resolve(false));

@@ -1,18 +1,11 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, asc, eq, inArray } from "drizzle-orm";
-import { protectedProcedure, router } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { featureRollouts, tenantFeatureOverrides, tenants } from "../../drizzle/schema";
 import { ALWAYS_ON_FEATURES, NEW_BADGE_DAYS, ROLLOUT_STATES, featureVisible } from "../../shared/featureRollout";
 import { writeAuditLog } from "./audit";
-
-// The role check, as on the Tenants admin code. The shared adminProcedure also asks Permify, which has
-// no schema in production yet and so refuses every admin.
-const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
-  if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Platform admins only" });
-  return next({ ctx });
-});
 
 const featureKey = z.string().regex(/^\/[a-z0-9/-]{1,118}$/).refine((key) => !ALWAYS_ON_FEATURES.includes(key), "This feature is always on");
 
