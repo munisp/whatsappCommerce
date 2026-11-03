@@ -202,6 +202,22 @@ export const getPendingQuery = (phone: string): Promise<string | null> => kvGet(
 export const setPendingQuery = (phone: string, q: string): Promise<void> => kvSet(`plat:pendq:${digits(phone)}`, q, PENDING_TTL_SECONDS);
 export const clearPendingQuery = (phone: string): Promise<void> => kvDel(`plat:pendq:${digits(phone)}`);
 
+/** The ordered tenant ids from the last discovery results, so a reply of "1"
+ *  / "2" picks that store from the numbered list. */
+export async function getResultsList(phone: string): Promise<string[]> {
+  const raw = await kvGet(`plat:res:${digits(phone)}`);
+  if (!raw) return [];
+  try {
+    const a = JSON.parse(raw);
+    return Array.isArray(a) ? (a as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+export const setResultsList = (phone: string, ids: string[]): Promise<void> =>
+  kvSet(`plat:res:${digits(phone)}`, JSON.stringify(ids.slice(0, 10)), PENDING_TTL_SECONDS);
+export const clearResultsList = (phone: string): Promise<void> => kvDel(`plat:res:${digits(phone)}`);
+
 export interface LatLng { lat: number; lng: number; }
 /** The customer's last shared location (for repeat searches without re-asking). */
 export async function getCustomerLocation(phone: string): Promise<LatLng | null> {

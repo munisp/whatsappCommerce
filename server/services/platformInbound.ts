@@ -23,9 +23,11 @@ import { redactString } from "./logRedact";
 import {
   clearActiveShop,
   clearPendingQuery,
+  clearResultsList,
   getActiveShop,
   getCustomerLocation,
   getPendingQuery,
+  getResultsList,
   isGreeting,
   isHomeCommand,
   type LatLng,
@@ -34,6 +36,7 @@ import {
   setActiveShop,
   setCustomerLocation,
   setPendingQuery,
+  setResultsList,
 } from "./platformNumber";
 import { defaultRadiusKm, discoverNearbyPure, loadDiscoveryData, maxRadiusKm, type DiscoverItem } from "./geoDiscovery";
 import { getDb } from "../db";
@@ -209,6 +212,8 @@ async function discoverAndReply(phone: string, query: string, loc: LatLng): Prom
   }
   // List each store with the matching products (name + price) it stocks.
   const shown = items.slice(0, 10);
+  // Remember the order so a reply of "1"/"2" picks that store.
+  await setResultsList(phone, shown.map((i) => i.tenantId));
   const prodByTenant = await matchingProductsByTenant(db, shown.map((i) => i.tenantId), query);
   const blocks = shown.map((it, n) => {
     let block = `${n + 1}. *${it.businessName}* · ${formatKm(it.distanceKm)} km`;
@@ -223,7 +228,7 @@ async function discoverAndReply(phone: string, query: string, loc: LatLng): Prom
   await sendPlatformText(
     phone,
     `🛍️ *Stores near you with "${query}":*${widened}\n\n${blocks.join("\n\n")}\n\n` +
-      `Send a *store's name* to start shopping there.`,
+      `Reply with the *number* or the *store's name* to start shopping.`,
   );
 }
 
@@ -275,6 +280,24 @@ export async function handlePlatformDirectory(opts: {
   if (isHomeCommand(text)) {
     await clearActiveShop(customerPhone);
     await sendPlatformText(customerPhone, directoryPrompt());
+    return;
+  }
+
+  // A bare number picks that store from the last results list ("1" → 1st shown).
+  if (/^\d{1,2}$/.test(text)) {
+    const ids = await getResultsList(customerPhone);
+    const idx = parseInt(text, 10) - 1;
+    const picked = idx >= 0 && idx < ids.length ? await loadReachableShop(ids[idx]) : null;
+    if (picked) {
+      await setActiveShop(customerPhone, picked.id);
+      await clearResultsList(customerPhone);
+      await sendPlatformText(
+        customerPhone,
+        `🛍️ You're now shopping at *${picked.name}*. Send *hi* to see what they've got — or type *home* anytime to browse other stores.`,
+      );
+      return;
+    }
+    await sendPlatformText(customerPhone, "Please reply with a *store's name*, or tell me what you're looking for (e.g. *toothpaste*).");
     return;
   }
 

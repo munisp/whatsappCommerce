@@ -76,6 +76,11 @@ export const journey: Journey = {
       await world.inbound(payloads.inbound.text(PLATFORM_PN, buyer, "toothpaste"));
       await world.settle();
       assert(bodyText(world.outbound.lastTo(buyer)).includes("Fresh Mart"), "repeat search uses the saved location (no re-ask)");
+
+      // ── 4. Reply with the list NUMBER → enter that store ──────────────────
+      await world.inbound(payloads.inbound.text(PLATFORM_PN, buyer, "1"));
+      await world.settle();
+      assert((await pn.getActiveShop(buyer)) === tenantId, "replying '1' entered the store from the results list");
     } finally {
       delete process.env.WHATSAPP_PLATFORM_NUMBER_ID;
       delete process.env.WHATSAPP_PLATFORM_TOKEN;
