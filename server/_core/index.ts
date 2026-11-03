@@ -3303,6 +3303,39 @@ async function startServer() {
   });
   // === END W37 telegram ===
 
+  // Telegram chat onboarding: a person with no shop yet talks to the platform's own bot. Off unless
+  // ONBOARDING_TELEGRAM_BOT_TOKEN and ONBOARDING_TELEGRAM_WEBHOOK_SECRET are both set.
+  app.post("/api/webhooks/telegram-onboarding", express.raw({ type: "application/json" }), async (req, res) => {
+    try {
+      const { telegramOnboardingConfig, handleTelegramOnboardingUpdate } = await import("../services/tgOnboarding");
+      const cfg = telegramOnboardingConfig();
+      if (!cfg) return res.status(404).json({ error: "telegram-onboarding-disabled" });
+      const { validateTelegramSecret } = await import("../services/telegramInbound");
+      if (!validateTelegramSecret(String(req.headers["x-telegram-bot-api-secret-token"] ?? ""), cfg.secret)) {
+        console.warn("[telegram-onboarding] invalid secret token — rejected");
+        return res.status(401).json({ error: "invalid-secret" });
+      }
+      let update: any;
+      try {
+        update = JSON.parse(Buffer.isBuffer(req.body) ? req.body.toString("utf8") : "{}");
+      } catch {
+        return res.status(400).json({ error: "invalid-json" });
+      }
+      const updateId = Number(update?.update_id ?? 0);
+      if (!updateId) return res.status(200).json({ received: true, ignored: true });
+      const db = await getDb();
+      if (db) {
+        const claim = await claimWebhookEvent(db, { id: `tgonb:${updateId}`, tenantId: "platform", type: "telegram_onboarding_update" });
+        if (claim === "duplicate") return res.status(200).json({ received: true, duplicate: true });
+      }
+      res.status(200).json({ received: true });
+      await handleTelegramOnboardingUpdate(update, cfg);
+    } catch (err: any) {
+      console.error("[telegram-onboarding]", err?.message);
+      if (!res.headersSent) res.status(500).json({ error: "telegram-onboarding-error" });
+    }
+  });
+
   // ── USSD gateway (Africa's Talking) ───────────────────────────────────────
   // Form body: sessionId, serviceCode, phoneNumber, text (cumulative buffer
   // joined with "*"). Drives the same menu/session engine as WhatsApp and

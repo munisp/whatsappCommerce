@@ -134,6 +134,10 @@ export interface CopilotTextPack {
   liveOwnerInvite: string;
   /** ONB-ABU-1: per-phone intake throttle tripped. */
   throttled: string;
+  tgShareContact: string;
+  tgShareContactButton: string;
+  tgOwnContactOnly: string;
+  tgStopped: string;
 }
 
 const en: CopilotTextPack = {
@@ -232,6 +236,10 @@ const en: CopilotTextPack = {
   liveOwnerInvite:
     "🔐 Your secure portal login link (valid 24 hours, opens only after a code sent to this phone): {link}",
   throttled: "You're messaging faster than I can keep up — please wait a little and try again. 🙏",
+  tgShareContact: "Hi! 👋 To set up your shop, please share your phone number using the button below. It's how we link the shop to you.",
+  tgShareContactButton: "📱 Share my number",
+  tgOwnContactOnly: "Please share your own number using the button below, not someone else's.",
+  tgStopped: "Done. Send /start if you want to continue later.",
 };
 
 const fr: CopilotTextPack = {
@@ -329,6 +337,10 @@ const fr: CopilotTextPack = {
   liveOwnerInvite:
     "🔐 Votre lien de connexion sécurisé au portail (valide 24 h, ne s'ouvre qu'après un code envoyé à ce numéro) : {link}",
   throttled: "Vous envoyez des messages plus vite que je ne peux suivre — patientez un peu puis réessayez. 🙏",
+  tgShareContact: "Bonjour ! 👋 Pour créer votre boutique, partagez votre numéro avec le bouton ci-dessous. Il sert à vous relier à la boutique.",
+  tgShareContactButton: "📱 Partager mon numéro",
+  tgOwnContactOnly: "Veuillez partager votre propre numéro avec le bouton ci-dessous, pas celui d'une autre personne.",
+  tgStopped: "C'est noté. Envoyez /start pour continuer plus tard.",
 };
 
 const ha: CopilotTextPack = {
@@ -426,6 +438,10 @@ const ha: CopilotTextPack = {
   liveOwnerInvite:
     "🔐 Hanyar shiga ta sirri zuwa portal (tana aiki awa 24, tana buɗewa ne kawai bayan lambar da aka aika zuwa wannan lambar): {link}",
   throttled: "Kana aika saƙwanni cikin sauri fiye da yadda zan iya bin duka — ka jira kaɗan sannan ka sake gwadawa. 🙏",
+  tgShareContact: "Sannu! 👋 Don kafa shagon ka, raba lambar wayarka da maɓallin da ke ƙasa. Da ita ne muke haɗa shagon da kai.",
+  tgShareContactButton: "📱 Raba lambata",
+  tgOwnContactOnly: "Da fatan za ka raba lambar ka ta kanka da maɓallin da ke ƙasa, ba ta wani ba.",
+  tgStopped: "An gama. Aika /start idan kana son ci gaba daga baya.",
 };
 
 const yo: CopilotTextPack = {
@@ -523,6 +539,10 @@ const yo: CopilotTextPack = {
   liveOwnerInvite:
     "🔐 Ọ̀na asopọ̀ ìwọlé pótà ààbò yín (ó pé fún wákàtí 24, ó máa ṣí lẹ́yìn kóòdù tí a fi ránṣẹ́ sí nọ́ńbà yìí): {link}",
   throttled: "Ẹ ń fi ìfiránṣẹ́ ránṣẹ́ jù bí mo ṣe lè tẹ̀le — dúró díẹ̀ kí ẹ sì gbìyànjú lẹ́ẹ̀kansi. 🙏",
+  tgShareContact: "Ẹ kú àbọ̀! 👋 Láti ṣètò ṣọ́ọ̀bù yín, ẹ pín nọ́ńbà fóònù yín pẹ̀lú bọ́tìnì ìsàlẹ̀ yìí. Òun ni a fi ń so ṣọ́ọ̀bù mọ́ yín.",
+  tgShareContactButton: "📱 Pín nọ́ńbà mi",
+  tgOwnContactOnly: "Ẹ jọ̀wọ́ ẹ pín nọ́ńbà tiyín pẹ̀lú bọ́tìnì ìsàlẹ̀ yìí, kì í ṣe ti ẹlòmíràn.",
+  tgStopped: "Ó ti parí. Ẹ fi /start ránṣẹ́ tí ẹ bá fẹ́ tẹ̀síwájú lẹ́yìn náà.",
 };
 
 const ig: CopilotTextPack = {
@@ -620,6 +640,10 @@ const ig: CopilotTextPack = {
   liveOwnerInvite:
     "🔐 Njikọ nbanye portal echekwara gị (ọ na-adị irè awa 24, ọ na-emeghe naanị mgbe koodu ezigara nọmba a): {link}",
   throttled: "Ị na-eziga ozi ngwa ngwa karịa ka m nwere ike iso — chere obere oge wee nwaa ọzọ. 🙏",
+  tgShareContact: "Ndewo! 👋 Iji mepụta ụlọ ahịa gị, kesaa nọmba ekwentị gị site na bọtịnụ dị n'okpuru. Ọ bụ ya ka anyị ji jikọọ ụlọ ahịa ahụ na gị.",
+  tgShareContactButton: "📱 Kesaa nọmba m",
+  tgOwnContactOnly: "Biko kesaa nọmba nke gị site na bọtịnụ dị n'okpuru, ọ bụghị nke onye ọzọ.",
+  tgStopped: "Emechaala. Ziga /start ma ịchọrọ ịga n'ihu ma emechaa.",
 };
 
 const pcm: CopilotTextPack = {
@@ -717,6 +741,10 @@ const pcm: CopilotTextPack = {
   liveOwnerInvite:
     "🔐 Your secure portal login link (e dey valid for 24 hours, e go open only after code wey dem send to dis phone): {link}",
   throttled: "You dey message pass as I fit follow — abeg wait small and try again. 🙏",
+  tgShareContact: "How far! 👋 To set up your shop, abeg share your phone number with the button below. Na im we go use link the shop to you.",
+  tgShareContactButton: "📱 Share my number",
+  tgOwnContactOnly: "Abeg share your own number with the button below, no be another person own.",
+  tgStopped: "E don do. Send /start if you wan continue later.",
 };
 
 export const COPILOT_TEXT_PACKS: Record<CopilotLanguage, CopilotTextPack> = {

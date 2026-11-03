@@ -317,7 +317,7 @@ async function ensureTenant(session: OnboardingSession): Promise<string> {
   // === W47 crosscutting (ONB-ABU-1): per-phone tenant-creation throttle —
   // the chat intake is unauthenticated; without a cap it is a fake-merchant
   // factory (mass "trial" tenants). ===
-  if (session.channel === "whatsapp" && session.phone) {
+  if ((session.channel === "whatsapp" || session.channel === "telegram") && session.phone) {
     const { bumpIntakeCounter, INTAKE_LIMITS } = await import("../intakeThrottle");
     if (!(await bumpIntakeCounter("tenant", session.phone))) {
       await auditCopilot(session, "onboarding_copilot.tenant_throttled", `tenant creation throttled for phone`, {
@@ -628,7 +628,7 @@ const handlers: Record<
     // is now a STATIC import (module landed). Bootstrap failure does NOT
     // roll back the KYB-gated go-live; it is audit-logged loudly. ===
     let ownerBootstrap: Awaited<ReturnType<typeof bootstrapTenantOwner>> | null = null;
-    if (session.channel === "whatsapp" && session.phone) {
+    if ((session.channel === "whatsapp" || session.channel === "telegram") && session.phone) {
       try {
         ownerBootstrap = await bootstrapTenantOwner({
           tenantId: session.tenantId,

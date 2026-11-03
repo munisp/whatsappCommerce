@@ -16,7 +16,7 @@
  * - abandoned:   explicitly abandoned by the operator
  */
 import { randomUUID } from "crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../db";
 import { onboardingSessions } from "../../../drizzle/schema";
 
@@ -202,7 +202,7 @@ export async function saveSession(session: OnboardingSession): Promise<void> {
 }
 
 /**
- * Resume lookup for the WhatsApp channel: latest non-terminal session for a
+ * Resume lookup for the phone-bound chat channels: latest non-terminal session for a
  * phone, or null. (State filtering is done in JS so it works everywhere.)
  */
 export async function findActiveSessionRowByPhone(phone: string): Promise<OnboardingSession | null> {
@@ -211,7 +211,7 @@ export async function findActiveSessionRowByPhone(phone: string): Promise<Onboar
   const rows = await db
     .select()
     .from(onboardingSessions)
-    .where(and(eq(onboardingSessions.channel, "whatsapp"), eq(onboardingSessions.phone, phone)));
+    .where(and(inArray(onboardingSessions.channel, ["whatsapp", "telegram"]), eq(onboardingSessions.phone, phone)));
   const active = rows
     .map(rowToSession)
     .filter((s) => !TERMINAL_STATES.includes(s.state))
@@ -220,7 +220,7 @@ export async function findActiveSessionRowByPhone(phone: string): Promise<Onboar
 }
 
 /**
- * Supersede every non-terminal whatsapp session for a phone (C3 "restart" =
+ * Supersede every non-terminal chat session for a phone (C3 "restart" =
  * startSession again for the same phone). Returns the abandoned session ids.
  */
 export async function supersedeActiveSessionsForPhone(phone: string, dbOverride?: any): Promise<string[]> {
@@ -229,7 +229,7 @@ export async function supersedeActiveSessionsForPhone(phone: string, dbOverride?
   const rows = await db
     .select()
     .from(onboardingSessions)
-    .where(and(eq(onboardingSessions.channel, "whatsapp"), eq(onboardingSessions.phone, phone)));
+    .where(and(inArray(onboardingSessions.channel, ["whatsapp", "telegram"]), eq(onboardingSessions.phone, phone)));
   const doomed = rows.filter((r: any) => !TERMINAL_STATES.includes(r.state as CopilotState));
   for (const r of doomed) {
     await db

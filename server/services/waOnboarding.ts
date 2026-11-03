@@ -82,7 +82,7 @@ export interface CopilotReply {
 
 export interface OnboardingCopilotApi {
   startSession(args: {
-    channel: "admin" | "whatsapp";
+    channel: "admin" | "whatsapp" | "telegram";
     tenantId?: string;
     phone?: string;
   }): Promise<{ sessionId: string; greeting: string }>;
@@ -166,11 +166,19 @@ const GRAPH_API_BASE = "https://graph.facebook.com/v21.0";
  */
 export interface OnboardingSendContext {
   tenantId: string | null;
+  /** Another chat app (Telegram) carries the replies instead of WhatsApp. */
+  transport?: OnboardingTransport;
+  channel?: "whatsapp" | "telegram";
 }
 
-interface OnboardingSendResult {
+export interface OnboardingSendResult {
   sent: boolean;
   simulated: boolean;
+}
+
+export interface OnboardingTransport {
+  sendText(body: string): Promise<OnboardingSendResult>;
+  sendButtons(body: string, buttons: { id: string; title: string }[]): Promise<OnboardingSendResult>;
 }
 
 /** Resolve the creds for this send: tenant-own (BYO) or the global number. */
@@ -232,6 +240,7 @@ export async function sendOnboardingText(
   body: string,
   ctx?: OnboardingSendContext,
 ): Promise<OnboardingSendResult> {
+  if (ctx?.transport) return ctx.transport.sendText(body);
   const chunks = chunkWhatsAppText(body);
   let last: OnboardingSendResult = { sent: false, simulated: false };
   for (const chunk of chunks) {
@@ -264,6 +273,7 @@ export async function sendOnboardingButtons(
     id: toWireActionId(a.id),
     title: a.label,
   }));
+  if (ctx?.transport) return ctx.transport.sendButtons(body, buttons);
   const interactive = buildInteractivePayload({
     bodyText: body,
     action: { type: "button", buttons },
@@ -462,7 +472,7 @@ async function startFreshSession(
   // BYO (ctx.tenantId set): bind the session to the EXISTING draft tenant so
   // the copilot configures it in place rather than minting a new tenant.
   const { greeting } = await copilot.startSession({
-    channel: "whatsapp",
+    channel: ctx?.channel ?? "whatsapp",
     phone: toPhone,
     tenantId: ctx?.tenantId ?? undefined,
   });

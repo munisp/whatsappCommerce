@@ -121,6 +121,8 @@ export const ENV = {
   // Telegram conversational onboarding bot (parity with WhatsApp onboarding).
   // OPTIONAL — unset = Telegram onboarding off. Token from BotFather.
   onboardingTelegramBotToken: process.env.ONBOARDING_TELEGRAM_BOT_TOKEN ?? "",
+  // The secret Telegram must present on every update. Both are needed, or the webhook stays off.
+  onboardingTelegramWebhookSecret: process.env.ONBOARDING_TELEGRAM_WEBHOOK_SECRET ?? "",
   // W50 shared platform commerce number: ONE WhatsApp number that many shops
   // share. A customer messaging it names a shop (slug/name) to enter it, or
   // searches a product to get the nearest shops that stock it. Shops that bring

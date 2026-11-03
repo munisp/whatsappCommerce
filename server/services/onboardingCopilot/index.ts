@@ -120,7 +120,7 @@ export async function startSession(args: {
   // transaction (advisory lock + partial unique index backstop) — concurrent
   // first contact yields exactly one active session per phone. ===
   let session: OnboardingSession;
-  if (args.channel === "whatsapp" && args.phone) {
+  if ((args.channel === "whatsapp" || args.channel === "telegram") && args.phone) {
     const { session: created, superseded } = await startSessionCas({
       channel: args.channel,
       tenantId: args.tenantId ?? null,

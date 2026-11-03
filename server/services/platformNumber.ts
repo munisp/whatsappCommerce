@@ -193,6 +193,13 @@ async function kvDel(key: string): Promise<void> {
 }
 
 /** Which shop the customer is currently inside (tenantId), or null. */
+/** The phone a person verified by sharing their Telegram contact, for chat onboarding. */
+const TG_ONBOARDING_PHONE_TTL_SECONDS = 90 * 24 * 3600;
+export const getTelegramOnboardingPhone = (chatId: string): Promise<string | null> => kvGet(`onbtg:phone:${chatId}`);
+export const setTelegramOnboardingPhone = (chatId: string, phone: string): Promise<void> =>
+  kvSet(`onbtg:phone:${chatId}`, phone, TG_ONBOARDING_PHONE_TTL_SECONDS);
+export const clearTelegramOnboardingPhone = (chatId: string): Promise<void> => kvDel(`onbtg:phone:${chatId}`);
+
 export const getActiveShop = (phone: string): Promise<string | null> => kvGet(`plat:active:${digits(phone)}`);
 export const setActiveShop = (phone: string, tenantId: string): Promise<void> => kvSet(`plat:active:${digits(phone)}`, tenantId, ACTIVE_TTL_SECONDS);
 export const clearActiveShop = (phone: string): Promise<void> => kvDel(`plat:active:${digits(phone)}`);
