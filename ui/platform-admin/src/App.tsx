@@ -32,6 +32,7 @@ const PhoneAuthPage = lazy(() => import("@/pages/PhoneAuthPage"));
 const WhatsAppProfilePage = lazy(() => import("@/pages/WhatsAppProfilePage"));
 const AlertRules = lazy(() => import("@/pages/AlertRules"));
 const ServiceHealth = lazy(() => import("@/pages/ServiceHealth"));
+const FeatureRollout = lazy(() => import("@/pages/FeatureRollout"));
 const CredentialWizard = lazy(() => import("@/pages/CredentialWizard"));
 const DeployChecklist = lazy(() => import("@/pages/DeployChecklist"));
 const CompliancePortal = lazy(() => import("@/pages/CompliancePortal"));
@@ -84,6 +85,7 @@ function Router() {
       <Switch>
         <Route path="/" component={AdminPortal} />
         <Route path="/tenants" component={Tenants} />
+        <Route path="/feature-rollout" component={FeatureRollout} />
         <Route path="/tenant-analytics" component={TenantAnalytics} />
         <Route path="/tenants/:id" component={TenantDetail} />
         <Route path="/onboarding" component={TenantOnboarding} />

@@ -7457,3 +7457,26 @@ export const provisionFundLedger = pgTable("provision_fund_ledger", {
 export type ProvisionFundLedgerRow = typeof provisionFundLedger.$inferSelect;
 export type NewProvisionFundLedgerRow = typeof provisionFundLedger.$inferInsert;
 // === END W57 risk-shield ===
+
+// Which tenant dashboard features are visible, rolled out in stages. No row = visible to all shops.
+export const featureRollouts = pgTable("feature_rollouts", {
+  featureKey: varchar("feature_key", { length: 120 }).primaryKey(), // the feature's dashboard path
+  state:      varchar("state", { length: 16 }).notNull().default("all"), // off | selected | all
+  releasedAt: timestamp("released_at"),
+  updatedBy:  varchar("updated_by", { length: 64 }),
+  updatedAt:  timestamp("updated_at").notNull().defaultNow(),
+});
+export type FeatureRollout = typeof featureRollouts.$inferSelect;
+
+// One shop's exception: on during "selected", or off during "all".
+export const tenantFeatureOverrides = pgTable("tenant_feature_overrides", {
+  tenantId:   varchar("tenant_id", { length: 36 }).notNull(),
+  featureKey: varchar("feature_key", { length: 120 }).notNull(),
+  enabled:    boolean("enabled").notNull(),
+  updatedBy:  varchar("updated_by", { length: 64 }),
+  updatedAt:  timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("tenant_feature_override_uniq").on(t.tenantId, t.featureKey),
+  index("tenant_feature_override_key_idx").on(t.featureKey),
+]);
+export type TenantFeatureOverride = typeof tenantFeatureOverrides.$inferSelect;

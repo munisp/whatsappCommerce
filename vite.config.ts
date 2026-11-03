@@ -171,6 +171,10 @@ const pwaPlugin = VitePWA({
   workbox: {
     // SPA nav fallback MUST be the app shell, not offline.html — otherwise the
     // SW serves "You're Offline" for every client-side route even when online.
+    // No page ever asks a waiting worker to take over, so without these an old one lingers until
+    // every tab of the site is closed.
+    skipWaiting: true,
+    clientsClaim: true,
     navigateFallback: "/index.html",
     // The two other apps have their own pages under these paths. Without this the
     // shop app answers for them, and an admin gets the shop menu at /platform-admin/.

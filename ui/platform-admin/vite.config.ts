@@ -44,6 +44,8 @@ export default defineConfig(({ command }) => ({
       workbox: {
         // SPA nav fallback MUST be the app shell, not offline.html — otherwise the
         // SW serves "You're Offline" for every client-side route even when online.
+        skipWaiting: true,
+        clientsClaim: true,
         navigateFallback: `${command === "build" ? "/platform-admin" : ""}/index.html`,
         navigateFallbackDenylist: [/^\/api\//],
         globPatterns: ["**/*.{js,css,html,png,svg,woff2}"],

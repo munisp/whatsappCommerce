@@ -1,3 +1,4 @@
+import { ALWAYS_ON_FEATURES, featureForPath } from "@shared/featureRollout";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -107,7 +108,7 @@ type NavGroup = {
 // distinguishes the two audiences. Every path here must exist as a route in
 // that surface's own App.tsx or it's a dead link — see ui/tenant-portal/ROUTES.md
 // and ui/platform-admin/ROUTES.md for the placement reasoning per item.
-const TENANT_NAV_GROUPS: NavGroup[] = [
+export const TENANT_NAV_GROUPS: NavGroup[] = [
   {
     id: "overview",
     label: "Overview",
@@ -305,6 +306,7 @@ const PLATFORM_NAV_GROUPS: NavGroup[] = [
     icon: Building2,
     items: [
       { icon: Building2,       label: "Tenants",          path: "/tenants" },
+      { icon: SlidersHorizontal, label: "Feature Rollout", path: "/feature-rollout" },
       { icon: BarChart2,       label: "Tenant Analytics", path: "/tenant-analytics" },
       { icon: UserPlus,        label: "Onboard Tenant",   path: "/onboarding" },
       { icon: Link2,           label: "Menu Assignment",  path: "/tenant-menus" },
@@ -390,6 +392,18 @@ const PLATFORM_NAV_GROUPS: NavGroup[] = [
 
 // QA-043: what a freshly REGISTERED user sees. They have no business yet, so every tenant page would only answer 403 —
 // the one thing they can usefully do is create one.
+const TENANT_FEATURE_PATHS = TENANT_NAV_GROUPS.flatMap(g => g.items.map(i => i.path));
+const FEATURE_ROLLOUT_KEY = "feature-rollout-v1";
+
+function FeatureNotAvailable() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-2 p-8 text-center">
+      <h1 className="text-xl font-semibold">This feature isn't available for your shop yet</h1>
+      <p className="text-sm text-muted-foreground max-w-md">We're rolling it out gradually, and it will appear in your menu when it's ready.</p>
+    </div>
+  );
+}
+
 const GET_STARTED_GROUP: NavGroup = {
   id: "get-started",
   label: "Get started",
@@ -476,7 +490,9 @@ function NavGroup({
   searchQuery,
   open,
   onOpenChange,
+  freshFeatures,
 }: {
+  freshFeatures: Set<string>;
   group: NavGroup;
   location: string;
   setLocation: (path: string) => void;
@@ -547,6 +563,7 @@ function NavGroup({
                 >
                   <ItemIcon className="h-4 w-4" style={isActive ? { color: "hsl(var(--primary))" } : {}} />
                   <span>{item.label}</span>
+                  {freshFeatures.has(item.path) && <span className="ml-auto rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">New</span>}
                 </SidebarMenuButton>
               </SidebarMenuItem>
             );
@@ -601,6 +618,30 @@ function DashboardLayoutContent({
   const setupOnly = needsBusinessSetup(user);
   const blocked = setupOnly && !isAllowedWithoutBusiness(location);
 
+  // Feature rollout: last known answer first, so the menu doesn't jump on load. Before any answer only
+  // always-on features show. If the check fails, everything shows rather than emptying a shop's menu.
+  const rollout = trpc.featureRollout.mine.useQuery(undefined, {
+    enabled: !IS_PLATFORM_ADMIN && !setupOnly,
+    staleTime: 60_000,
+    retry: 1,
+  });
+  const [lastRollout] = useState<{ hidden: string[]; fresh: string[] } | null>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(FEATURE_ROLLOUT_KEY) ?? "null");
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    if (rollout.data) localStorage.setItem(FEATURE_ROLLOUT_KEY, JSON.stringify(rollout.data));
+  }, [rollout.data]);
+  const rolloutAnswer = rollout.data ?? lastRollout;
+  const rolloutUnknown = !IS_PLATFORM_ADMIN && !rolloutAnswer && !rollout.isError;
+  const hiddenFeatures = useMemo(() => new Set(IS_PLATFORM_ADMIN ? [] : rolloutAnswer?.hidden ?? []), [rolloutAnswer]);
+  const freshFeatures = useMemo(() => new Set(IS_PLATFORM_ADMIN ? [] : rolloutAnswer?.fresh ?? []), [rolloutAnswer]);
+  const pageFeature = featureForPath(location, TENANT_FEATURE_PATHS);
+  const featureHidden = !IS_PLATFORM_ADMIN && !!pageFeature && hiddenFeatures.has(pageFeature);
+
   // QA follow-up: tenant_memberships.role (owner/operator/analyst/finance/
   // catalog) — a separate axis from platform admin above. myRole is safe for
   // every role to call about itself (unlike the operatorProcedure-gated
@@ -627,9 +668,13 @@ function DashboardLayoutContent({
     if (setupOnly) return [GET_STARTED_GROUP];
     return TENANT_NAV_GROUPS
       .filter(groupVisible)
-      .map(g => ({ ...g, items: g.items.filter(i => !i.adminOnly || admin) }))
+      .map(g => ({
+        ...g,
+        items: g.items.filter(i =>
+          (!i.adminOnly || admin) && !hiddenFeatures.has(i.path) && (!rolloutUnknown || ALWAYS_ON_FEATURES.includes(i.path))),
+      }))
       .filter(g => g.items.length > 0);
-  }, [admin, setupOnly, tenantRole]);
+  }, [admin, setupOnly, tenantRole, hiddenFeatures, rolloutUnknown]);
   const allItems = useMemo(
     () => visibleGroups.flatMap(g => g.items.map(i => ({ ...i, group: g.label }))),
     [visibleGroups]
@@ -814,6 +859,7 @@ function DashboardLayoutContent({
                   searchQuery={searchQuery}
                   open={expandedGroups[group.id] ?? false}
                   onOpenChange={(open) => toggleGroup(group.id, open)}
+                  freshFeatures={freshFeatures}
                 />
               ))}
           </SidebarContent>
@@ -908,7 +954,7 @@ function DashboardLayoutContent({
         </div>
         {/* QA-043: a user with no business yet gets the set-up screen INSIDE the shell (sidebar + their account details), not a
             tenant page that can only 403. The pages that create a business (NO_BUSINESS_ALLOWED_PATHS) render normally. */}
-        <main className="flex-1 overflow-auto">{blocked ? <NoBusinessYet name={displayNameFor(user)} /> : children}</main>
+        <main className="flex-1 overflow-auto">{blocked ? <NoBusinessYet name={displayNameFor(user)} /> : featureHidden ? <FeatureNotAvailable /> : children}</main>
       </SidebarInset>
     </>
   );

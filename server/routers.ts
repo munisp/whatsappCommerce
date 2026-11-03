@@ -7,6 +7,7 @@ import { parse as parseCookieHeader } from "cookie";
 import { verifySessionToken } from "./_core/auth";
 import { revokeAllUserSessions, revokeSessionJti } from "./_core/sdk";
 import { tenantRouter } from "./routers/tenant";
+import { featureRolloutRouter } from "./routers/featureRollout";
 import { tenantConfigRouter } from "./routers/tenantConfig";
 import { productRouter } from "./routers/product";
 import { conversationRouter } from "./routers/conversation";
@@ -194,6 +195,7 @@ export const appRouter = router({
   embedded: embeddedRouter,
   // === END W33 embedded-api ===
   tenant: tenantRouter,
+  featureRollout: featureRolloutRouter,
   tenantConfig: tenantConfigRouter,
   product: productRouter,
   conversation: conversationRouter,
