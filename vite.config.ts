@@ -172,7 +172,9 @@ const pwaPlugin = VitePWA({
     // SPA nav fallback MUST be the app shell, not offline.html — otherwise the
     // SW serves "You're Offline" for every client-side route even when online.
     navigateFallback: "/index.html",
-    navigateFallbackDenylist: [/^\/api\//, /^\/__manus__\//],
+    // The two other apps have their own pages under these paths. Without this the
+    // shop app answers for them, and an admin gets the shop menu at /platform-admin/.
+    navigateFallbackDenylist: [/^\/api\//, /^\/__manus__\//, /^\/platform-admin(\/|$)/, /^\/tenant-portal(\/|$)/],
     globPatterns: ["**/*.{js,css,html,png,svg,woff2}"],
     // Self-hosted woff2 fonts + hashed assets are immutable: cache-first.
     runtimeCaching: [

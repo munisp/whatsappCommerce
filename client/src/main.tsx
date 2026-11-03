@@ -30,8 +30,19 @@ import { TenantProvider } from "./contexts/TenantContext";
   document.head.appendChild(pre);
 }
 
+// This app only runs under /platform-admin or /tenant-portal if an older service worker served it there
+// by mistake. Remove that worker and reload, so the server sends the right app.
+const servedInWrongApp = /^\/(platform-admin|tenant-portal)(\/|$)/.test(window.location.pathname);
+if (import.meta.env.PROD && servedInWrongApp && "serviceWorker" in navigator && !sessionStorage.getItem("wrongAppReloaded")) {
+  sessionStorage.setItem("wrongAppReloaded", "1");
+  navigator.serviceWorker
+    .getRegistrations()
+    .then((registrations) => Promise.all(registrations.filter((r) => new URL(r.scope).pathname === "/").map((r) => r.unregister())))
+    .finally(() => window.location.reload());
+}
+
 // === W48 perf (PERF-FE-1): register the PWA service worker (autoUpdate). ===
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
+if (import.meta.env.PROD && !servedInWrongApp && "serviceWorker" in navigator) {
   import("virtual:pwa-register")
     .then(({ registerSW }) => registerSW({ immediate: true }))
     .catch(() => {
