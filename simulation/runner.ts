@@ -796,6 +796,7 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j609-platform-shared-number"),
     import("./journeys/j610-platform-product-discovery"),
     import("./journeys/j611-telegram-chat-onboarding"),
+    import("./journeys/j612-telegram-web-handoff"),
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),

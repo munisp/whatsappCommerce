@@ -84,6 +84,17 @@ function askForContact(cfg: TelegramOnboardingConfig, chatId: string, lang: stri
   });
 }
 
+/**
+ * Start, or nudge an existing conversation. Never passes "hi" to a running session: without the LLM,
+ * the copilot's fallback would take a short message as the business name.
+ */
+async function greetOrResume(phone: string, lang: string, ctx: OnboardingSendContext, transport: OnboardingTransport) {
+  const { findActiveSessionByPhone } = await import("./onboardingCopilot");
+  const session = await findActiveSessionByPhone(phone);
+  if (session) await transport.sendText(copilotT(lang, "askBusiness"));
+  else await handleInbound({ type: "text", text: { body: "hi" } }, phone, ctx);
+}
+
 /** Runs after the webhook has acked. Never throws. */
 export async function handleTelegramOnboardingUpdate(update: any, cfg: TelegramOnboardingConfig): Promise<void> {
   try {
@@ -113,7 +124,8 @@ export async function handleTelegramOnboardingUpdate(update: any, cfg: TelegramO
       }
       phone = shared;
       await setTelegramOnboardingPhone(chatId, phone);
-      await handleInbound({ type: "text", text: { body: "hi" } }, phone, ctx);
+      await callBot(cfg.token, "sendMessage", { chat_id: chatId, text: "✅", reply_markup: { remove_keyboard: true } });
+      await greetOrResume(phone, lang, ctx, transport);
       return;
     }
 
@@ -125,7 +137,7 @@ export async function handleTelegramOnboardingUpdate(update: any, cfg: TelegramO
     if (event.kind === "text") {
       await handleInbound({ type: "text", text: { body: event.text } }, phone, ctx);
     } else if (event.kind === "command") {
-      await handleInbound({ type: "text", text: { body: "hi" } }, phone, ctx);
+      await greetOrResume(phone, lang, ctx, transport);
     } else if (event.kind === "callback") {
       await handleInbound({ type: "interactive", interactive: { button_reply: { id: event.interactive.id, title: event.interactive.title } } }, phone, ctx);
     } else {

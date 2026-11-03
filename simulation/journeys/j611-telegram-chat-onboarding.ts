@@ -9,7 +9,7 @@
  *  4. sharing it starts a copilot session on the telegram channel, keyed by
  *     that phone, and the greeting goes out on Telegram (never on WhatsApp).
  *  5. a re-delivered update is acked as a duplicate and not processed again.
- *  6. the conversation continues on the same session.
+ *  6. /start mid-chat is a nudge, and the conversation continues on the same session.
  */
 import { assert, type World } from "../world";
 import type { Journey } from "../runner";
@@ -74,10 +74,16 @@ export const journey: Journey = {
 
       const beforeShare = sends().length;
       await post(world, SECRET, contact(611007, USER, `+${PHONE}`));
-      await world.waitFor(() => sends().length > beforeShare, 8000, "greeting");
+      await world.waitFor(() => sends().length >= beforeShare + 2, 8000, "tick + greeting");
       const session = await onboardingSessionByPhone(PHONE);
       assert(session?.channel === "telegram", `session is on telegram (got ${session?.channel})`);
       assert(sends().at(-1)!.body.reply_markup?.keyboard === undefined, "the greeting isn't another contact request");
+
+      const beforeStart = sends().length;
+      await post(world, SECRET, text(611010, "/start"));
+      await world.waitFor(() => sends().length > beforeStart, 5000, "nudge");
+      const nudged = await onboardingSessionByPhone(PHONE);
+      assert(!nudged?.intake?.facts?.businessName, "/start in a running chat doesn't become the shop's name");
 
       const again = await post(world, SECRET, contact(611007, USER, `+${PHONE}`));
       assert(again.json.duplicate === true, "a re-delivered update is a duplicate");
