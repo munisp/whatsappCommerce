@@ -482,3 +482,8 @@ main.bg-background,
 .min-h-screen.bg-background {
   background-image: url("/images/oak/patterns/aso-oke-weave.svg");
 }
+
+/* Page margin for the screens that don't set their own. :where keeps this weaker than a page's padding class. */
+main > :where(.space-y-3, .space-y-4, .space-y-5, .space-y-6, .space-y-8) {
+  padding: 1.5rem;
+}
