@@ -61,8 +61,8 @@ const Orders = lazy(() => import("@/pages/Orders"));
 const OrderTimeline = lazy(() => import("@/pages/OrderTimeline"));
 const DisputeManagement = lazy(() => import("@/pages/DisputeManagement"));
 const Payments = lazy(() => import("@/pages/Payments"));
-const EscrowDashboard = lazy(() => import("@/pages/EscrowDashboard"));
-const RevenueDashboard = lazy(() => import("@/pages/RevenueDashboard"));
+const MerchantEscrow = lazy(() => import("@/pages/MerchantEscrow"));
+const MerchantRevenue = lazy(() => import("@/pages/MerchantRevenue"));
 const Invoices = lazy(() => import("@/pages/Invoices"));
 const MobileMoneyPortal = lazy(() => import("@/pages/MobileMoneyPortal"));
 const AnalyticsBIDashboard = lazy(() => import("@/pages/AnalyticsBIDashboard"));
@@ -221,8 +221,8 @@ function Router() {
         <Route path="/orders/:orderNumber" component={OrderTimeline} />
         <Route path="/disputes" component={DisputeManagement} />
         <Route path="/payments" component={Payments} />
-        <Route path="/escrow" component={EscrowDashboard} />
-        <Route path="/revenue" component={RevenueDashboard} />
+        <Route path="/escrow" component={MerchantEscrow} />
+        <Route path="/revenue" component={MerchantRevenue} />
         <Route path="/invoices" component={Invoices} />
         <Route path="/mobile-money" component={MobileMoneyPortal} />
         <Route path="/analytics-bi" component={AnalyticsBIDashboard} />

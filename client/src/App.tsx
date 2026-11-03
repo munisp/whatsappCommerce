@@ -65,6 +65,8 @@ const InventoryHub = lazy(() => import("./pages/InventoryHub"));
 const TrackOrder = lazy(() => import("./pages/TrackOrder"));
 const DriverApp = lazy(() => import("./pages/driver/DriverApp"));
 const Invoices = lazy(() => import("./pages/Invoices"));
+const MerchantEscrow = lazy(() => import("./pages/MerchantEscrow"));
+const MerchantRevenue = lazy(() => import("./pages/MerchantRevenue"));
 const PortalDashboard = lazy(() => import("./pages/portal/PortalDashboard"));
 const PortalProducts = lazy(() => import("./pages/portal/PortalProducts"));
 const PortalOrders = lazy(() => import("./pages/portal/PortalOrders"));
@@ -169,8 +171,10 @@ function RouteRedirect({ to }: { to: string }) {
 // /whatsapp-profile, /compliance, /deploy-checklist, /audit-log, /setup —
 // the last is genuinely per-tenant integration credentials, not a platform
 // tool, despite the ambiguous placement ROUTES.md itself flagged).
+// A full page load, because /platform-admin is a separate app. Moving within this one just showed its 404.
 function AdminRouteRedirect({ to }: { to: string }) {
-  return <RouteRedirect to={`/platform-admin${to}`} />;
+  useEffect(() => { window.location.replace(`/platform-admin${to}`); }, [to]);
+  return null;
 }
 
 function RouteFallback() {
@@ -263,8 +267,8 @@ function Router() {
           <Route path="/portal/sso-callback" component={SsoCallback} />
           <Route path="/sso-users" component={() => <AdminRouteRedirect to="/sso-users" />} />
           <Route path="/cogs-disputes" component={() => <AdminRouteRedirect to="/cogs-disputes" />} />
-          <Route path="/revenue" component={() => <AdminRouteRedirect to="/revenue" />} />
-          <Route path="/escrow" component={() => <AdminRouteRedirect to="/escrow" />} />
+          <Route path="/revenue" component={MerchantRevenue} />
+          <Route path="/escrow" component={MerchantEscrow} />
           <Route path="/logistics" component={() => <AdminRouteRedirect to="/logistics" />} />
           <Route path="/disputes" component={DisputeManagement} />
           <Route path="/portal/wallet" component={MerchantWallet} />

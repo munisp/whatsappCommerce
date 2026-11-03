@@ -193,10 +193,8 @@ export const TENANT_NAV_GROUPS: NavGroup[] = [
     requiresCapability: "finance",
     items: [
       { icon: CreditCard,      label: "Payments",        path: "/payments" },
-      // adminOnly: escrow.getStats and seven revenue.* queries are platform-wide and admin-only — a merchant clicking these got a 403.
-      // (A merchant's own revenue is Analytics -> "/portal/analytics".)
-      { icon: Lock,            label: "Escrow",          path: "/escrow",  adminOnly: true },
-      { icon: TrendingUp,      label: "Revenue",         path: "/revenue", adminOnly: true },
+      { icon: Lock,            label: "Escrow",          path: "/escrow" },
+      { icon: TrendingUp,      label: "Revenue",         path: "/revenue" },
       { icon: FileText,        label: "Invoices",        path: "/invoices" },
       { icon: Smartphone,      label: "Mobile Money",    path: "/mobile-money" },
       { icon: Wallet,          label: "Wallet",          path: "/portal/wallet" },

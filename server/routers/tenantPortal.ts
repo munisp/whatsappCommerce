@@ -1,14 +1,14 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, moneyProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import {
   tenants, products, orders, conversations, customers,
   invoices, paymentTransactions, paymentGatewayConfigs,
   orderItems,
-  operatorTemplates,
+  operatorTemplates, escrowTransactions, escrowDisputes
 } from "../../drizzle/schema";
-import { eq, and, desc, count, sum, gte, lte, sql, ilike } from "drizzle-orm";
+import { eq, and, desc, count, sum, gte, lte, sql, ilike, inArray } from "drizzle-orm";
 
 // Guard: user must have a tenantId in their session (set during onboarding)
 const tenantScopedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
@@ -19,6 +19,74 @@ const tenantScopedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 });
 
 export const tenantPortalRouter = router({
+  // ── A shop's own escrow and revenue. The admin versions cover every shop. ──
+  getMyEscrow: moneyProcedure.input(z.object({ tenantId: z.string().min(1) })).query(async ({ input }) => {
+    const db = await getDb();
+    if (!db) return { held: 0, settled: 0, openDisputes: 0, items: [] };
+    const rows = await db
+      .select({ state: escrowTransactions.state, total: sql<string>`coalesce(sum(${escrowTransactions.netMerchantAmount}::numeric), 0)::text` })
+      .from(escrowTransactions)
+      .where(eq(escrowTransactions.tenantId, input.tenantId))
+      .groupBy(escrowTransactions.state);
+    const totalFor = (states: string[]) => rows.filter((row) => states.includes(row.state)).reduce((sum, row) => sum + Number(row.total), 0);
+    const [disputes] = await db
+      .select({ total: count() })
+      .from(escrowDisputes)
+      .where(and(eq(escrowDisputes.tenantId, input.tenantId), inArray(escrowDisputes.status, ["open", "under_review"])));
+    const items = await db
+      .select({
+        id: escrowTransactions.id,
+        amount: escrowTransactions.amount,
+        platformFee: escrowTransactions.platformFee,
+        netMerchantAmount: escrowTransactions.netMerchantAmount,
+        currency: escrowTransactions.currency,
+        state: escrowTransactions.state,
+        createdAt: escrowTransactions.createdAt,
+      })
+      .from(escrowTransactions)
+      .where(eq(escrowTransactions.tenantId, input.tenantId))
+      .orderBy(desc(escrowTransactions.createdAt))
+      .limit(50);
+    return {
+      held: totalFor(["payment_received", "escrow_held", "delivery_confirmed", "release_instructed", "dispute_raised"]),
+      settled: totalFor(["settled"]),
+      openDisputes: Number(disputes?.total ?? 0),
+      items,
+    };
+  }),
+
+  getMyRevenue: moneyProcedure.input(z.object({ tenantId: z.string().min(1) })).query(async ({ input }) => {
+    const db = await getDb();
+    if (!db) return { totals: [], months: [] };
+    const paid = and(eq(orders.tenantId, input.tenantId), eq(orders.paymentStatus, "completed"));
+    const now = new Date();
+    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const sixMonths = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    const totals = await db
+      .select({
+        currency: orders.currency,
+        total: sql<string>`coalesce(sum(${orders.totalAmount}::numeric), 0)::text`,
+        orders: count(),
+        thisMonth: sql<string>`coalesce(sum(${orders.totalAmount}::numeric) filter (where ${orders.createdAt} >= ${thisMonth.toISOString()}::timestamp), 0)::text`,
+        lastMonth: sql<string>`coalesce(sum(${orders.totalAmount}::numeric) filter (where ${orders.createdAt} >= ${lastMonth.toISOString()}::timestamp and ${orders.createdAt} < ${thisMonth.toISOString()}::timestamp), 0)::text`,
+      })
+      .from(orders)
+      .where(paid)
+      .groupBy(orders.currency);
+    const monthKey = sql<string>`to_char(${orders.createdAt}, 'YYYY-MM')`;
+    const months = await db
+      .select({ month: monthKey, currency: orders.currency, total: sql<string>`coalesce(sum(${orders.totalAmount}::numeric), 0)::text`, orders: count() })
+      .from(orders)
+      .where(and(paid, gte(orders.createdAt, sixMonths)))
+      .groupBy(monthKey, orders.currency)
+      .orderBy(desc(monthKey));
+    return {
+      totals: totals.map((row) => ({ currency: row.currency, total: Number(row.total), orders: Number(row.orders), thisMonth: Number(row.thisMonth), lastMonth: Number(row.lastMonth) })),
+      months: months.map((row) => ({ month: row.month, currency: row.currency, total: Number(row.total), orders: Number(row.orders) })),
+    };
+  }),
+
   // ── My tenant info ────────────────────────────────────────────────────────
   getMyTenant: tenantScopedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
