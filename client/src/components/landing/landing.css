@@ -1,0 +1,181 @@
+/* The OAK landing page, played as a short film: titles, a sale, the name, the growth rings. */
+
+/* Opening titles */
+.oak-intro { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+.oak-intro-reel {
+  position: absolute; inset: 0; background: var(--oak-forest-deep); overflow: hidden;
+  animation: oak-fade-out 0.8s ease-in 3.9s both;
+}
+.oak-intro-card {
+  position: absolute; inset: 0;
+  animation: oak-card 1.2s ease-in-out both;
+  animation-delay: calc(var(--card) * 1s);
+}
+.oak-intro-card img {
+  width: 100%; height: 100%; object-fit: cover; filter: brightness(0.72) saturate(0.95);
+  animation: oak-push 1.4s linear both;
+  animation-delay: calc(var(--card) * 1s);
+}
+.oak-intro-title {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  gap: 0.5rem; padding-bottom: 14vh; color: var(--oak-ivory); text-align: center;
+  background: linear-gradient(to top, rgba(14, 26, 20, 0.8), rgba(14, 26, 20, 0) 55%);
+}
+.oak-intro-title span { font-size: clamp(4.5rem, 13vw, 10rem); line-height: 1; }
+.oak-intro-title small { color: #E7C98A; font-size: 0.8rem; }
+.oak-intro-mark {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem;
+  color: var(--oak-ivory); background: var(--oak-forest-deep);
+  animation: oak-fade-in 0.5s ease-out 3s both;
+}
+.oak-intro-mark span { font-size: clamp(2.5rem, 7vw, 4.5rem); letter-spacing: 0.14em; }
+.oak-intro-mark circle { stroke-dasharray: 180; animation: oak-draw 0.9s ease-out 3.05s both; }
+.oak-intro-mark path { animation: oak-fade-in 0.4s ease-out 3.5s both; }
+.oak-intro-bar {
+  position: absolute; left: 0; right: 0; height: 10vh; background: #0E1A14;
+  animation: oak-bar 0.8s cubic-bezier(0.7, 0, 0.2, 1) 4.05s both;
+}
+.oak-intro-bar-top { top: 0; transform-origin: top; }
+.oak-intro-bar-bottom { bottom: 0; transform-origin: bottom; }
+
+/* Hero */
+.oak-hero {
+  position: sticky; top: 0; z-index: 0; display: flex; flex-direction: column; justify-content: space-between;
+  height: 100svh; min-height: 620px; overflow: hidden; background: var(--oak-forest-deep);
+}
+.oak-hero-photo { position: absolute; inset: 0; overflow: hidden; }
+.oak-hero-photo img {
+  width: 100%; height: 100%; object-fit: cover; object-position: 60% 40%;
+  animation: oak-slow-push 26s ease-out both;
+}
+.oak-hero-shade {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(to top, rgba(14, 26, 20, 0.92) 0%, rgba(14, 26, 20, 0.6) 45%, rgba(14, 26, 20, 0.1) 78%, rgba(14, 26, 20, 0.45) 100%),
+    linear-gradient(to right, rgba(14, 26, 20, 0.7) 0%, rgba(14, 26, 20, 0) 65%);
+}
+.oak-hero-nav, .oak-hero-copy { position: relative; }
+.oak-hero-nav { animation: oak-fade-in 0.8s ease-out both; animation-delay: var(--intro); }
+.oak-hero-title { font-size: clamp(2.6rem, 7.4vw, 6.75rem); line-height: 1.02; color: var(--oak-ivory); }
+.oak-line { display: block; overflow: hidden; padding-bottom: 0.08em; margin-bottom: -0.08em; }
+.oak-line-inner {
+  display: block;
+  animation: oak-line-up 1s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--intro) + var(--i) * 0.12s);
+}
+.oak-rise {
+  animation: oak-rise 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--intro) + var(--i) * 0.12s);
+}
+.oak-hero-link {
+  display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.625rem 0.75rem;
+  color: var(--oak-ivory); font-weight: 500; font-size: 0.95rem; cursor: pointer;
+  border-bottom: 1px solid rgba(247, 242, 231, 0.5);
+}
+.oak-hero-link:hover { border-bottom-color: var(--oak-ivory); }
+.oak-nudge { animation: oak-nudge 1.8s ease-in-out infinite; }
+.oak-hero-band {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 10px;
+  animation: oak-weave 1.4s cubic-bezier(0.7, 0, 0.2, 1) both;
+  animation-delay: calc(var(--intro) + 0.3s);
+}
+
+/* A sale in the chat */
+.oak-chat-scene { position: relative; z-index: 1; height: 440vh; background-color: var(--oak-ivory); background-image: url("/images/oak/patterns/aso-oke-weave.svg"); }
+.oak-chat-stage { position: sticky; top: 0; height: 100svh; scroll-margin-top: 0; }
+.oak-stack { display: grid; }
+.oak-stack > * { grid-area: 1 / 1; }
+.oak-chat-caption { opacity: 0; transform: translateY(14px); transition: opacity 0.45s ease, transform 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+.oak-chat-caption.is-active { opacity: 1; transform: none; }
+.oak-track { display: flex; align-items: center; max-width: 20rem; padding-bottom: 1.5rem; }
+.oak-track li { position: relative; display: flex; align-items: center; flex: 1; }
+.oak-track small { position: absolute; top: 1.6rem; left: 0; white-space: nowrap; font-size: 0.75rem; color: #6F6754; transition: color 0.4s; }
+.oak-track li.is-done small { color: var(--oak-forest); font-weight: 600; }
+.oak-track li:last-child { flex: 0; }
+.oak-track li > span {
+  display: grid; place-items: center; flex: none; width: 1.25rem; height: 1.25rem; border-radius: 999px;
+  border: 1.5px solid #B8AD93; color: var(--oak-ivory); transition: background-color 0.4s, border-color 0.4s;
+}
+.oak-track li::after { content: ""; flex: 1; height: 1.5px; background: #CFC6AF; }
+.oak-track li:last-child::after { display: none; }
+.oak-track li.is-done > span { background: var(--oak-forest); border-color: var(--oak-forest); }
+.oak-phone-wrap { position: relative; justify-self: center; display: flex; align-items: flex-end; min-height: 0; height: 100%; max-height: 720px; width: 100%; max-width: 21rem; }
+.oak-phone {
+  display: flex; flex-direction: column; width: 100%; height: 100%; overflow: hidden; border-radius: 1.75rem;
+  border: 7px solid var(--oak-charcoal); background: #EFE8D6; box-shadow: 0 30px 60px -24px rgba(35, 33, 28, 0.55);
+}
+.oak-phone-head { display: flex; align-items: center; gap: 0.625rem; padding: 0.75rem 0.875rem; background: var(--oak-forest); color: var(--oak-ivory); }
+.oak-phone-avatar { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: 999px; background: var(--oak-brass); color: var(--oak-forest-deep); font-size: 1.15rem; }
+.oak-phone-feed { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem; overflow: hidden; }
+.oak-bubble-in-view { display: flex; flex-direction: column; flex: none; animation: oak-bubble 0.45s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: calc(var(--i) * 0.16s); }
+.oak-bubble { max-width: 85%; padding: 0.5rem 0.75rem; border-radius: 0.75rem; font-size: 0.875rem; line-height: 1.35; color: var(--oak-charcoal); }
+.oak-bubble-in { align-self: flex-start; background: #FDFAF3; border-bottom-left-radius: 0.2rem; }
+.oak-bubble-out { align-self: flex-end; background: #CFE0CC; border-bottom-right-radius: 0.2rem; }
+.oak-bubble-product { padding: 0.375rem 0.375rem 0.5rem; }
+.oak-bubble-product img { width: 100%; height: 6.5rem; object-fit: cover; border-radius: 0.5rem; margin-bottom: 0.375rem; }
+.oak-bubble-product p { padding: 0 0.375rem; }
+.oak-bubble-action { display: block; margin-top: 0.5rem; padding: 0.4rem; border-radius: 0.375rem; background: var(--oak-forest); color: var(--oak-ivory); text-align: center; font-weight: 600; }
+.oak-bubble-system { display: flex; gap: 0.5rem; align-self: center; max-width: 94%; background: #F1E4C4; color: #4A3A17; font-size: 0.8rem; }
+.oak-ledger {
+  position: absolute; right: calc(100% + 0.75rem); bottom: 12%; width: 13rem; padding: 1rem; background: var(--oak-paper);
+  border: 1px solid #DDD3BB; box-shadow: 0 18px 40px -20px rgba(35, 33, 28, 0.5); display: none;
+}
+.oak-ledger-status { color: #A64B27; font-weight: 600; animation: oak-rise 0.5s ease-out both; }
+@media (min-width: 1180px) { .oak-ledger { display: block; } }
+
+/* The three markets */
+.oak-markets-scene { position: relative; z-index: 1; height: 320vh; background: var(--oak-forest-deep); }
+.oak-markets-stage { position: sticky; top: 0; height: 100svh; overflow: hidden; }
+.oak-market { position: absolute; inset: 0; margin: 0; display: flex; align-items: flex-end; opacity: 0; transition: opacity 0.9s ease; }
+.oak-market.is-active { opacity: 1; }
+.oak-market img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: brightness(0.62);
+  transform: scale(1.12); transition: transform 7s ease-out;
+}
+.oak-market.is-active img { transform: scale(1); }
+.oak-market::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, rgba(14, 26, 20, 0.88), rgba(14, 26, 20, 0) 62%); }
+.oak-market figcaption { position: relative; z-index: 1; }
+.oak-market-word {
+  margin: 0.25rem 0 0.75rem; font-size: clamp(5rem, 20vw, 17rem); line-height: 0.95; color: var(--oak-ivory);
+  transform: translateY(24px); transition: transform 1s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.oak-market.is-active .oak-market-word { transform: none; }
+.oak-markets-lead { position: absolute; top: 2.5rem; left: 50%; transform: translateX(-50%); width: max-content; max-width: 88vw; color: var(--oak-ivory); font-size: clamp(1.1rem, 2.2vw, 1.75rem); text-align: center; }
+
+/* Growth rings */
+.oak-rings-scene { position: relative; z-index: 1; height: 300vh; background: var(--oak-forest-deep); --p: 0; }
+.oak-rings-stage { position: sticky; top: 0; display: flex; align-items: center; height: 100svh; overflow: hidden; }
+.oak-rings { position: absolute; top: 50%; right: -38vh; height: 124vh; width: 124vh; transform: translateY(-50%) rotate(calc(var(--p) * 18deg)); }
+.oak-ring {
+  fill: none; stroke: #B08D45; stroke-opacity: 0.6; stroke-width: 1.2; stroke-dasharray: 1;
+  stroke-dashoffset: calc(1 - clamp(0, var(--p) * 9.5 - var(--ring), 1));
+}
+.oak-milestone { color: rgba(247, 242, 231, 0.42); font-size: 1.1rem; transition: color 0.5s ease, transform 0.5s ease; }
+.oak-milestone.is-reached { color: var(--oak-ivory); transform: translateX(6px); }
+@media (max-width: 767px) {
+  .oak-rings { right: -55vh; opacity: 0.55; }
+}
+
+/* Quiet section between the big scenes */
+.oak-reveal { opacity: 0; transform: translateY(22px); transition: opacity 0.8s ease, transform 1s cubic-bezier(0.16, 1, 0.3, 1); }
+.oak-reveal.is-seen { opacity: 1; transform: none; }
+
+@keyframes oak-card { 0% { opacity: 0; } 14% { opacity: 1; } 84% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes oak-push { from { transform: scale(1.1); } to { transform: scale(1.01); } }
+@keyframes oak-slow-push { from { transform: scale(1.14); } to { transform: scale(1); } }
+@keyframes oak-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes oak-fade-out { to { opacity: 0; } }
+@keyframes oak-draw { from { stroke-dashoffset: 180; } to { stroke-dashoffset: 0; } }
+@keyframes oak-bar { to { transform: scaleY(0); } }
+@keyframes oak-line-up { from { transform: translateY(105%); } to { transform: none; } }
+@keyframes oak-rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+@keyframes oak-weave { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes oak-bubble { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes oak-nudge { 0%, 100% { transform: none; } 50% { transform: translateY(3px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .oak-hero *, .oak-chat-scene *, .oak-markets-scene * { animation: none !important; transition: none !important; }
+  .oak-market img { transform: none; }
+  .oak-reveal { opacity: 1; transform: none; transition: none; }
+  .oak-rings { transform: translateY(-50%); }
+}
