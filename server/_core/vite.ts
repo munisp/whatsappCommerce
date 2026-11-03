@@ -85,6 +85,9 @@ export function serveStatic(app: Express) {
   }
 
   useBrotliPrecompression(app, "/", distPath);
+  // Brand photos are heavy and rarely change, so let browsers and Cloudflare keep them.
+  // To replace one, give the new file a new name, or old copies linger for up to 30 days.
+  app.use("/images/oak", express.static(path.resolve(distPath, "images/oak"), { maxAge: "30d" }));
   app.use(express.static(distPath));
 
   // fall through to index.html if the file doesn't exist

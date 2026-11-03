@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ShieldCheck } from "lucide-react";
+import { Photo } from "./Photo";
 import { useSceneProgress } from "./useSceneProgress";
 
 type Message =
@@ -56,7 +57,7 @@ function Bubble({ message }: { message: Message }) {
   if (message.kind === "product") {
     return (
       <div className="oak-bubble oak-bubble-out oak-bubble-product">
-        <img src="/images/oak/photos/ankara-textiles-800.webp" alt="Stacks of Ankara fabric" />
+        <Photo name="ankara-textiles" phone={480} largest={480} sizes="300px" lazy alt="Stacks of Ankara fabric" />
         <p className="font-semibold">Ankara, 6 yards</p>
         <p className="tabular-nums">₦18,500</p>
       </div>

@@ -3,6 +3,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { ChatScene } from "@/components/landing/ChatScene";
 import { LandingHero } from "@/components/landing/LandingHero";
 import { MarketsScene } from "@/components/landing/MarketsScene";
+import { Photo } from "@/components/landing/Photo";
 import { Reveal } from "@/components/landing/Reveal";
 import { RingsScene } from "@/components/landing/RingsScene";
 import "@/components/landing/landing.css";
@@ -48,10 +49,9 @@ export default function Home() {
       <section className="relative z-[1] bg-[var(--oak-paper)]">
         <div className="mx-auto grid max-w-7xl items-center gap-14 px-6 py-24 lg:grid-cols-2 lg:px-10 lg:py-32">
           <Reveal>
-            <img
-              loading="lazy"
-              src="/images/oak/photos/boutique-customer.webp"
-              srcSet="/images/oak/photos/boutique-customer-800.webp 800w, /images/oak/photos/boutique-customer.webp 1600w"
+            <Photo
+              name="boutique-customer"
+              lazy
               sizes="(min-width: 1024px) 50vw, 100vw"
               alt="A boutique owner talking with a customer"
               className="aspect-[4/3] w-full rounded-sm object-cover"

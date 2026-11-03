@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowDown, ArrowRight } from "lucide-react";
 import { OakLogo, OakMark } from "@/components/OakLogo";
 import { Button } from "@/components/ui/button";
+import { Photo } from "./Photo";
 
 const SEEN_KEY = "oak-intro-seen";
 const INTRO_MS = 4900;
@@ -56,13 +57,7 @@ export function LandingHero({ ctaLabel, signInLabel, onCta, onSeeSale }: Props) 
           <div className="oak-intro-reel">
             {TITLE_CARDS.map((card, index) => (
               <div key={card.word} className="oak-intro-card" style={{ "--card": index } as React.CSSProperties}>
-                <img
-                  src={`/images/oak/photos/${card.photo}.webp`}
-                  srcSet={`/images/oak/photos/${card.photo}-800.webp 800w, /images/oak/photos/${card.photo}.webp 1600w`}
-                  sizes="100vw"
-                  alt=""
-                  style={{ objectPosition: card.position }}
-                />
+                <Photo name={card.photo} alt="" largest={1200} position={card.position} priority={index === 0} />
                 <div className="oak-intro-title">
                   <span className="oak-display">{card.word}</span>
                   <small className="oak-eyebrow">{card.language} for market</small>
@@ -80,13 +75,7 @@ export function LandingHero({ ctaLabel, signInLabel, onCta, onSeeSale }: Props) 
       )}
 
       <div className="oak-hero-photo">
-        <img
-          src="/images/oak/photos/market-traders.webp"
-          srcSet="/images/oak/photos/market-traders-800.webp 800w, /images/oak/photos/market-traders.webp 1600w"
-          sizes="100vw"
-          fetchPriority="high"
-          alt="Two women trading vegetables at a busy market"
-        />
+        <Photo name="market-traders" phone={1200} priority alt="Two women trading vegetables at a busy market" />
       </div>
       <div className="oak-hero-shade" />
 

@@ -1,12 +1,14 @@
 import { useState } from "react";
+import { Photo } from "./Photo";
 import { useSceneProgress } from "./useSceneProgress";
 
-const MARKETS = [
+const MARKETS: { word: string; language: string; text: string; photo: string; phone: 800 | 1200; position: string; alt: string }[] = [
   {
     word: "Oja",
     language: "Yoruba",
     text: "From Balogun to Dugbe, trade built on names people know and trust.",
     photo: "aso-oke-portrait",
+    phone: 800,
     position: "50% 20%",
     alt: "A woman wearing hand-woven aso-oke",
   },
@@ -15,6 +17,7 @@ const MARKETS = [
     language: "Igbo",
     text: "From Onitsha to Ariaria, the craft of buying well and selling better.",
     photo: "ankara-textiles",
+    phone: 1200,
     position: "50% 50%",
     alt: "Stacks of Ankara fabric on display",
   },
@@ -23,6 +26,7 @@ const MARKETS = [
     language: "Hausa",
     text: "From Kurmi to Sabon Gari, centuries of commerce across the Sahel.",
     photo: "merchant-shop",
+    phone: 1200,
     position: "50% 30%",
     alt: "A shopkeeper smiling at the counter of her well-stocked store",
   },
@@ -40,14 +44,7 @@ export function MarketsScene() {
       <div className="oak-markets-stage">
         {MARKETS.map((market, index) => (
           <figure key={market.word} className={`oak-market ${index === active ? "is-active" : ""}`} aria-hidden={index !== active}>
-            <img
-              loading="lazy"
-              src={`/images/oak/photos/${market.photo}.webp`}
-              srcSet={`/images/oak/photos/${market.photo}-800.webp 800w, /images/oak/photos/${market.photo}.webp 1600w`}
-              sizes="100vw"
-              alt={market.alt}
-              style={{ objectPosition: market.position }}
-            />
+            <Photo name={market.photo} phone={market.phone} lazy alt={market.alt} position={market.position} />
             <figcaption className="mx-auto w-full max-w-7xl px-6 pb-14 lg:px-10 lg:pb-20">
               <p className="oak-eyebrow text-[#E7C98A]">{market.language} for market</p>
               <h3 className="oak-display oak-market-word">{market.word}</h3>
