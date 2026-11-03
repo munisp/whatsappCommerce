@@ -32,7 +32,7 @@ export function OakSignIn({
         <p className="oak-eyebrow text-muted-foreground">Oja · Ahia · Kasuwa</p>
       </div>
       <div className="relative hidden lg:block">
-        <img src={`/images/oak/photos/${photo}.webp`} alt={alt} className="absolute inset-0 h-full w-full object-cover" />
+        <img src={`/images/oak/photos/${photo}-1200.webp`} alt={alt} className="absolute inset-0 h-full w-full object-cover" />
         <div className="oak-weave-band absolute inset-x-0 bottom-0 !h-3" />
       </div>
     </div>
