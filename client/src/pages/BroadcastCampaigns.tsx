@@ -908,12 +908,12 @@ export default function BroadcastCampaigns() {
             {(previewCampaign?.totalRecipients ?? 0) === 0 && !dryRunResult && (
               <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
                 <span className="text-amber-400 text-sm">⚠</span>
-                <p className="text-xs text-amber-300">No recipients loaded yet. The campaign will build the recipient list on send.</p>
+                <p className="text-xs text-amber-700">No recipients loaded yet. The campaign will build the recipient list on send.</p>
               </div>
             )}
             {dryRunResult && (
               <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 space-y-2">
-                <p className="text-xs font-semibold text-sky-300">
+                <p className="text-xs font-semibold text-sky-700">
                   Dry run — {dryRunResult.audienceCount} consented recipients
                   ({dryRunResult.inWindowCount} inside the 24h window, {dryRunResult.outOfWindowCount} need the template)
                   {dryRunResult.upliftRanked && " — ranked by AI uplift"}

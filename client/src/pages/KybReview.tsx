@@ -23,11 +23,11 @@ import { toast } from "sonner";
 import { AlertTriangle, Building2, CheckCircle2, FileText, Loader2, ShieldCheck, XCircle } from "lucide-react";
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
-  not_started: { label: "Not started", className: "bg-zinc-500/15 text-zinc-300 border-zinc-500/30" },
-  pending: { label: "Pending review", className: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
-  approved: { label: "Approved", className: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
-  rejected: { label: "Rejected", className: "bg-red-500/15 text-red-300 border-red-500/30" },
-  resubmit_required: { label: "Resubmission required", className: "bg-orange-500/15 text-orange-300 border-orange-500/30" },
+  not_started: { label: "Not started", className: "bg-zinc-500/15 text-foreground border-zinc-500/30" },
+  pending: { label: "Pending review", className: "bg-amber-500/15 text-amber-700 border-amber-500/30" },
+  approved: { label: "Approved", className: "bg-emerald-500/15 text-emerald-700 border-emerald-500/30" },
+  rejected: { label: "Rejected", className: "bg-red-500/15 text-red-700 border-red-500/30" },
+  resubmit_required: { label: "Resubmission required", className: "bg-orange-500/15 text-orange-700 border-orange-500/30" },
 };
 
 const STATUS_FILTERS = ["pending", "approved", "rejected", "resubmit_required", "not_started", "all"] as const;
@@ -86,9 +86,9 @@ function ApplicationDetail({ applicationId, onDecided }: { applicationId: string
             <FileText className="w-4 h-4 shrink-0 text-muted-foreground" />
             <span className="flex-1 capitalize">{d.documentType.replace(/_/g, " ")}</span>
             {d.processedAt ? (
-              <Badge variant="outline" className="text-[10px] bg-emerald-500/15 text-emerald-300 border-emerald-500/30">verified</Badge>
+              <Badge variant="outline" className="text-[10px] bg-emerald-500/15 text-emerald-700 border-emerald-500/30">verified</Badge>
             ) : (
-              <Badge variant="outline" className="text-[10px] bg-amber-500/15 text-amber-300 border-amber-500/30">pending</Badge>
+              <Badge variant="outline" className="text-[10px] bg-amber-500/15 text-amber-700 border-amber-500/30">pending</Badge>
             )}
           </a>
         ))}

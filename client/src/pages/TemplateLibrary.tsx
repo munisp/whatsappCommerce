@@ -31,13 +31,13 @@ const CATEGORIES = [
 ];
 
 const CATEGORY_COLORS: Record<string, string> = {
-  order_confirmation: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
-  shipping_update: "bg-blue-500/20 text-blue-300 border-blue-500/30",
-  payment_reminder: "bg-amber-500/20 text-amber-300 border-amber-500/30",
-  welcome: "bg-purple-500/20 text-purple-300 border-purple-500/30",
-  promotion: "bg-pink-500/20 text-pink-300 border-pink-500/30",
-  support: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
-  custom: "bg-slate-500/20 text-slate-300 border-slate-500/30",
+  order_confirmation: "bg-emerald-500/20 text-emerald-700 border-emerald-500/30",
+  shipping_update: "bg-blue-500/20 text-blue-700 border-blue-500/30",
+  payment_reminder: "bg-amber-500/20 text-amber-700 border-amber-500/30",
+  welcome: "bg-purple-500/20 text-purple-700 border-purple-500/30",
+  promotion: "bg-pink-500/20 text-pink-700 border-pink-500/30",
+  support: "bg-cyan-500/20 text-cyan-700 border-cyan-500/30",
+  custom: "bg-slate-500/20 text-foreground border-slate-500/30",
 };
 
 type Template = {
@@ -75,12 +75,12 @@ function WhatsAppBubble({ header, body, footer, buttons }: {
   };
 
   return (
-    <div className="bg-[#0b141a] rounded-2xl p-4 min-h-[200px] flex flex-col gap-2">
+    <div className="bg-[#0b141a] rounded-lg p-4 min-h-[200px] flex flex-col gap-2">
       {/* Phone header */}
-      <div className="flex items-center gap-2 pb-2 border-b border-white/10">
+      <div className="flex items-center gap-2 pb-2 border-b border-border">
         <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white">W</div>
         <div>
-          <div className="text-xs font-semibold text-white">WhatsApp Commerce</div>
+          <div className="text-xs font-semibold text-white">OAK</div>
           <div className="text-[10px] text-white/40">Business Account</div>
         </div>
       </div>
@@ -125,49 +125,49 @@ function CreateTemplateDialog({ open, onClose, onCreated }: { open: boolean; onC
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl bg-[#0f1923] border-white/10 text-white">
+      <DialogContent className="max-w-2xl bg-[#FDFAF3] border-border text-foreground">
         <DialogHeader>
-          <DialogTitle className="text-white">New WhatsApp Template</DialogTitle>
+          <DialogTitle className="text-foreground">New WhatsApp Template</DialogTitle>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-3">
             <div>
-              <Label className="text-white/70 text-xs">Template Name</Label>
+              <Label className="text-foreground/70 text-xs">Template Name</Label>
               <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                placeholder="e.g. Order Confirmation" className="bg-white/5 border-white/10 text-white mt-1" />
+                placeholder="e.g. Order Confirmation" className="bg-muted border-border text-foreground mt-1" />
             </div>
             <div>
-              <Label className="text-white/70 text-xs">Category</Label>
+              <Label className="text-foreground/70 text-xs">Category</Label>
               <Select value={form.category} onValueChange={v => setForm(f => ({ ...f, category: v as any }))}>
-                <SelectTrigger className="bg-white/5 border-white/10 text-white mt-1">
+                <SelectTrigger className="bg-muted border-border text-foreground mt-1">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#1a2535] border-white/10">
+                <SelectContent className="bg-[#DDD3BD] border-border">
                   {CATEGORIES.filter(c => c.value !== "all").map(c => (
-                    <SelectItem key={c.value} value={c.value} className="text-white">{c.label}</SelectItem>
+                    <SelectItem key={c.value} value={c.value} className="text-foreground">{c.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label className="text-white/70 text-xs">Header (optional)</Label>
+              <Label className="text-foreground/70 text-xs">Header (optional)</Label>
               <Input value={form.headerText} onChange={e => setForm(f => ({ ...f, headerText: e.target.value }))}
-                placeholder="Bold header text" className="bg-white/5 border-white/10 text-white mt-1" />
+                placeholder="Bold header text" className="bg-muted border-border text-foreground mt-1" />
             </div>
             <div>
-              <Label className="text-white/70 text-xs">Body <span className="text-white/40">(use {"{{variable}}"} for dynamic values)</span></Label>
+              <Label className="text-foreground/70 text-xs">Body <span className="text-muted-foreground">(use {"{{variable}}"} for dynamic values)</span></Label>
               <Textarea value={form.bodyText} onChange={e => setForm(f => ({ ...f, bodyText: e.target.value }))}
                 placeholder="Hi {{customer_name}}, your order is confirmed!" rows={5}
-                className="bg-white/5 border-white/10 text-white mt-1 resize-none" />
+                className="bg-muted border-border text-foreground mt-1 resize-none" />
             </div>
             <div>
-              <Label className="text-white/70 text-xs">Footer (optional)</Label>
+              <Label className="text-foreground/70 text-xs">Footer (optional)</Label>
               <Input value={form.footerText} onChange={e => setForm(f => ({ ...f, footerText: e.target.value }))}
-                placeholder="Reply STOP to unsubscribe" className="bg-white/5 border-white/10 text-white mt-1" />
+                placeholder="Reply STOP to unsubscribe" className="bg-muted border-border text-foreground mt-1" />
             </div>
           </div>
           <div>
-            <Label className="text-white/70 text-xs">Live Preview</Label>
+            <Label className="text-foreground/70 text-xs">Live Preview</Label>
             <div className="mt-1">
               <WhatsAppBubble
                 header={form.headerText || undefined}
@@ -178,7 +178,7 @@ function CreateTemplateDialog({ open, onClose, onCreated }: { open: boolean; onC
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} className="border-white/10 text-white/70">Cancel</Button>
+          <Button variant="outline" onClick={onClose} className="border-border text-foreground/70">Cancel</Button>
           <Button onClick={() => create.mutate({ ...form, bodyText: form.bodyText || " " })}
             disabled={!form.name || !form.bodyText || create.isPending}
             className="bg-emerald-600 hover:bg-emerald-700 text-white">
@@ -199,7 +199,7 @@ function TemplateCard({ template, onSelect, onDelete, onSend, onToggleActive }: 
 }) {
   const vars = (template.variables as Array<{ name: string }> | null) ?? [];
   const btns = (template.buttons as Array<{ type: string; text: string }> | null) ?? [];
-  const catColor = CATEGORY_COLORS[template.category] ?? "bg-slate-500/20 text-slate-300 border-slate-500/30";
+  const catColor = CATEGORY_COLORS[template.category] ?? "bg-slate-500/20 text-foreground border-slate-500/30";
   const catLabel = CATEGORIES.find(c => c.value === template.category)?.label ?? template.category;
 
   const utils = trpc.useUtils();
@@ -214,24 +214,24 @@ function TemplateCard({ template, onSelect, onDelete, onSend, onToggleActive }: 
   const approvalStatus = (template as any).approvalStatus ?? "none";
   const approvalBadgeMap: Record<string, ReactNode> = {
     none: null,
-    draft: <Badge className="text-[10px] border bg-slate-500/20 text-slate-300 border-slate-500/30">draft</Badge>,
-    submitted: <Badge className="text-[10px] border bg-blue-500/20 text-blue-300 border-blue-500/30 gap-1"><Upload className="w-2.5 h-2.5" />submitted</Badge>,
-    approved: <Badge className="text-[10px] border bg-emerald-500/20 text-emerald-300 border-emerald-500/30 gap-1"><CheckCircle2 className="w-2.5 h-2.5" />approved</Badge>,
-    rejected: <Badge className="text-[10px] border bg-red-500/20 text-red-300 border-red-500/30 gap-1"><XCircle className="w-2.5 h-2.5" />rejected</Badge>,
-    paused: <Badge className="text-[10px] border bg-amber-500/20 text-amber-300 border-amber-500/30 gap-1"><AlertTriangle className="w-2.5 h-2.5" />paused</Badge>,
+    draft: <Badge className="text-[10px] border bg-slate-500/20 text-foreground border-slate-500/30">draft</Badge>,
+    submitted: <Badge className="text-[10px] border bg-blue-500/20 text-blue-700 border-blue-500/30 gap-1"><Upload className="w-2.5 h-2.5" />submitted</Badge>,
+    approved: <Badge className="text-[10px] border bg-emerald-500/20 text-emerald-700 border-emerald-500/30 gap-1"><CheckCircle2 className="w-2.5 h-2.5" />approved</Badge>,
+    rejected: <Badge className="text-[10px] border bg-red-500/20 text-red-700 border-red-500/30 gap-1"><XCircle className="w-2.5 h-2.5" />rejected</Badge>,
+    paused: <Badge className="text-[10px] border bg-amber-500/20 text-amber-700 border-amber-500/30 gap-1"><AlertTriangle className="w-2.5 h-2.5" />paused</Badge>,
   };
   const approvalBadge = approvalBadgeMap[approvalStatus] ?? null;
 
   return (
-    <Card className="bg-[#0f1923] border-white/10 hover:border-emerald-500/40 transition-all group cursor-pointer" onClick={onSelect}>
+    <Card className="bg-[#FDFAF3] border-border hover:border-emerald-500/40 transition-all group cursor-pointer" onClick={onSelect}>
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <CardTitle className="text-sm text-white truncate">{template.name}</CardTitle>
+            <CardTitle className="text-sm text-foreground truncate">{template.name}</CardTitle>
             <div className="flex items-center gap-2 mt-1">
               <Badge className={`text-[10px] border ${catColor}`}>{catLabel}</Badge>
-              <span className="text-[10px] text-white/40 uppercase">{template.language}</span>
-              <Badge className={`text-[10px] border ${template.isActive ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-amber-500/20 text-amber-300 border-amber-500/30"}`}>
+              <span className="text-[10px] text-muted-foreground uppercase">{template.language}</span>
+              <Badge className={`text-[10px] border ${template.isActive ? "bg-emerald-500/20 text-emerald-700 border-emerald-500/30" : "bg-amber-500/20 text-amber-700 border-amber-500/30"}`}>
                 {template.isActive ? "published" : "draft"}
               </Badge>
               {approvalBadge}
@@ -265,7 +265,7 @@ function TemplateCard({ template, onSelect, onDelete, onSend, onToggleActive }: 
                 <Upload className="w-3.5 h-3.5" />
               </Button>
             )}
-            <Button size="icon" variant="ghost" className="h-7 w-7 text-white/50 hover:text-white" onClick={onSelect}>
+            <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-white" onClick={onSelect}>
               <Eye className="w-3.5 h-3.5" />
             </Button>
             <Button size="icon" variant="ghost" className="h-7 w-7 text-emerald-400 hover:text-emerald-300" onClick={onSend}>
@@ -279,28 +279,28 @@ function TemplateCard({ template, onSelect, onDelete, onSend, onToggleActive }: 
       </CardHeader>
       <CardContent className="pt-0">
         {template.headerText && (
-          <div className="text-xs font-semibold text-white/80 mb-1">{template.headerText}</div>
+          <div className="text-xs font-semibold text-foreground/80 mb-1">{template.headerText}</div>
         )}
-        <p className="text-xs text-white/50 line-clamp-3 leading-relaxed">{template.bodyText}</p>
-        <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/5">
-          <div className="flex items-center gap-1 text-[10px] text-white/30">
+        <p className="text-xs text-muted-foreground line-clamp-3 leading-relaxed">{template.bodyText}</p>
+        <div className="flex items-center gap-3 mt-3 pt-3 border-t border-border">
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
             <BarChart2 className="w-3 h-3" />
             <span>{template.usageCount} uses</span>
           </div>
           {vars.length > 0 && (
-            <div className="flex items-center gap-1 text-[10px] text-white/30">
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
               <Zap className="w-3 h-3" />
               <span>{vars.length} vars</span>
             </div>
           )}
           {btns.length > 0 && (
-            <div className="flex items-center gap-1 text-[10px] text-white/30">
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
               <CheckCircle2 className="w-3 h-3" />
               <span>{btns.length} buttons</span>
             </div>
           )}
           {template.lastUsedAt && (
-            <div className="flex items-center gap-1 text-[10px] text-white/30 ml-auto">
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground ml-auto">
               <Clock className="w-3 h-3" />
               <span>{new Date(template.lastUsedAt).toLocaleDateString()}</span>
             </div>
@@ -327,52 +327,52 @@ function PreviewPanel({ template, onClose, onSend }: { template: Template; onClo
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-[#0f1923] border border-white/10 rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-4 border-b border-white/10">
+      <div className="bg-[#FDFAF3] border border-border rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-4 border-b border-border">
           <div>
-            <h2 className="text-white font-semibold">{template.name}</h2>
-            <p className="text-white/40 text-xs mt-0.5">Template Preview & Variable Editor</p>
+            <h2 className="text-foreground font-semibold">{template.name}</h2>
+            <p className="text-muted-foreground text-xs mt-0.5">Template Preview & Variable Editor</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose} className="text-white/50">✕</Button>
+          <Button variant="ghost" size="sm" onClick={onClose} className="text-muted-foreground">✕</Button>
         </div>
         <div className="grid grid-cols-2 gap-6 p-6">
           {/* Variable editor */}
           <div className="space-y-4">
-            <h3 className="text-white/70 text-xs font-semibold uppercase tracking-wider">Variables</h3>
+            <h3 className="text-foreground/70 text-xs font-semibold uppercase tracking-wider">Variables</h3>
             {vars.length === 0 ? (
-              <p className="text-white/30 text-sm">No variables in this template.</p>
+              <p className="text-muted-foreground text-sm">No variables in this template.</p>
             ) : (
               vars.map(v => (
                 <div key={v.name}>
-                  <Label className="text-white/60 text-xs">
+                  <Label className="text-muted-foreground text-xs">
                     {`{{${v.name}}}`}
-                    {v.description && <span className="text-white/30 ml-1">— {v.description}</span>}
+                    {v.description && <span className="text-muted-foreground ml-1">— {v.description}</span>}
                   </Label>
                   <Input
                     value={values[v.name] ?? ""}
                     onChange={e => setValues(prev => ({ ...prev, [v.name]: e.target.value }))}
                     placeholder={v.example ?? v.name}
-                    className="bg-white/5 border-white/10 text-white mt-1 text-sm"
+                    className="bg-muted border-border text-foreground mt-1 text-sm"
                   />
                 </div>
               ))
             )}
-            <Separator className="bg-white/10" />
-            <h3 className="text-white/70 text-xs font-semibold uppercase tracking-wider">Buttons</h3>
+            <Separator className="bg-muted" />
+            <h3 className="text-foreground/70 text-xs font-semibold uppercase tracking-wider">Buttons</h3>
             {btns.length === 0 ? (
-              <p className="text-white/30 text-sm">No buttons.</p>
+              <p className="text-muted-foreground text-sm">No buttons.</p>
             ) : (
               btns.map((b, i) => (
-                <div key={i} className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-2">
-                  <Badge className="text-[10px] bg-emerald-500/20 text-emerald-300 border-emerald-500/30">{b.type}</Badge>
-                  <span className="text-white/70 text-xs">{b.text}</span>
+                <div key={i} className="flex items-center gap-2 bg-muted rounded-lg px-3 py-2">
+                  <Badge className="text-[10px] bg-emerald-500/20 text-emerald-700 border-emerald-500/30">{b.type}</Badge>
+                  <span className="text-foreground/70 text-xs">{b.text}</span>
                 </div>
               ))
             )}
           </div>
           {/* Phone preview */}
           <div>
-            <h3 className="text-white/70 text-xs font-semibold uppercase tracking-wider mb-3">Live Preview</h3>
+            <h3 className="text-foreground/70 text-xs font-semibold uppercase tracking-wider mb-3">Live Preview</h3>
             <WhatsAppBubble
               header={substitute(template.headerText)}
               body={substitute(template.bodyText)}
@@ -381,15 +381,15 @@ function PreviewPanel({ template, onClose, onSend }: { template: Template; onClo
             />
           </div>
         </div>
-        <div className="flex items-center justify-between p-4 border-t border-white/10">
-          <Button variant="ghost" size="sm" className="text-white/50 gap-1.5" onClick={() => {
+        <div className="flex items-center justify-between p-4 border-t border-border">
+          <Button variant="ghost" size="sm" className="text-muted-foreground gap-1.5" onClick={() => {
             navigator.clipboard.writeText(substitute(template.bodyText));
             toast.success("Body text copied");
           }}>
             <Copy className="w-3.5 h-3.5" /> Copy Body
           </Button>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={onClose} className="border-white/10 text-white/70">Close</Button>
+            <Button variant="outline" size="sm" onClick={onClose} className="border-border text-foreground/70">Close</Button>
             <Button size="sm" onClick={onSend} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5">
               <Send className="w-3.5 h-3.5" /> Use Template
             </Button>
@@ -443,8 +443,8 @@ export default function TemplateLibrary() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-white">Template Library</h1>
-            <p className="text-white/50 text-sm mt-1">
+            <h1 className="text-2xl font-bold text-foreground">Template Library</h1>
+            <p className="text-muted-foreground text-sm mt-1">
               {total} reusable WhatsApp message templates — pulled from Odoo & Twenty send dialogs
             </p>
           </div>
@@ -461,12 +461,12 @@ export default function TemplateLibrary() {
             { label: "Total Uses", value: templates.reduce((s, t) => s + t.usageCount, 0), icon: BarChart2, color: "text-purple-400" },
             { label: "Categories", value: new Set(templates.map(t => t.category)).size, icon: Zap, color: "text-amber-400" },
           ].map(stat => (
-            <Card key={stat.label} className="bg-[#0f1923] border-white/10">
+            <Card key={stat.label} className="bg-[#FDFAF3] border-border">
               <CardContent className="p-4 flex items-center gap-3">
                 <stat.icon className={`w-8 h-8 ${stat.color} opacity-80`} />
                 <div>
-                  <div className="text-2xl font-bold text-white">{stat.value}</div>
-                  <div className="text-xs text-white/40">{stat.label}</div>
+                  <div className="text-2xl font-bold text-foreground">{stat.value}</div>
+                  <div className="text-xs text-muted-foreground">{stat.label}</div>
                 </div>
               </CardContent>
             </Card>
@@ -476,19 +476,19 @@ export default function TemplateLibrary() {
         {/* Filters */}
         <div className="flex items-center gap-4">
           <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search templates..."
-              className="pl-9 bg-white/5 border-white/10 text-white placeholder:text-white/30"
+              className="pl-9 bg-muted border-border text-foreground placeholder:text-muted-foreground"
             />
           </div>
           <Tabs value={category} onValueChange={setCategory}>
-            <TabsList className="bg-white/5 border border-white/10 flex-wrap h-auto gap-1 p-1">
+            <TabsList className="bg-muted border border-border flex-wrap h-auto gap-1 p-1">
               {CATEGORIES.map(c => (
                 <TabsTrigger key={c.value} value={c.value}
-                  className="text-xs data-[state=active]:bg-emerald-600 data-[state=active]:text-white text-white/50">
+                  className="text-xs data-[state=active]:bg-emerald-600 data-[state=active]:text-white text-muted-foreground">
                   {c.label}
                 </TabsTrigger>
               ))}
@@ -500,11 +500,11 @@ export default function TemplateLibrary() {
         {isLoading ? (
           <div className="grid grid-cols-3 gap-4">
             {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="h-48 bg-white/5 rounded-xl animate-pulse" />
+              <div key={i} className="h-48 bg-muted rounded-xl animate-pulse" />
             ))}
           </div>
         ) : templates.length === 0 ? (
-          <div className="text-center py-20 text-white/30">
+          <div className="text-center py-20 text-muted-foreground">
             <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-30" />
             <p>No templates found. Create your first one!</p>
           </div>

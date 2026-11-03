@@ -18,12 +18,12 @@ function KpiCard({ title, value, icon: Icon, sub, color = "emerald" }: {
   title: string; value: React.ReactNode; icon: any; sub?: React.ReactNode; color?: string;
 }) {
   return (
-    <Card className="bg-slate-800 border-slate-700">
+    <Card className="bg-card border-border">
       <CardContent className="p-5">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs text-slate-400 mb-1">{title}</p>
-            <p className="text-2xl font-bold text-white">{value}</p>
+            <p className="text-2xl font-bold text-foreground">{value}</p>
             {sub && <p className="text-xs text-slate-500 mt-1">{sub}</p>}
           </div>
           <div className={`bg-${color}-500/20 p-3 rounded-xl`}>
@@ -58,7 +58,7 @@ export default function PortalDashboard() {
     <DashboardLayout>
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-white">
+          <h1 className="text-2xl font-bold text-foreground">
             {tenant ? `Welcome, ${tenant.name}` : "Merchant Dashboard"}
           </h1>
           <p className="text-slate-400 text-sm mt-1">
@@ -77,12 +77,12 @@ export default function PortalDashboard() {
                     <Rocket className="h-5 w-5 text-amber-400" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-white">Finish setting up your store</p>
+                    <p className="text-sm font-semibold text-foreground">Finish setting up your store</p>
                     <p className="text-xs text-slate-400 mt-0.5">
                       {onboardingProgress!.completedSteps.length} of 5 steps completed — continue where you left off
                     </p>
                     <div className="mt-2 flex items-center gap-2">
-                      <Progress value={onboardingPct} className="h-1.5 w-32 bg-slate-700" />
+                      <Progress value={onboardingPct} className="h-1.5 w-32 bg-muted" />
                       <span className="text-xs text-amber-400 font-medium">{onboardingPct}%</span>
                     </div>
                   </div>
@@ -99,7 +99,7 @@ export default function PortalDashboard() {
 
         {isLoading || walletLoading ? (
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24 bg-slate-700" />)}
+            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24 bg-muted" />)}
           </div>
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
@@ -148,9 +148,9 @@ export default function PortalDashboard() {
           </div>
         )}
 
-        <Card className="bg-slate-800 border-slate-700">
+        <Card className="bg-card border-border">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base text-white">Recent Orders</CardTitle>
+            <CardTitle className="text-base text-foreground">Recent Orders</CardTitle>
           </CardHeader>
           <CardContent>
             {!recentOrders?.length ? (
@@ -158,16 +158,16 @@ export default function PortalDashboard() {
             ) : (
               <div className="space-y-2">
                 {recentOrders.map(order => (
-                  <div key={order.id} className="flex items-center justify-between py-2 border-b border-slate-700 last:border-0">
+                  <div key={order.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                     <div>
-                      <p className="text-sm font-medium text-white">{order.orderNumber}</p>
+                      <p className="text-sm font-medium text-foreground">{order.orderNumber}</p>
                       <p className="text-xs text-slate-400">{new Date(order.createdAt).toLocaleDateString()}</p>
                     </div>
                     <div className="text-right">
                       {/* Found live 2026-09-26: hardcoded "$" regardless of order.currency — same fix as
                           the admin Orders table's per-row display. */}
-                      <p className="text-sm font-semibold text-white">{order.currency} {Number(order.totalAmount).toLocaleString()}</p>
-                      <Badge variant="outline" className="text-xs border-slate-600 text-slate-300">{order.status}</Badge>
+                      <p className="text-sm font-semibold text-foreground">{order.currency} {Number(order.totalAmount).toLocaleString()}</p>
+                      <Badge variant="outline" className="text-xs border-border text-foreground">{order.status}</Badge>
                     </div>
                   </div>
                 ))}

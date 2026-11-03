@@ -80,6 +80,8 @@ describe("client bundle code-splitting", () => {
   it("vite config wires vite-plugin-pwa (offline shell + asset caching)", () => {
     expect(viteSrc).toContain("VitePWA");
     expect(viteSrc).toContain('registerType: "autoUpdate"');
-    expect(viteSrc).toContain('navigateFallback: "/offline.html"');
+    // The app shell, or every route shows "You're offline". The other two apps answer for their own paths.
+    expect(viteSrc).toContain('navigateFallback: "/index.html"');
+    expect(viteSrc).toMatch(/navigateFallbackDenylist:.*platform-admin.*tenant-portal/);
   });
 });

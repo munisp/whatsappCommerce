@@ -597,7 +597,7 @@ export const menuRouter = router({
           type: "list",
           header: { type: "text", text: "Welcome! 👋" },
           body: { text: "Please select an option from the menu below:" },
-          footer: { text: "Powered by WhatsApp Commerce" },
+          footer: { text: "Powered by OAK" },
           action: {
             button: "Open Menu",
             sections: sections.map((section) => ({

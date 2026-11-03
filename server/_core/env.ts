@@ -186,7 +186,7 @@ export const ENV = {
   // means the adapter logs and no-ops, same "simulation mode" fallback used by
   // phoneAuth.ts's WhatsApp OTP sender.
   resendApiKey: process.env.RESEND_API_KEY ?? "",
-  resendFromEmail: process.env.RESEND_FROM_EMAIL ?? "WhatsApp Commerce <onboarding@resend.dev>",
+  resendFromEmail: process.env.RESEND_FROM_EMAIL ?? "OAK <onboarding@resend.dev>",
   // === W34 otel-core ===
   // OpenTelemetry + Prometheus metrics. ALL OPTIONAL and off by default:
   //   OTEL_ENABLED                  'true' activates the OTel SDK (default false)

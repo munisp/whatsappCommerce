@@ -247,14 +247,14 @@ function NLPSimulatorInner() {
           <span className="text-xs text-muted-foreground">Data-Lite</span>
           <button
             onClick={() => setDataLiteMode(v => !v)}
-            className={`relative w-9 h-5 rounded-full transition-colors ${dataLiteMode ? "bg-emerald-600" : "bg-zinc-700"}`}
+            className={`relative w-9 h-5 rounded-full transition-colors ${dataLiteMode ? "bg-emerald-600" : "bg-muted"}`}
           >
             <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${dataLiteMode ? "translate-x-4" : ""}`} />
           </button>
           <span className="text-xs text-muted-foreground ml-2">USSD</span>
           <button
             onClick={() => setUssdMode(v => !v)}
-            className={`relative w-9 h-5 rounded-full transition-colors ${ussdMode ? "bg-violet-600" : "bg-zinc-700"}`}
+            className={`relative w-9 h-5 rounded-full transition-colors ${ussdMode ? "bg-violet-600" : "bg-muted"}`}
             title="USSD mode: numbered menus for feature phones"
           >
             <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${ussdMode ? "translate-x-4" : ""}`} />
@@ -264,7 +264,7 @@ function NLPSimulatorInner() {
       {ussdMode && (
         <div className="flex items-start gap-2 bg-violet-500/10 border border-violet-500/20 rounded-lg px-3 py-2">
           <span className="text-xs text-violet-400 mt-0.5 shrink-0 font-mono">#</span>
-          <p className="text-xs text-violet-300">
+          <p className="text-xs text-violet-700">
             <strong>USSD Mode ON:</strong> Bot replies with numbered menus (e.g. "1. View products\n2. Check order") — works on any phone without a data plan.
           </p>
         </div>
@@ -272,7 +272,7 @@ function NLPSimulatorInner() {
       {dataLiteMode && (
         <div className="flex items-start gap-2 bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2">
           <Signal className="w-3.5 h-3.5 text-blue-400 mt-0.5 shrink-0" />
-          <p className="text-xs text-blue-300">
+          <p className="text-xs text-blue-700">
             <strong>Data-Lite ON:</strong> Replies compressed to plain text — no rich cards, no images, no emoji. Optimised for feature phones and EDGE connections.
           </p>
         </div>
@@ -280,7 +280,7 @@ function NLPSimulatorInner() {
       {networkQuality === "offline" && (
         <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
           <WifiOff className="w-3.5 h-3.5 text-red-400 shrink-0" />
-          <p className="text-xs text-red-300">
+          <p className="text-xs text-red-700">
             <strong>Offline simulation active.</strong> Messages queued with ⏳. WhatsApp queues messages for up to 30 days in production.
           </p>
         </div>
@@ -289,7 +289,7 @@ function NLPSimulatorInner() {
       {(offlineQueue.length > 0 || (dbQueueCount?.count ?? 0) > 0) && networkQuality === "offline" && (
         <div className="flex items-center gap-2 bg-orange-500/10 border border-orange-500/20 rounded-lg px-3 py-2">
           <CloudOff className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-          <p className="text-xs text-orange-300 flex-1">
+          <p className="text-xs text-orange-700 flex-1">
             <strong>{Math.max(offlineQueue.length, dbQueueCount?.count ?? 0)} message{Math.max(offlineQueue.length, dbQueueCount?.count ?? 0) !== 1 ? "s" : ""} queued</strong> — persisted to DB, will be delivered when connection restores.
           </p>
           <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-orange-500 text-white text-xs font-bold">{Math.max(offlineQueue.length, dbQueueCount?.count ?? 0)}</span>
@@ -300,10 +300,10 @@ function NLPSimulatorInner() {
         <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2 space-y-1">
           <div className="flex items-center gap-2">
             <CloudUpload className="w-3.5 h-3.5 text-emerald-400 animate-pulse shrink-0" />
-            <p className="text-xs text-emerald-300 font-semibold">Syncing offline messages…</p>
+            <p className="text-xs text-emerald-700 font-semibold">Syncing offline messages…</p>
           </div>
           {syncedMessages.map(({ text, idx }) => (
-            <div key={idx} className="flex items-center gap-2 text-xs text-emerald-200 animate-in fade-in slide-in-from-left-2 duration-300">
+            <div key={idx} className="flex items-center gap-2 text-xs text-emerald-700 animate-in fade-in slide-in-from-left-2 duration-300">
               <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
               <span className="truncate">{text}</span>
             </div>
@@ -314,7 +314,7 @@ function NLPSimulatorInner() {
       {!isSyncing && syncedMessages.length > 0 && (
         <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-          <p className="text-xs text-emerald-300">
+          <p className="text-xs text-emerald-700">
             <strong>{syncedMessages.length} message{syncedMessages.length > 1 ? "s" : ""} sent while offline</strong> — all delivered successfully.
           </p>
         </div>
@@ -322,7 +322,7 @@ function NLPSimulatorInner() {
       {networkQuality === "2g" && (
         <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
           <Signal className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-          <p className="text-xs text-amber-300">
+          <p className="text-xs text-amber-700">
             <strong>2G simulation:</strong> 2–4 second latency per message to replicate rural network conditions.
           </p>
         </div>
@@ -374,10 +374,10 @@ function NLPSimulatorInner() {
             <div key={i} className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
               {msg.role === "bot" && (
                 <div className="h-7 w-7 rounded-full bg-green-600 flex items-center justify-center flex-shrink-0">
-                  <Bot className="h-4 w-4 text-white" />
+                  <Bot className="h-4 w-4 text-foreground" />
                 </div>
               )}
-              <div className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm ${
+              <div className={`max-w-[75%] rounded-lg px-4 py-2 text-sm ${
                 msg.role === "user"
                   ? "bg-primary text-primary-foreground rounded-br-sm"
                   : "bg-muted rounded-bl-sm"
@@ -397,9 +397,9 @@ function NLPSimulatorInner() {
           {isLoading && (
             <div className="flex gap-2 justify-start">
               <div className="h-7 w-7 rounded-full bg-green-600 flex items-center justify-center">
-                <Bot className="h-4 w-4 text-white" />
+                <Bot className="h-4 w-4 text-foreground" />
               </div>
-              <div className="bg-muted rounded-2xl rounded-bl-sm px-4 py-2">
+              <div className="bg-muted rounded-lg rounded-bl-sm px-4 py-2">
                 <div className="flex gap-1">
                   <span className="h-2 w-2 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "0ms" }} />
                   <span className="h-2 w-2 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "150ms" }} />

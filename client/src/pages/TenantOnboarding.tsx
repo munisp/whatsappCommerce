@@ -262,7 +262,7 @@ function LivenessCamera({
               <video ref={videoRef} className="w-full max-w-xs mx-auto rounded-lg" muted playsInline />
             )}
             {isMock && (
-              <div className="w-32 h-32 mx-auto rounded-full bg-gradient-to-br from-primary/20 to-primary/5 border-4 border-primary/30 flex items-center justify-center">
+              <div className="w-32 h-32 mx-auto rounded-full bg-background border-4 border-primary/30 flex items-center justify-center">
                 <Camera className="w-10 h-10 text-primary/60" />
               </div>
             )}
@@ -413,7 +413,7 @@ export default function TenantOnboarding() {
   if (completed) {
     return (
       <DashboardLayout>
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/30 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <Card className="max-w-md w-full text-center p-8">
           <CheckCircle2 className="w-16 h-16 mx-auto text-green-500 mb-4" />
           <h2 className="text-2xl font-bold mb-2">Application Submitted!</h2>
@@ -445,12 +445,12 @@ export default function TenantOnboarding() {
 
   return (
     <DashboardLayout>
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 p-4 md:p-8">
+    <div className="min-h-screen bg-background p-4 md:p-8">
       <div className="max-w-3xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold tracking-tight">Tenant Onboarding</h1>
-          <p className="text-muted-foreground mt-1">Set up your WhatsApp Commerce account in minutes</p>
+          <p className="text-muted-foreground mt-1">Set up your OAK account in minutes</p>
         </div>
 
         {/* Step Progress */}

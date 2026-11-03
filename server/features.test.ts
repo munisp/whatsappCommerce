@@ -115,7 +115,7 @@ describe("menu push flow", () => {
         type: "list",
         header: { type: "text", text: "Our Menu" },
         body: { text: "Select an option below:" },
-        footer: { text: "Powered by WhatsApp Commerce" },
+        footer: { text: "Powered by OAK" },
         action: {
           button: "View Options",
           sections: [

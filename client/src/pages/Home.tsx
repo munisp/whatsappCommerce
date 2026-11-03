@@ -1,26 +1,28 @@
-import { ADMIN_APP_PATH, belongsInAdminApp } from "@/lib/tenantAccess";
-import { useAuth } from "@/_core/hooks/useAuth";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { startLogin } from "@/const";
-import { Bot, Building2, MessageSquare, ShoppingCart, Zap, ArrowRight, Globe, Shield, BarChart3, Package, Users, CreditCard, Wallet } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { useLocation } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { OakLogo, OakMark } from "@/components/OakLogo";
+import { Button } from "@/components/ui/button";
+import { startLogin } from "@/const";
+import { ADMIN_APP_PATH, belongsInAdminApp } from "@/lib/tenantAccess";
 
-// This page is shared between the legacy combined client's root (/) and
-// ui/tenant-portal's own root (/tenant-portal/), built with different Vite
-// `base` values. Both have a full signed-in experience of their own (the
-// legacy root has always had its own /dashboard and nav), so "Sign In"
-// starts a real login directly on whichever one the visitor is on — it used
-// to bounce the legacy root to /tenant-portal/ first (from back when the
-// legacy root supposedly had nothing to return to), which just meant two
-// clicks through what looked like the same landing page before Keycloak.
+const MARKETS = [
+  { word: "Oja", language: "Yoruba", text: "From Balogun to Dugbe, trade built on names people know and trust." },
+  { word: "Ahia", language: "Igbo", text: "From Onitsha to Ariaria, the craft of buying well and selling better." },
+  { word: "Kasuwa", language: "Hausa", text: "From Kurmi to Sabon Gari, centuries of commerce across the Sahel." },
+];
+
+const CAPABILITIES = [
+  { title: "Your catalogue, in the chat", text: "Customers browse and order in the app they already use, with no download and no learning curve." },
+  { title: "Payments held safely", text: "Money stays in escrow until the order arrives, so buyers can trust a shop they've only just met." },
+  { title: "Orders and delivery in one place", text: "See what's been paid, what's on its way and what needs you, from a single dashboard." },
+  { title: "Invoices and a storefront", text: "Send professional invoices, and give your shop a home of its own on the web." },
+];
+
+// Signed-in visitors still see this page. The call to action takes them back into their app.
 export default function Home() {
   const { isAuthenticated, user } = useAuth();
   const [, navigate] = useLocation();
-
-  // Signed-in visitors still see the landing page (no auto-redirect/blank
-  // flash) — the CTA just becomes a way back into the app they're already
-  // signed into instead of a login prompt.
   const handleCta = () => {
     if (isAuthenticated && belongsInAdminApp(user)) {
       window.location.assign(ADMIN_APP_PATH);
@@ -33,96 +35,99 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* Nav */}
-      <nav className="border-b border-border px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-            <MessageSquare className="w-4 h-4 text-primary-foreground" />
-          </div>
-          <span className="font-bold text-lg">WhatsApp Commerce</span>
-        </div>
-        <Button onClick={handleCta} className="bg-primary text-primary-foreground hover:bg-primary/90">
+      <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6 lg:px-10">
+        <OakLogo />
+        <Button variant="outline" onClick={handleCta}>
           {isAuthenticated ? "Go to Dashboard" : "Sign In"}
         </Button>
       </nav>
 
-      {/* Hero */}
-      <section className="px-6 py-24 max-w-5xl mx-auto text-center">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-primary/30 bg-primary/10 text-primary text-xs font-medium mb-8">
-          <Zap className="w-3 h-3" />
-          The All-in-One WhatsApp Commerce Platform
+      <header className="mx-auto grid max-w-7xl items-center gap-12 px-6 pb-20 pt-8 lg:grid-cols-[1fr_1.15fr] lg:px-10">
+        <div>
+          <p className="oak-eyebrow text-[#A64B27]">Oja · Ahia · Kasuwa</p>
+          <h1 className="oak-display mt-5 text-5xl leading-[1.05] text-[var(--oak-forest)] sm:text-6xl">
+            African commerce has deep roots. Now it has a home.
+          </h1>
+          <p className="mt-6 max-w-lg text-lg leading-relaxed text-muted-foreground">
+            OAK gives merchants what a good market always has: trust, regular customers and money that moves safely, in the chat apps people already use.
+          </p>
+          <Button size="lg" onClick={handleCta} className="mt-9 gap-2">
+            {isAuthenticated ? "Go to Dashboard" : "Open your shop"} <ArrowRight className="h-4 w-4" />
+          </Button>
         </div>
-        <h1 className="text-5xl md:text-6xl font-bold leading-tight mb-6">
-          Sell Smarter on{" "}
-          <span className="text-primary">WhatsApp</span>
-        </h1>
-        <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
-          Everything you need to run and grow your business on WhatsApp — showcase your products,
-          take orders, get paid, offer customer credit, and keep every conversation in one place.
-        </p>
-        <div className="flex items-center justify-center gap-4 flex-wrap">
-          <Button size="lg" onClick={handleCta} className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2">
-            {isAuthenticated ? "Go to Dashboard" : "Launch Console"} <ArrowRight className="w-4 h-4" />
+        <figure className="relative">
+          <img
+            src="/images/oak/photos/market-traders.webp"
+            srcSet="/images/oak/photos/market-traders-800.webp 800w, /images/oak/photos/market-traders.webp 1600w"
+            sizes="(min-width: 1024px) 55vw, 100vw"
+            alt="Two women trading vegetables at a busy market"
+            className="aspect-[4/3] w-full rounded-sm object-cover"
+          />
+          <div className="oak-weave-band !h-3" />
+        </figure>
+      </header>
+
+      <section className="border-y border-border bg-card">
+        <div className="mx-auto grid max-w-7xl gap-12 px-6 py-20 lg:grid-cols-[1fr_2fr] lg:px-10">
+          <div>
+            <OakMark className="h-14 w-14" />
+            <h2 className="oak-display mt-6 text-4xl text-[var(--oak-forest)]">Three words for market. One name.</h2>
+            <p className="mt-4 text-muted-foreground">OAK stands for Oja, Ahia and Kasuwa. Like the tree, it's built to last, with rings that grow year on year.</p>
+          </div>
+          <div className="grid gap-10 sm:grid-cols-3">
+            {MARKETS.map((market) => (
+              <div key={market.word} className="border-t-2 border-[var(--oak-brass)] pt-5">
+                <h3 className="oak-display text-3xl text-[var(--oak-forest)]">{market.word}</h3>
+                <p className="oak-eyebrow mt-1 text-muted-foreground">{market.language}</p>
+                <p className="mt-4 text-sm leading-relaxed text-muted-foreground">{market.text}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto grid max-w-7xl items-center gap-14 px-6 py-24 lg:grid-cols-2 lg:px-10">
+        <img
+          src="/images/oak/photos/merchant-shop.webp"
+          srcSet="/images/oak/photos/merchant-shop-800.webp 800w, /images/oak/photos/merchant-shop.webp 1600w"
+          sizes="(min-width: 1024px) 50vw, 100vw"
+          loading="lazy"
+          alt="A shopkeeper smiling at the counter of her well-stocked store"
+          className="aspect-[4/3] w-full rounded-sm object-cover"
+        />
+        <div>
+          <h2 className="oak-display text-4xl text-[var(--oak-forest)]">Everything your shop needs, and nothing it doesn't.</h2>
+          <dl className="mt-10 divide-y divide-border">
+            {CAPABILITIES.map((item) => (
+              <div key={item.title} className="py-5">
+                <dt className="font-semibold">{item.title}</dt>
+                <dd className="mt-1 text-sm leading-relaxed text-muted-foreground">{item.text}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </section>
+
+      <section className="mx-auto grid max-w-7xl gap-3 px-6 pb-24 sm:grid-cols-3 lg:px-10">
+        <img loading="lazy" src="/images/oak/photos/aso-oke-portrait-800.webp" alt="A woman wearing hand-woven aso-oke" className="aspect-[4/5] w-full rounded-sm object-cover" />
+        <img loading="lazy" src="/images/oak/photos/ankara-textiles-800.webp" alt="Stacks of Ankara fabric on display" className="aspect-[4/5] w-full rounded-sm object-cover" />
+        <img loading="lazy" src="/images/oak/photos/boutique-customer-800.webp" alt="A boutique owner talking with a customer" className="aspect-[4/5] w-full rounded-sm object-cover" />
+      </section>
+
+      <section className="bg-[var(--oak-forest)] text-[var(--oak-ivory)]">
+        <div className="oak-weave-band" />
+        <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-8 px-6 py-20 md:flex-row md:items-center lg:px-10">
+          <h2 className="oak-display max-w-2xl text-4xl sm:text-5xl">Plant your shop. Watch it grow.</h2>
+          <Button size="lg" onClick={handleCta} className="gap-2 bg-[var(--oak-ivory)] text-[var(--oak-forest)] hover:bg-white">
+            {isAuthenticated ? "Go to Dashboard" : "Get started"} <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
       </section>
 
-      {/* Features */}
-      <section className="px-6 py-16 max-w-5xl mx-auto">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[
-            { icon: Bot, title: "Smart Assistant", desc: "Answers customers instantly, recommends the right products, and hands over to your team when a human touch is needed.", color: "text-primary" },
-            { icon: ShoppingCart, title: "Sell Right in Chat", desc: "Share your catalog, take orders, and manage stock — your customers buy without ever leaving WhatsApp.", color: "text-blue-400" },
-            { icon: Building2, title: "Your Business, Your Way", desc: "Your own storefront, your own currency, your own WhatsApp number — fully private and fully yours.", color: "text-purple-400" },
-            { icon: Shield, title: "Get Paid Your Way", desc: "Accept mobile money, cards, and bank transfers with bank-grade security on every transaction.", color: "text-green-400" },
-            { icon: Globe, title: "Always On, Everywhere", desc: "Fast and reliable wherever your customers are — orders keep flowing even while you sleep.", color: "text-cyan-400" },
-            { icon: BarChart3, title: "Know Your Numbers", desc: "See what's selling, who your best customers are, and where your money goes — in real time.", color: "text-yellow-400" },
-          ].map((f) => (
-            <Card key={f.title} className="bg-card border-border hover:border-primary/40 transition-colors">
-              <CardContent className="p-6 space-y-3">
-                <f.icon className={`w-8 h-8 ${f.color}`} />
-                <h3 className="font-semibold text-lg">{f.title}</h3>
-                <p className="text-sm text-muted-foreground">{f.desc}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </section>
-
-      {/* How it works */}
-      <section className="px-6 py-16 max-w-5xl mx-auto border-t border-border">
-        <h2 className="text-2xl font-bold text-center mb-10">Start Selling in Four Simple Steps</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[
-            { icon: MessageSquare, title: "1. Connect WhatsApp", points: ["Link your business number in minutes", "No new app for your customers"], color: "border-cyan-500/40 bg-cyan-500/10 text-cyan-400" },
-            { icon: Package, title: "2. Add Your Products", points: ["Upload photos, prices, and stock", "Your catalog updates itself everywhere"], color: "border-orange-500/40 bg-orange-500/10 text-orange-400" },
-            { icon: Users, title: "3. Chat & Sell", points: ["Customers browse and order in chat", "Campaigns and broadcasts bring them back"], color: "border-blue-500/40 bg-blue-500/10 text-blue-400" },
-            { icon: CreditCard, title: "4. Get Paid & Grow", points: ["Instant payment links in every chat", "Offer trusted customers buy-now-pay-later"], color: "border-yellow-500/40 bg-yellow-500/10 text-yellow-400" },
-          ].map((s) => (
-            <div key={s.title} className={`rounded-lg border p-4 ${s.color}`}>
-              <s.icon className="w-6 h-6 mb-2" />
-              <div className="font-bold text-lg mb-3">{s.title}</div>
-              <ul className="space-y-1">
-                {s.points.map((p) => (
-                  <li key={p} className="text-xs opacity-80">{p}</li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Final CTA */}
-      <section className="px-6 py-20 max-w-5xl mx-auto text-center border-t border-border">
-        <Wallet className="w-10 h-10 mx-auto mb-4 text-primary" />
-        <h2 className="text-3xl font-bold mb-4">Ready to grow your business on WhatsApp?</h2>
-        <p className="text-muted-foreground max-w-xl mx-auto mb-8">
-          Join merchants already selling, collecting payments, and building loyal customers — all through the app their customers use every day.
-        </p>
-        <Button size="lg" onClick={handleCta} className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2">
-          {isAuthenticated ? "Go to Dashboard" : "Get Started"} <ArrowRight className="w-4 h-4" />
-        </Button>
-      </section>
+      <footer className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-8 text-sm text-muted-foreground lg:px-10">
+        <OakLogo size="sm" />
+        <span>African roots. Global standards.</span>
+      </footer>
     </div>
   );
 }

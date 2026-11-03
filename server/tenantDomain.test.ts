@@ -132,7 +132,7 @@ describe("tenant.tenantTheme (public)", () => {
     const theme = await caller.tenantTheme();
     expect(theme).toEqual({
       tenantId: DEFAULT_TENANT_ID,
-      name: "WhatsApp Commerce",
+      name: "OAK",
       logoUrl: null,
       primaryColor: "#25D366",
       currency: "USD",

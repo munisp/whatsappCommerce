@@ -475,7 +475,7 @@ export default function EvidencePortal() {
         <div className="text-center text-xs text-muted-foreground space-y-1 pb-4">
           <div className="flex items-center justify-center gap-1">
             <ShieldCheck className="h-3.5 w-3.5" />
-            <span>Secured by WhatsApp Commerce Platform</span>
+            <span>Secured by OAK</span>
           </div>
           <p>Your submission is encrypted and stored securely. It will only be used for dispute resolution.</p>
         </div>

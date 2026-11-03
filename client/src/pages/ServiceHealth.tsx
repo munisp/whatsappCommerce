@@ -143,7 +143,7 @@ function ServiceHealthInner() {
                       {latencyHistory[svc.name] && latencyHistory[svc.name].length > 1 && (
                         <Sparkline
                           values={latencyHistory[svc.name]}
-                          color={status === "healthy" ? "#4ade80" : status === "degraded" ? "#facc15" : "#f87171"}
+                          color={status === "healthy" ? "#2F6B46" : status === "degraded" ? "#B08D45" : "#A63A24"}
                         />
                       )}
                     </div>

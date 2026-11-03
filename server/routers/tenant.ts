@@ -50,7 +50,7 @@ export const tenantRouter = router({
       name:
         (typeof branding.name === "string" && branding.name) ||
         t?.name ||
-        "WhatsApp Commerce",
+        "OAK",
       logoUrl: typeof branding.logoUrl === "string" && branding.logoUrl ? branding.logoUrl : null,
       primaryColor:
         typeof branding.primaryColor === "string" && branding.primaryColor

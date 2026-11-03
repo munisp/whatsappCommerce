@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
+import { OakMark } from "@/components/OakLogo";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -66,13 +67,11 @@ export default function PortalMagicLogin() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center p-4">
-      <Card className="w-full max-w-md shadow-xl">
+    <div className="min-h-screen oak-weave-ground flex items-center justify-center p-4">
+      <Card className="w-full max-w-md shadow-md">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-3 w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
-            <MessageSquare className="w-6 h-6 text-green-600" />
-          </div>
-          <CardTitle className="text-xl">WhatsApp Commerce Portal</CardTitle>
+          <OakMark className="mx-auto mb-3 h-12 w-12" />
+          <CardTitle className="oak-display text-2xl font-medium">OAK Merchant Portal</CardTitle>
         </CardHeader>
         <CardContent className="text-center space-y-4">
           {status === "validating" && (

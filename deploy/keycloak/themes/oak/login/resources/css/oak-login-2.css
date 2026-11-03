@@ -1,0 +1,97 @@
+/* OAK over keycloak.v2 / PatternFly 5. Same tokens as client/src/index.css. */
+@font-face { font-family: "Newsreader"; font-weight: 500; font-display: swap; src: url("../fonts/newsreader-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Hanken Grotesk"; font-weight: 400; font-display: swap; src: url("../fonts/hanken-grotesk-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Hanken Grotesk"; font-weight: 600; font-display: swap; src: url("../fonts/hanken-grotesk-latin-600-normal.woff2") format("woff2"); }
+
+:root {
+  --oak-forest: #1F3A2D;
+  --oak-forest-deep: #16291F;
+  --oak-ivory: #F7F2E7;
+  --oak-paper: #FDFAF3;
+  --oak-brass: #B08D45;
+  --oak-charcoal: #23211C;
+  --oak-muted: #5F5545;
+  --oak-border: #CFC4AB;
+  --oak-error: #A63A24;
+  --oak-sans: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --keycloak-bg-logo-url: none;
+  --keycloak-card-top-color: var(--oak-brass);
+  --pf-v5-global--FontFamily--text: var(--oak-sans);
+  --pf-v5-global--FontFamily--heading: "Newsreader", Georgia, serif;
+  --pf-v5-global--primary-color--100: var(--oak-forest);
+  --pf-v5-global--primary-color--200: var(--oak-forest-deep);
+  --pf-v5-global--link--Color: var(--oak-forest);
+  --pf-v5-global--link--Color--hover: var(--oak-forest-deep);
+  --pf-v5-global--BackgroundColor--100: var(--oak-paper);
+  --pf-v5-global--Color--100: var(--oak-charcoal);
+  --pf-v5-global--Color--200: var(--oak-muted);
+  --pf-v5-global--BorderColor--100: var(--oak-border);
+  --pf-v5-global--BorderRadius--sm: 4px;
+  --pf-v5-global--active-color--100: var(--oak-forest);
+  --pf-v5-global--active-color--200: var(--oak-forest);
+  --pf-v5-global--danger-color--100: var(--oak-error);
+  --pf-v5-global--danger-color--200: var(--oak-error);
+}
+
+html, body, .pf-v5-c-login { background: var(--oak-ivory) url("../img/aso-oke-weave.svg") !important; color: var(--oak-charcoal); }
+
+/* The woven frame around the window, as on the rest of OAK. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  background:
+    url("../img/aso-oke-band.svg") repeat-x top left / auto 8px,
+    url("../img/aso-oke-band.svg") repeat-x bottom left / auto 8px,
+    url("../img/aso-oke-band-vertical.svg") repeat-y top left / 8px auto,
+    url("../img/aso-oke-band-vertical.svg") repeat-y top right / 8px auto;
+}
+
+/* A merchant on the right half, the form on the left, on large screens. */
+@media (min-width: 1100px) {
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0 0 0 50%;
+    background: url("../img/oak-merchant-1.webp") center / cover no-repeat;
+  }
+  .pf-v5-c-login { width: 50%; position: relative; z-index: 1; min-height: 100vh; }
+  .pf-v5-c-login__container { width: 100%; max-width: 30rem; margin-inline: auto; }
+}
+
+#kc-header, .pf-v5-c-login__header { margin-bottom: 1.25rem; text-align: left; }
+#kc-header-wrapper {
+  height: 44px;
+  background: url("../img/oak-logo.svg") left center / auto 44px no-repeat;
+  color: transparent;
+  font-size: 0;
+  letter-spacing: 0;
+  padding: 0;
+}
+
+.pf-v5-c-login__main {
+  background: var(--oak-paper) !important;
+  border: 1px solid var(--oak-border);
+  border-top: 3px solid var(--oak-brass);
+  border-radius: 4px;
+  box-shadow: none;
+}
+.pf-v5-c-login__main-header h1, #kc-page-title {
+  font-family: "Newsreader", Georgia, serif;
+  font-weight: 500;
+  color: var(--oak-forest);
+  letter-spacing: -0.01em;
+}
+.pf-v5-c-button.pf-m-primary { background: var(--oak-forest); color: var(--oak-ivory); border-radius: 4px; }
+.pf-v5-c-button.pf-m-primary:hover, .pf-v5-c-button.pf-m-primary:focus { background: var(--oak-forest-deep); color: #fff; }
+.pf-v5-c-form-control { --pf-v5-c-form-control--before--BorderBlockStartColor: var(--oak-border); background: #fff; border-radius: 4px; }
+.pf-v5-c-form-control:focus-within { --pf-v5-c-form-control--after--BorderBottomColor: var(--oak-brass); outline: 2px solid var(--oak-brass); outline-offset: 1px; }
+a, .pf-v5-c-button.pf-m-link { color: var(--oak-forest); }
+.pf-v5-c-login__main-footer-band { background: transparent; border-top: 1px solid var(--oak-border); }
+@media (max-width: 640px) {
+  body::after { background-size: auto 5px, auto 5px, 5px auto, 5px auto; }
+  #kc-header, .pf-v5-c-login__header { padding: 1rem 1.25rem 0; }
+}

@@ -262,7 +262,7 @@ export async function notifyQuotaWarning(
     const body = decision.warnLevel === 100
       ? `⚠️ Your WhatsApp commerce plan has REACHED its monthly message limit (${decision.usage}/${decision.limit} for ${decision.period}). ` +
         `Messages keep working up to a 10% grace, then buyers will see a "merchant busy" reply. Upgrade your plan to avoid interruption.`
-      : `⚠️ Heads up: your WhatsApp commerce plan is at ${decision.warnLevel}% of its monthly message limit (${decision.usage}/${decision.limit} for ${decision.period}). Consider upgrading soon.`;
+      : `⚠️ Heads up: your OAK plan is at ${decision.warnLevel}% of its monthly message limit (${decision.usage}/${decision.limit} for ${decision.period}). Consider upgrading soon.`;
     // === W37 telegram === quota-warning parity: telegram-linked admin routes
     // via channelSender; WA admin unchanged.
     const { notifyCustomer } = await import("./channelParity");

@@ -103,7 +103,7 @@ const DEFAULT_TEMPLATES = [
     language: "en",
     headerText: "👋 Welcome!",
     bodyText: "Hi {{customer_name}}! Welcome to *{{store_name}}* on WhatsApp.\n\nYou can:\n• 🛒 Browse our catalog\n• 📦 Track your orders\n• 💬 Chat with support\n\nType *MENU* to get started!",
-    footerText: "Powered by WhatsApp Commerce",
+    footerText: "Powered by OAK",
     variables: [
       { name: "customer_name", example: "David", description: "Customer first name" },
       { name: "store_name", example: "TechMart Africa", description: "Store or business name" },

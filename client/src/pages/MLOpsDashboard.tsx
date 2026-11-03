@@ -22,7 +22,7 @@ import {
   ResponsiveContainer, BarChart, Bar, ReferenceLine,
 } from "recharts";
 
-const RUN_COLORS = ["#60a5fa", "#34d399", "#fbbf24", "#f472b6", "#a78bfa"];
+const RUN_COLORS = ["#33507A", "#2F6B46", "#B08D45", "#f472b6", "#5A3E2B"];
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
@@ -30,7 +30,7 @@ function StatusBadge({ status }: { status: string }) {
     RUNNING: { label: "Running", cls: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
     FAILED: { label: "Failed", cls: "bg-red-500/20 text-red-400 border-red-500/30" },
     SCHEDULED: { label: "Scheduled", cls: "bg-amber-500/20 text-amber-400 border-amber-500/30" },
-    UNKNOWN: { label: "Unknown", cls: "bg-white/10 text-white/40 border-white/20" },
+    UNKNOWN: { label: "Unknown", cls: "bg-muted text-muted-foreground border-border" },
   };
   const s = map[status] ?? map.UNKNOWN;
   return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${s.cls}`}>{s.label}</span>;
@@ -143,13 +143,13 @@ function MLOpsDashboardInner() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-white">ML Ops Dashboard</h1>
-            <p className="text-white/50 text-sm mt-1">Continuous training, drift monitoring, and model A/B comparison</p>
+            <h1 className="text-2xl font-bold text-foreground">ML Ops Dashboard</h1>
+            <p className="text-muted-foreground text-sm mt-1">Continuous training, drift monitoring, and model A/B comparison</p>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <Switch id="hpo-mode" checked={hpoMode} onCheckedChange={setHpoMode} />
-              <Label htmlFor="hpo-mode" className="text-white/60 text-sm cursor-pointer">
+              <Label htmlFor="hpo-mode" className="text-muted-foreground text-sm cursor-pointer">
                 <Zap className="w-3.5 h-3.5 inline mr-1 text-amber-400" />HPO Mode
               </Label>
             </div>
@@ -157,7 +157,7 @@ function MLOpsDashboardInner() {
               variant="outline"
               size="sm"
               onClick={() => { experimentsQ.refetch(); trainingStatusQ.refetch(); driftQ.refetch(); allRunsQ.refetch(); driftAlertsQ.refetch(); abTestsQ.refetch(); snapshotsQ.refetch(); }}
-              className="border-white/20 text-white/70 hover:text-white"
+              className="border-border text-foreground/70 hover:text-white"
             >
               <RefreshCw className="w-4 h-4 mr-2" /> Refresh
             </Button>
@@ -167,12 +167,12 @@ function MLOpsDashboardInner() {
         {/* Training Status Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {trainingStatusQ.isLoading && [0, 1].map(i => (
-            <Card key={i} className="bg-[#0f1923] border-white/10 animate-pulse">
+            <Card key={i} className="bg-[#FDFAF3] border-border animate-pulse">
               <CardContent className="p-5 h-32" />
             </Card>
           ))}
           {(trainingStatusQ.data ?? []).map(exp => (
-            <Card key={exp.experimentId} className="bg-[#0f1923] border-white/10 hover:border-white/20 transition-all">
+            <Card key={exp.experimentId} className="bg-[#FDFAF3] border-border hover:border-border transition-all">
               <CardContent className="p-5">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2">
@@ -180,37 +180,37 @@ function MLOpsDashboardInner() {
                       <Cpu className="w-5 h-5 text-violet-400" />
                     </div>
                     <div>
-                      <p className="text-white font-medium text-sm capitalize">{exp.experimentName.replace(/_/g, " ")}</p>
-                      <p className="text-white/40 text-xs">{exp.latestRunName}</p>
+                      <p className="text-foreground font-medium text-sm capitalize">{exp.experimentName.replace(/_/g, " ")}</p>
+                      <p className="text-muted-foreground text-xs">{exp.latestRunName}</p>
                     </div>
                   </div>
                   <StatusBadge status={exp.status} />
                 </div>
                 <div className="grid grid-cols-3 gap-3 text-center">
                   <div>
-                    <p className="text-white/40 text-xs">Runs</p>
-                    <p className="text-white font-semibold">{exp.totalRuns}</p>
+                    <p className="text-muted-foreground text-xs">Runs</p>
+                    <p className="text-foreground font-semibold">{exp.totalRuns}</p>
                   </div>
                   <div>
-                    <p className="text-white/40 text-xs">Passed</p>
+                    <p className="text-muted-foreground text-xs">Passed</p>
                     <p className="text-emerald-400 font-semibold">{exp.finishedRuns}</p>
                   </div>
                   <div>
-                    <p className="text-white/40 text-xs">Failed</p>
+                    <p className="text-muted-foreground text-xs">Failed</p>
                     <p className="text-red-400 font-semibold">{exp.failedRuns}</p>
                   </div>
                 </div>
                 {Object.entries(exp.metrics).length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-white/5 flex flex-wrap gap-2">
+                  <div className="mt-3 pt-3 border-t border-border flex flex-wrap gap-2">
                     {Object.entries(exp.metrics).slice(0, 3).map(([k, v]) => (
-                      <span key={k} className="text-xs bg-white/5 rounded px-2 py-0.5 text-white/60">
-                        {k}: <span className="text-white/90">{typeof v === "number" ? v.toFixed(4) : v}</span>
+                      <span key={k} className="text-xs bg-muted rounded px-2 py-0.5 text-muted-foreground">
+                        {k}: <span className="text-foreground/90">{typeof v === "number" ? v.toFixed(4) : v}</span>
                       </span>
                     ))}
                   </div>
                 )}
                 <div className="mt-3 flex items-center justify-between">
-                  <span className="text-white/30 text-xs flex items-center gap-1">
+                  <span className="text-muted-foreground text-xs flex items-center gap-1">
                     <Clock className="w-3 h-3" /> {formatDuration(exp.durationMs)}
                   </span>
                   <Button
@@ -234,29 +234,29 @@ function MLOpsDashboardInner() {
           ))}
 
           {/* Data Pipeline Status */}
-          <Card className="bg-[#0f1923] border-white/10">
+          <Card className="bg-[#FDFAF3] border-border">
             <CardContent className="p-5">
               <div className="flex items-center gap-2 mb-3">
                 <div className="w-9 h-9 rounded-lg bg-teal-500/20 flex items-center justify-center">
                   <Database className="w-5 h-5 text-teal-400" />
                 </div>
                 <div>
-                  <p className="text-white font-medium text-sm">Data Pipeline</p>
-                  <p className="text-white/40 text-xs">PostgreSQL → Feature Store</p>
+                  <p className="text-foreground font-medium text-sm">Data Pipeline</p>
+                  <p className="text-muted-foreground text-xs">PostgreSQL → Feature Store</p>
                 </div>
               </div>
               {pipelineQ.data && (
                 <>
                   <div className="mb-2 flex items-center justify-between text-xs">
-                    <span className="text-white/50">New transactions (7d)</span>
-                    <span className="text-white font-medium">{pipelineQ.data.newTransactionsSinceLastTrain.toLocaleString()} / {pipelineQ.data.thresholdToRetrain.toLocaleString()}</span>
+                    <span className="text-muted-foreground">New transactions (7d)</span>
+                    <span className="text-foreground font-medium">{pipelineQ.data.newTransactionsSinceLastTrain.toLocaleString()} / {pipelineQ.data.thresholdToRetrain.toLocaleString()}</span>
                   </div>
-                  <Progress value={pipelineQ.data.percentToThreshold} className="h-2 bg-white/10" />
-                  <p className="text-white/30 text-xs mt-2">
+                  <Progress value={pipelineQ.data.percentToThreshold} className="h-2 bg-muted" />
+                  <p className="text-muted-foreground text-xs mt-2">
                     {pipelineQ.data.percentToThreshold}% to retraining threshold
                   </p>
                   {pipelineQ.data.lastPipelineRun && (
-                    <p className="text-white/30 text-xs mt-1 flex items-center gap-1">
+                    <p className="text-muted-foreground text-xs mt-1 flex items-center gap-1">
                       <Clock className="w-3 h-3" /> Last run: {new Date(pipelineQ.data.lastPipelineRun).toLocaleString()}
                     </p>
                   )}
@@ -269,9 +269,9 @@ function MLOpsDashboardInner() {
 
         {/* Model Performance Widget + Real-Data Retrain */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Card className="bg-[#0f1923] border-white/10 lg:col-span-2">
+          <Card className="bg-[#FDFAF3] border-border lg:col-span-2">
             <CardHeader className="pb-2 flex flex-row items-center justify-between">
-              <CardTitle className="text-sm text-white/70 flex items-center gap-2">
+              <CardTitle className="text-sm text-foreground/70 flex items-center gap-2">
                 <Activity className="w-4 h-4 text-violet-400" /> Live Model Performance
                 {/* W30 hotfix: honest labeling — these are proxy metrics, not evaluated model quality */}
                 <span
@@ -282,14 +282,14 @@ function MLOpsDashboardInner() {
                 </span>
               </CardTitle>
               <div className="flex items-center gap-2">
-                <span className="text-white/40 text-xs">Window:</span>
+                <span className="text-muted-foreground text-xs">Window:</span>
                 <Select value={String(perfWindow)} onValueChange={(v) => setPerfWindow(Number(v))}>
-                  <SelectTrigger className="h-7 w-20 text-xs bg-white/5 border-white/10 text-white">
+                  <SelectTrigger className="h-7 w-20 text-xs bg-muted border-border text-foreground">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-[#0f1923] border-white/10">
+                  <SelectContent className="bg-[#FDFAF3] border-border">
                     {[6, 12, 24, 48, 72, 168].map(h => (
-                      <SelectItem key={h} value={String(h)} className="text-white/80 text-xs">{h}h</SelectItem>
+                      <SelectItem key={h} value={String(h)} className="text-foreground/80 text-xs">{h}h</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -299,25 +299,25 @@ function MLOpsDashboardInner() {
               {perfSummary && (
                 <div className="flex gap-6 mb-3">
                   <div className="text-center">
-                    <p className="text-xs text-white/40">Precision</p>
+                    <p className="text-xs text-muted-foreground">Precision</p>
                     <p className="text-lg font-bold text-blue-400">{(perfSummary.precision * 100).toFixed(1)}%</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-xs text-white/40">Recall</p>
+                    <p className="text-xs text-muted-foreground">Recall</p>
                     <p className="text-lg font-bold text-emerald-400">{(perfSummary.recall * 100).toFixed(1)}%</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-xs text-white/40">F1</p>
+                    <p className="text-xs text-muted-foreground">F1</p>
                     <p className="text-lg font-bold text-violet-400">{(perfSummary.f1 * 100).toFixed(1)}%</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-xs text-white/40">Events</p>
-                    <p className="text-lg font-bold text-white/70">{perfSummary.total.toLocaleString()}</p>
+                    <p className="text-xs text-muted-foreground">Events</p>
+                    <p className="text-lg font-bold text-foreground/70">{perfSummary.total.toLocaleString()}</p>
                   </div>
                 </div>
               )}
               {/* W30 hotfix: visible honesty disclaimer — proxy metrics, not evaluated model quality */}
-              <p className="text-[10px] text-white/35 mb-2">
+              <p className="text-[10px] text-muted-foreground mb-2">
                 Proxy metrics derived from agent events (confidence scores &amp; escalation flags) — not model quality evaluated against labeled ground truth.
               </p>
               {perfBuckets.length > 0 ? (
@@ -326,39 +326,39 @@ function MLOpsDashboardInner() {
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                     <XAxis dataKey="hour" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }} tickFormatter={(v: string) => v.slice(11, 16)} />
                     <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }} domain={[0, 1]} tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`} />
-                    <Tooltip contentStyle={{ background: "#0f1923", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} labelStyle={{ color: "rgba(255,255,255,0.6)", fontSize: 11 }} formatter={(v: number) => `${(v * 100).toFixed(1)}%`} />
+                    <Tooltip contentStyle={{ background: "#FDFAF3", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} labelStyle={{ color: "rgba(255,255,255,0.6)", fontSize: 11 }} formatter={(v: number) => `${(v * 100).toFixed(1)}%`} />
                     <Legend wrapperStyle={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }} />
-                    <Line type="monotone" dataKey="precision" stroke="#60a5fa" dot={false} strokeWidth={2} name="Precision" />
-                    <Line type="monotone" dataKey="recall" stroke="#34d399" dot={false} strokeWidth={2} name="Recall" />
-                    <Line type="monotone" dataKey="f1" stroke="#a78bfa" dot={false} strokeWidth={2} name="F1" />
+                    <Line type="monotone" dataKey="precision" stroke="#33507A" dot={false} strokeWidth={2} name="Precision" />
+                    <Line type="monotone" dataKey="recall" stroke="#2F6B46" dot={false} strokeWidth={2} name="Recall" />
+                    <Line type="monotone" dataKey="f1" stroke="#5A3E2B" dot={false} strokeWidth={2} name="F1" />
                     <ReferenceLine y={0.8} stroke="rgba(255,255,255,0.15)" strokeDasharray="4 4" label={{ value: "80%", fill: "rgba(255,255,255,0.3)", fontSize: 10 }} />
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-[180px] flex items-center justify-center text-white/30 text-sm">
+                <div className="h-[180px] flex items-center justify-center text-muted-foreground text-sm">
                   No agent events in the selected window. Events will appear once conversations are processed.
                 </div>
               )}
             </CardContent>
           </Card>
-          <Card className="bg-[#0f1923] border-white/10">
+          <Card className="bg-[#FDFAF3] border-border">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm text-white/70 flex items-center gap-2">
+              <CardTitle className="text-sm text-foreground/70 flex items-center gap-2">
                 <Database className="w-4 h-4 text-teal-400" /> Retrain on Real Data
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <p className="text-white/40 text-xs">Export real orders from PostgreSQL to Parquet and trigger train_all.py. Requires at least 500 orders.</p>
+              <p className="text-muted-foreground text-xs">Export real orders from PostgreSQL to Parquet and trigger train_all.py. Requires at least 500 orders.</p>
               <div className="space-y-1">
-                <Label className="text-white/50 text-xs">Model</Label>
+                <Label className="text-muted-foreground text-xs">Model</Label>
                 <Select value={realRetrainModel} onValueChange={(v) => setRealRetrainModel(v as "fraud" | "credit" | "all")}>
-                  <SelectTrigger className="h-8 text-xs bg-white/5 border-white/10 text-white">
+                  <SelectTrigger className="h-8 text-xs bg-muted border-border text-foreground">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-[#0f1923] border-white/10">
-                    <SelectItem value="fraud" className="text-white/80 text-xs">Fraud Detection</SelectItem>
-                    <SelectItem value="credit" className="text-white/80 text-xs">Credit Scoring</SelectItem>
-                    <SelectItem value="all" className="text-white/80 text-xs">All Models</SelectItem>
+                  <SelectContent className="bg-[#FDFAF3] border-border">
+                    <SelectItem value="fraud" className="text-foreground/80 text-xs">Fraud Detection</SelectItem>
+                    <SelectItem value="credit" className="text-foreground/80 text-xs">Credit Scoring</SelectItem>
+                    <SelectItem value="all" className="text-foreground/80 text-xs">All Models</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -373,34 +373,34 @@ function MLOpsDashboardInner() {
                   <><Play className="w-3 h-3 mr-1" /> Retrain on Real Data</>
                 )}
               </Button>
-              <p className="text-white/25 text-xs">Exports data, then runs train_all.py in background. Check Run History tab for results.</p>
+              <p className="text-muted-foreground text-xs">Exports data, then runs train_all.py in background. Check Run History tab for results.</p>
             </CardContent>
           </Card>
         </div>
 
         <Tabs defaultValue="drift" className="space-y-4">
-          <TabsList className="bg-[#0f1923] border border-white/10">
-            <TabsTrigger value="drift" className="data-[state=active]:bg-white/10">Drift Monitoring</TabsTrigger>
-            <TabsTrigger value="runs" className="data-[state=active]:bg-white/10">Run History</TabsTrigger>
-            <TabsTrigger value="ab" className="data-[state=active]:bg-white/10">A/B Comparison</TabsTrigger>
-            <TabsTrigger value="curves" className="data-[state=active]:bg-white/10">Metric Curves</TabsTrigger>
-            <TabsTrigger value="abtests" className="data-[state=active]:bg-white/10">A/B Tests</TabsTrigger>
-            <TabsTrigger value="alerts" className="data-[state=active]:bg-white/10">Drift Alerts</TabsTrigger>
-            <TabsTrigger value="snapshots" className="data-[state=active]:bg-white/10">Snapshots</TabsTrigger>
+          <TabsList className="bg-[#FDFAF3] border border-border">
+            <TabsTrigger value="drift" className="data-[state=active]:bg-muted">Drift Monitoring</TabsTrigger>
+            <TabsTrigger value="runs" className="data-[state=active]:bg-muted">Run History</TabsTrigger>
+            <TabsTrigger value="ab" className="data-[state=active]:bg-muted">A/B Comparison</TabsTrigger>
+            <TabsTrigger value="curves" className="data-[state=active]:bg-muted">Metric Curves</TabsTrigger>
+            <TabsTrigger value="abtests" className="data-[state=active]:bg-muted">A/B Tests</TabsTrigger>
+            <TabsTrigger value="alerts" className="data-[state=active]:bg-muted">Drift Alerts</TabsTrigger>
+            <TabsTrigger value="snapshots" className="data-[state=active]:bg-muted">Snapshots</TabsTrigger>
           </TabsList>
 
           {/* Drift Monitoring Tab */}
           <TabsContent value="drift" className="space-y-4">
-            <Card className="bg-[#0f1923] border-white/10">
+            <Card className="bg-[#FDFAF3] border-border">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-white text-base flex items-center gap-2">
+                  <CardTitle className="text-foreground text-base flex items-center gap-2">
                     <Activity className="w-4 h-4 text-amber-400" /> Feature Drift Metrics
                   </CardTitle>
                   <div className="flex items-center gap-3">
                     {driftQ.data?.summary && <DriftAlertBadge level={driftQ.data.summary.alertLevel} />}
                     <Select value={driftDays.toString()} onValueChange={v => setDriftDays(parseInt(v))}>
-                      <SelectTrigger className="w-24 h-8 bg-white/5 border-white/10 text-white text-xs">
+                      <SelectTrigger className="w-24 h-8 bg-muted border-border text-foreground text-xs">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -414,29 +414,29 @@ function MLOpsDashboardInner() {
               </CardHeader>
               <CardContent>
                 {driftQ.data && driftQ.data.available === false && (
-                  <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-sm flex items-center gap-2">
+                  <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 text-sm flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4 shrink-0" />
                     Drift metrics unavailable: {driftQ.data.reason}
                   </div>
                 )}
                 {driftQ.data?.summary && (
                   <div className="grid grid-cols-3 gap-4 mb-4">
-                    <div className="bg-white/5 rounded-lg p-3 text-center">
-                      <p className="text-white/40 text-xs mb-1">PSI (latest)</p>
+                    <div className="bg-muted rounded-lg p-3 text-center">
+                      <p className="text-muted-foreground text-xs mb-1">PSI (latest)</p>
                       <p className={`text-lg font-bold ${driftQ.data.summary.currentPsi > 0.2 ? "text-red-400" : driftQ.data.summary.currentPsi > 0.1 ? "text-amber-400" : "text-emerald-400"}`}>
                         {driftQ.data.summary.currentPsi.toFixed(4)}
                       </p>
-                      <p className="text-white/30 text-xs mt-1">threshold: 0.2</p>
+                      <p className="text-muted-foreground text-xs mt-1">threshold: 0.2</p>
                     </div>
-                    <div className="bg-white/5 rounded-lg p-3 text-center">
-                      <p className="text-white/40 text-xs mb-1">KL Divergence</p>
+                    <div className="bg-muted rounded-lg p-3 text-center">
+                      <p className="text-muted-foreground text-xs mb-1">KL Divergence</p>
                       <p className="text-lg font-bold text-blue-400">{driftQ.data.summary.currentKlDivergence == null ? "n/a" : driftQ.data.summary.currentKlDivergence.toFixed(4)}</p>
-                      <p className="text-white/30 text-xs mt-1">lower is better</p>
+                      <p className="text-muted-foreground text-xs mt-1">lower is better</p>
                     </div>
-                    <div className="bg-white/5 rounded-lg p-3 text-center">
-                      <p className="text-white/40 text-xs mb-1">KS Statistic</p>
+                    <div className="bg-muted rounded-lg p-3 text-center">
+                      <p className="text-muted-foreground text-xs mb-1">KS Statistic</p>
                       <p className="text-lg font-bold text-purple-400">{driftQ.data.summary.currentKsStatistic == null ? "n/a" : driftQ.data.summary.currentKsStatistic.toFixed(4)}</p>
-                      <p className="text-white/30 text-xs mt-1">distribution shift</p>
+                      <p className="text-muted-foreground text-xs mt-1">distribution shift</p>
                     </div>
                   </div>
                 )}
@@ -446,12 +446,12 @@ function MLOpsDashboardInner() {
                     <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }} tickLine={false} />
                     <YAxis tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }} tickLine={false} axisLine={false} />
                     <Tooltip
-                      contentStyle={{ background: "#0f1923", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
+                      contentStyle={{ background: "#FDFAF3", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
                       labelStyle={{ color: "rgba(255,255,255,0.7)" }}
                     />
                     <Legend wrapperStyle={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }} />
                     <ReferenceLine y={0.2} stroke="rgba(239,68,68,0.5)" strokeDasharray="4 4" label={{ value: "PSI threshold", fill: "rgba(239,68,68,0.6)", fontSize: 10 }} />
-                    <Line type="monotone" dataKey="PSI" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="PSI" stroke="#B08D45" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
                 {driftQ.data?.summary?.retrainRecommended && (
@@ -471,14 +471,14 @@ function MLOpsDashboardInner() {
 
           {/* Run History Tab */}
           <TabsContent value="runs" className="space-y-4">
-            <Card className="bg-[#0f1923] border-white/10">
+            <Card className="bg-[#FDFAF3] border-border">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-white text-base flex items-center gap-2">
+                  <CardTitle className="text-foreground text-base flex items-center gap-2">
                     <BarChart3 className="w-4 h-4 text-blue-400" /> MLflow Run History
                   </CardTitle>
                   <Select value={selectedExperiment} onValueChange={setSelectedExperiment}>
-                    <SelectTrigger className="w-48 h-8 bg-white/5 border-white/10 text-white text-xs">
+                    <SelectTrigger className="w-48 h-8 bg-muted border-border text-foreground text-xs">
                       <SelectValue placeholder="All experiments" />
                     </SelectTrigger>
                     <SelectContent>
@@ -494,43 +494,43 @@ function MLOpsDashboardInner() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-white/10">
-                        <th className="text-left text-white/40 font-medium py-2 pr-4">Run</th>
-                        <th className="text-left text-white/40 font-medium py-2 pr-4">Experiment</th>
-                        <th className="text-left text-white/40 font-medium py-2 pr-4">Status</th>
-                        <th className="text-left text-white/40 font-medium py-2 pr-4">Duration</th>
-                        <th className="text-left text-white/40 font-medium py-2 pr-4">Key Metrics</th>
-                        <th className="text-left text-white/40 font-medium py-2">Started</th>
+                      <tr className="border-b border-border">
+                        <th className="text-left text-muted-foreground font-medium py-2 pr-4">Run</th>
+                        <th className="text-left text-muted-foreground font-medium py-2 pr-4">Experiment</th>
+                        <th className="text-left text-muted-foreground font-medium py-2 pr-4">Status</th>
+                        <th className="text-left text-muted-foreground font-medium py-2 pr-4">Duration</th>
+                        <th className="text-left text-muted-foreground font-medium py-2 pr-4">Key Metrics</th>
+                        <th className="text-left text-muted-foreground font-medium py-2">Started</th>
                       </tr>
                     </thead>
                     <tbody>
                       {(selectedExperiment ? runsForExp.data : allRunsQ.data)?.map(run => (
-                        <tr key={run.runId} className="border-b border-white/5 hover:bg-white/3 transition-colors">
+                        <tr key={run.runId} className="border-b border-border hover:bg-muted transition-colors">
                           <td className="py-3 pr-4">
                             <div>
-                              <p className="text-white font-medium">{run.runName}</p>
-                              <p className="text-white/30 text-xs font-mono">{run.runId.slice(0, 12)}…</p>
+                              <p className="text-foreground font-medium">{run.runName}</p>
+                              <p className="text-muted-foreground text-xs font-mono">{run.runId.slice(0, 12)}…</p>
                             </div>
                           </td>
-                          <td className="py-3 pr-4 text-white/60 text-xs capitalize">
+                          <td className="py-3 pr-4 text-muted-foreground text-xs capitalize">
                             {"experimentName" in run ? (run as Record<string, unknown>).experimentName as string : selectedExperiment}
                           </td>
                           <td className="py-3 pr-4"><StatusBadge status={run.status} /></td>
-                          <td className="py-3 pr-4 text-white/60 text-xs">{formatDuration(run.endTime - run.startTime)}</td>
+                          <td className="py-3 pr-4 text-muted-foreground text-xs">{formatDuration(run.endTime - run.startTime)}</td>
                           <td className="py-3 pr-4">
                             <div className="flex flex-wrap gap-1">
                               {Object.entries(run.metrics).slice(0, 3).map(([k, v]) => (
-                                <span key={k} className="text-xs bg-white/5 rounded px-1.5 py-0.5 text-white/60">
-                                  {k}: <span className="text-white/90">{typeof v === "number" ? v.toFixed(4) : v}</span>
+                                <span key={k} className="text-xs bg-muted rounded px-1.5 py-0.5 text-muted-foreground">
+                                  {k}: <span className="text-foreground/90">{typeof v === "number" ? v.toFixed(4) : v}</span>
                                 </span>
                               ))}
                             </div>
                           </td>
-                          <td className="py-3 text-white/40 text-xs">{formatTs(run.startTime)}</td>
+                          <td className="py-3 text-muted-foreground text-xs">{formatTs(run.startTime)}</td>
                         </tr>
                       ))}
                       {!allRunsQ.isLoading && !allRunsQ.data?.length && !selectedExperiment && (
-                        <tr><td colSpan={6} className="py-8 text-center text-white/30">No runs found</td></tr>
+                        <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">No runs found</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -539,7 +539,7 @@ function MLOpsDashboardInner() {
                 {/* Loss curve chart for selected experiment */}
                 {selectedExperiment && runsForExp.data && runsForExp.data.length > 0 && (
                   <div className="mt-6">
-                    <p className="text-white/50 text-xs mb-3 font-medium uppercase tracking-wider">Training Loss Curve</p>
+                    <p className="text-muted-foreground text-xs mb-3 font-medium uppercase tracking-wider">Training Loss Curve</p>
                     <ResponsiveContainer width="100%" height={200}>
                       <LineChart
                         data={runsForExp.data[0]?.metricHistory?.train_loss?.map(p => ({ step: p.step, loss: parseFloat(p.value.toFixed(6)) })) ?? []}
@@ -548,8 +548,8 @@ function MLOpsDashboardInner() {
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                         <XAxis dataKey="step" tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }} tickLine={false} label={{ value: "Epoch", position: "insideBottom", fill: "rgba(255,255,255,0.3)", fontSize: 11 }} />
                         <YAxis tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }} tickLine={false} axisLine={false} />
-                        <Tooltip contentStyle={{ background: "#0f1923", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} />
-                        <Line type="monotone" dataKey="loss" stroke="#60a5fa" strokeWidth={2} dot={{ r: 4, fill: "#60a5fa" }} />
+                        <Tooltip contentStyle={{ background: "#FDFAF3", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} />
+                        <Line type="monotone" dataKey="loss" stroke="#33507A" strokeWidth={2} dot={{ r: 4, fill: "#33507A" }} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
@@ -561,9 +561,9 @@ function MLOpsDashboardInner() {
           {/* A/B Comparison Tab */}
           <TabsContent value="ab" className="space-y-4">
             {(abQ.data ?? []).map(comp => (
-              <Card key={comp.experimentName} className="bg-[#0f1923] border-white/10">
+              <Card key={comp.experimentName} className="bg-[#FDFAF3] border-border">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-white text-base flex items-center gap-2">
+                  <CardTitle className="text-foreground text-base flex items-center gap-2">
                     <GitBranch className="w-4 h-4 text-purple-400" />
                     <span className="capitalize">{comp.experimentName.replace(/_/g, " ")}</span>
                     <span className="ml-auto">
@@ -577,46 +577,46 @@ function MLOpsDashboardInner() {
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Champion */}
-                    <div className={`rounded-xl p-4 border ${comp.winner === "champion" ? "border-emerald-500/30 bg-emerald-500/5" : "border-white/10 bg-white/3"}`}>
+                    <div className={`rounded-xl p-4 border ${comp.winner === "champion" ? "border-emerald-500/30 bg-emerald-500/5" : "border-border bg-muted"}`}>
                       <div className="flex items-center gap-2 mb-3">
                         <TrendingUp className="w-4 h-4 text-emerald-400" />
-                        <span className="text-white font-medium text-sm">Champion</span>
-                        <span className="text-white/40 text-xs font-mono">{comp.champion.runName}</span>
+                        <span className="text-foreground font-medium text-sm">Champion</span>
+                        <span className="text-muted-foreground text-xs font-mono">{comp.champion.runName}</span>
                         {comp.winner === "champion" && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 ml-auto" />}
                       </div>
                       <div className="space-y-2">
                         {Object.entries(comp.champion.metrics).map(([k, v]) => (
                           <div key={k} className="flex items-center justify-between">
-                            <span className="text-white/50 text-xs">{k}</span>
-                            <span className="text-white text-sm font-mono">{typeof v === "number" ? v.toFixed(4) : v}</span>
+                            <span className="text-muted-foreground text-xs">{k}</span>
+                            <span className="text-foreground text-sm font-mono">{typeof v === "number" ? v.toFixed(4) : v}</span>
                           </div>
                         ))}
                       </div>
-                      <p className="text-white/30 text-xs mt-3">{formatTs(comp.champion.startTime)}</p>
+                      <p className="text-muted-foreground text-xs mt-3">{formatTs(comp.champion.startTime)}</p>
                     </div>
 
                     {/* Challenger */}
                     {comp.challenger ? (
-                      <div className={`rounded-xl p-4 border ${comp.winner === "challenger" ? "border-amber-500/30 bg-amber-500/5" : "border-white/10 bg-white/3"}`}>
+                      <div className={`rounded-xl p-4 border ${comp.winner === "challenger" ? "border-amber-500/30 bg-amber-500/5" : "border-border bg-muted"}`}>
                         <div className="flex items-center gap-2 mb-3">
                           <TrendingDown className="w-4 h-4 text-amber-400" />
-                          <span className="text-white font-medium text-sm">Challenger</span>
-                          <span className="text-white/40 text-xs font-mono">{comp.challenger.runName}</span>
+                          <span className="text-foreground font-medium text-sm">Challenger</span>
+                          <span className="text-muted-foreground text-xs font-mono">{comp.challenger.runName}</span>
                           {comp.winner === "challenger" && <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 ml-auto" />}
                         </div>
                         <div className="space-y-2">
                           {Object.entries(comp.challenger.metrics).map(([k, v]) => (
                             <div key={k} className="flex items-center justify-between">
-                              <span className="text-white/50 text-xs">{k}</span>
-                              <span className="text-white text-sm font-mono">{typeof v === "number" ? v.toFixed(4) : v}</span>
+                              <span className="text-muted-foreground text-xs">{k}</span>
+                              <span className="text-foreground text-sm font-mono">{typeof v === "number" ? v.toFixed(4) : v}</span>
                             </div>
                           ))}
                         </div>
-                        <p className="text-white/30 text-xs mt-3">{formatTs(comp.challenger.startTime)}</p>
+                        <p className="text-muted-foreground text-xs mt-3">{formatTs(comp.challenger.startTime)}</p>
                       </div>
                     ) : (
-                      <div className="rounded-xl p-4 border border-white/10 bg-white/3 flex items-center justify-center">
-                        <p className="text-white/30 text-sm">No challenger run yet</p>
+                      <div className="rounded-xl p-4 border border-border bg-muted flex items-center justify-center">
+                        <p className="text-muted-foreground text-sm">No challenger run yet</p>
                       </div>
                     )}
                   </div>
@@ -624,7 +624,7 @@ function MLOpsDashboardInner() {
                   {/* Metric comparison bar chart */}
                   {comp.challenger && (
                     <div className="mt-4">
-                      <p className="text-white/40 text-xs mb-2 uppercase tracking-wider">Metric Comparison</p>
+                      <p className="text-muted-foreground text-xs mb-2 uppercase tracking-wider">Metric Comparison</p>
                       <ResponsiveContainer width="100%" height={160}>
                         <BarChart
                           data={Object.keys(comp.champion.metrics).map(k => ({
@@ -637,10 +637,10 @@ function MLOpsDashboardInner() {
                           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                           <XAxis dataKey="metric" tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 10 }} tickLine={false} />
                           <YAxis domain={[0, 1]} tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 10 }} tickLine={false} axisLine={false} />
-                          <Tooltip contentStyle={{ background: "#0f1923", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} />
+                          <Tooltip contentStyle={{ background: "#FDFAF3", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} />
                           <Legend wrapperStyle={{ color: "rgba(255,255,255,0.5)", fontSize: 11 }} />
-                          <Bar dataKey="Champion" fill="#34d399" radius={[3, 3, 0, 0]} />
-                          <Bar dataKey="Challenger" fill="#fbbf24" radius={[3, 3, 0, 0]} />
+                          <Bar dataKey="Champion" fill="#2F6B46" radius={[3, 3, 0, 0]} />
+                          <Bar dataKey="Challenger" fill="#B08D45" radius={[3, 3, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -649,21 +649,21 @@ function MLOpsDashboardInner() {
               </Card>
             ))}
             {abQ.isLoading && (
-              <Card className="bg-[#0f1923] border-white/10 animate-pulse"><CardContent className="p-5 h-48" /></Card>
+              <Card className="bg-[#FDFAF3] border-border animate-pulse"><CardContent className="p-5 h-48" /></Card>
             )}
             {!abQ.isLoading && !abQ.data?.length && (
-              <Card className="bg-[#0f1923] border-white/10">
-                <CardContent className="p-8 text-center text-white/30">No A/B comparisons available yet</CardContent>
+              <Card className="bg-[#FDFAF3] border-border">
+                <CardContent className="p-8 text-center text-muted-foreground">No A/B comparisons available yet</CardContent>
               </Card>
             )}
           </TabsContent>
 
           {/* ── Metric Curves Tab ─────────────────────────────────────────── */}
           <TabsContent value="curves" className="space-y-4">
-            <Card className="bg-[#0f1923] border-white/10">
+            <Card className="bg-[#FDFAF3] border-border">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between flex-wrap gap-3">
-                  <CardTitle className="text-white text-base flex items-center gap-2">
+                  <CardTitle className="text-foreground text-base flex items-center gap-2">
                     <BarChart3 className="w-4 h-4 text-blue-400" /> Training Metric Curves
                   </CardTitle>
                   <div className="flex items-center gap-3">
@@ -671,7 +671,7 @@ function MLOpsDashboardInner() {
                       value={selectedExperiment}
                       onValueChange={v => { setSelectedExperiment(v); setSelectedMetric(""); }}
                     >
-                      <SelectTrigger className="w-48 h-8 bg-white/5 border-white/10 text-white text-xs">
+                      <SelectTrigger className="w-48 h-8 bg-muted border-border text-foreground text-xs">
                         <SelectValue placeholder="Select experiment…" />
                       </SelectTrigger>
                       <SelectContent>
@@ -682,7 +682,7 @@ function MLOpsDashboardInner() {
                     </Select>
                     {availableMetrics.length > 0 && (
                       <Select value={activeMetric} onValueChange={setSelectedMetric}>
-                        <SelectTrigger className="w-40 h-8 bg-white/5 border-white/10 text-white text-xs">
+                        <SelectTrigger className="w-40 h-8 bg-muted border-border text-foreground text-xs">
                           <SelectValue placeholder="Select metric…" />
                         </SelectTrigger>
                         <SelectContent>
@@ -697,20 +697,20 @@ function MLOpsDashboardInner() {
               </CardHeader>
               <CardContent>
                 {!selectedExperiment && (
-                  <div className="flex items-center justify-center h-48 text-white/30 text-sm">
+                  <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
                     Select an experiment above to view metric curves
                   </div>
                 )}
                 {selectedExperiment && metricHistoryQ.isLoading && (
                   <div className="flex items-center justify-center h-48">
-                    <RefreshCw className="w-5 h-5 text-white/30 animate-spin" />
+                    <RefreshCw className="w-5 h-5 text-muted-foreground animate-spin" />
                   </div>
                 )}
                 {selectedExperiment && metricHistoryQ.data && activeMetric && (
                   <>
                     <div className="flex flex-wrap gap-3 mb-4">
                       {(metricHistoryQ.data.runNames ?? []).map((name, i) => (
-                        <span key={name} className="flex items-center gap-1.5 text-xs text-white/60">
+                        <span key={name} className="flex items-center gap-1.5 text-xs text-muted-foreground">
                           <span className="w-3 h-0.5 rounded-full inline-block" style={{ background: RUN_COLORS[i % RUN_COLORS.length] }} />
                           {name}
                         </span>
@@ -735,7 +735,7 @@ function MLOpsDashboardInner() {
                           tickFormatter={(v: number) => v.toFixed(4)}
                         />
                         <Tooltip
-                          contentStyle={{ background: "#0f1923", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
+                          contentStyle={{ background: "#FDFAF3", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
                           labelStyle={{ color: "rgba(255,255,255,0.7)" }}
                           formatter={(v: number) => v.toFixed(6)}
                         />
@@ -754,15 +754,15 @@ function MLOpsDashboardInner() {
                     </ResponsiveContainer>
                     {availableMetrics.filter(m => m !== activeMetric).length > 0 && (
                       <div className="mt-6">
-                        <p className="text-white/40 text-xs uppercase tracking-wider mb-3">Other Metrics — click to expand</p>
+                        <p className="text-muted-foreground text-xs uppercase tracking-wider mb-3">Other Metrics — click to expand</p>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                           {availableMetrics.filter(m => m !== activeMetric).map(metric => (
                             <button
                               key={metric}
                               onClick={() => setSelectedMetric(metric)}
-                              className="bg-white/5 hover:bg-white/10 rounded-xl p-3 text-left transition-colors border border-white/5 hover:border-white/15"
+                              className="bg-muted hover:bg-muted rounded-xl p-3 text-left transition-colors border border-border hover:border-border"
                             >
-                              <p className="text-white/50 text-xs mb-2 truncate">{metric}</p>
+                              <p className="text-muted-foreground text-xs mb-2 truncate">{metric}</p>
                               <ResponsiveContainer width="100%" height={50}>
                                 <LineChart data={metricHistoryQ.data!.charts[metric] ?? []}>
                                   <Line
@@ -781,7 +781,7 @@ function MLOpsDashboardInner() {
                                 const runName = (metricHistoryQ.data?.runNames ?? [])[0];
                                 const val = last && runName ? (last[runName] as number) : null;
                                 return val != null ? (
-                                  <p className="text-white text-xs font-mono mt-1">{val.toFixed(4)}</p>
+                                  <p className="text-foreground text-xs font-mono mt-1">{val.toFixed(4)}</p>
                                 ) : null;
                               })()}
                             </button>
@@ -792,7 +792,7 @@ function MLOpsDashboardInner() {
                   </>
                 )}
                 {selectedExperiment && metricHistoryQ.data && availableMetrics.length === 0 && (
-                  <div className="flex items-center justify-center h-48 text-white/30 text-sm">
+                  <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
                     No metric history found for this experiment
                   </div>
                 )}
@@ -802,23 +802,23 @@ function MLOpsDashboardInner() {
         {/* DB-backed A/B Tests Tab */}
           <TabsContent value="abtests" className="space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-white/50 text-sm">Manage live A/B tests between model versions. Select a winner to conclude.</p>
+              <p className="text-muted-foreground text-sm">Manage live A/B tests between model versions. Select a winner to conclude.</p>
               <Button size="sm" onClick={() => setShowCreateAbTest(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
                 <Play className="w-3.5 h-3.5 mr-1.5" /> New A/B Test
               </Button>
             </div>
-            {abTestsQ.isLoading && <Card className="bg-[#0f1923] border-white/10 animate-pulse"><CardContent className="p-5 h-32" /></Card>}
+            {abTestsQ.isLoading && <Card className="bg-[#FDFAF3] border-border animate-pulse"><CardContent className="p-5 h-32" /></Card>}
             {!abTestsQ.isLoading && !(abTestsQ.data ?? []).length && (
-              <Card className="bg-[#0f1923] border-white/10"><CardContent className="p-8 text-center text-white/30">No A/B tests yet. Create one to compare model versions.</CardContent></Card>
+              <Card className="bg-[#FDFAF3] border-border"><CardContent className="p-8 text-center text-muted-foreground">No A/B tests yet. Create one to compare model versions.</CardContent></Card>
             )}
             {(abTestsQ.data ?? []).map(test => (
-              <Card key={test.id} className="bg-[#0f1923] border-white/10">
+              <Card key={test.id} className="bg-[#FDFAF3] border-border">
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between flex-wrap gap-2">
-                    <CardTitle className="text-white text-sm flex items-center gap-2">
+                    <CardTitle className="text-foreground text-sm flex items-center gap-2">
                       <GitBranch className="w-4 h-4 text-blue-400" />
                       {test.modelName}
-                      <span className="text-white/40 text-xs font-mono">{test.id.slice(0, 8)}</span>
+                      <span className="text-muted-foreground text-xs font-mono">{test.id.slice(0, 8)}</span>
                     </CardTitle>
                     <div className="flex items-center gap-2">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${test.status === "running" ? "bg-blue-500/20 text-blue-400 border-blue-500/30" : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"}`}>{test.status}</span>
@@ -835,13 +835,13 @@ function MLOpsDashboardInner() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                    <div><p className="text-white/40 text-xs">Champion</p><p className="text-white font-mono">{test.championVersion}</p></div>
-                    <div><p className="text-white/40 text-xs">Challenger</p><p className="text-white font-mono">{test.challengerVersion}</p></div>
-                    <div><p className="text-white/40 text-xs">Traffic Split</p><p className="text-white">{test.trafficSplitPct}% challenger</p></div>
-                    <div><p className="text-white/40 text-xs">Winner</p><p className="text-white">{test.winner ?? "—"}</p></div>
+                    <div><p className="text-muted-foreground text-xs">Champion</p><p className="text-foreground font-mono">{test.championVersion}</p></div>
+                    <div><p className="text-muted-foreground text-xs">Challenger</p><p className="text-foreground font-mono">{test.challengerVersion}</p></div>
+                    <div><p className="text-muted-foreground text-xs">Traffic Split</p><p className="text-foreground">{test.trafficSplitPct}% challenger</p></div>
+                    <div><p className="text-muted-foreground text-xs">Winner</p><p className="text-foreground">{test.winner ?? "—"}</p></div>
                   </div>
-                  {test.notes && <p className="text-white/30 text-xs mt-2">{test.notes}</p>}
-                  <p className="text-white/20 text-xs mt-2">Started: {formatTs(new Date(test.startedAt).getTime())}</p>
+                  {test.notes && <p className="text-muted-foreground text-xs mt-2">{test.notes}</p>}
+                  <p className="text-muted-foreground text-xs mt-2">Started: {formatTs(new Date(test.startedAt).getTime())}</p>
                 </CardContent>
               </Card>
             ))}
@@ -855,36 +855,36 @@ function MLOpsDashboardInner() {
                 { label: "Warning", val: driftAlertsQ.data?.warning ?? 0, cls: "text-amber-400" },
                 { label: "Healthy", val: (driftAlertsQ.data?.total ?? 0) - (driftAlertsQ.data?.critical ?? 0) - (driftAlertsQ.data?.warning ?? 0), cls: "text-emerald-400" },
               ].map(s => (
-                <Card key={s.label} className="bg-[#0f1923] border-white/10">
+                <Card key={s.label} className="bg-[#FDFAF3] border-border">
                   <CardContent className="p-4 text-center">
                     <p className={`text-3xl font-bold ${s.cls}`}>{s.val}</p>
-                    <p className="text-white/40 text-xs mt-1">{s.label}</p>
+                    <p className="text-muted-foreground text-xs mt-1">{s.label}</p>
                   </CardContent>
                 </Card>
               ))}
             </div>
-            {driftAlertsQ.isLoading && <Card className="bg-[#0f1923] border-white/10 animate-pulse"><CardContent className="p-5 h-32" /></Card>}
+            {driftAlertsQ.isLoading && <Card className="bg-[#FDFAF3] border-border animate-pulse"><CardContent className="p-5 h-32" /></Card>}
             {!driftAlertsQ.isLoading && !(driftAlertsQ.data?.alerts ?? []).length && (
-              <Card className="bg-[#0f1923] border-white/10"><CardContent className="p-8 text-center text-white/30">No drift alerts. All features are within acceptable bounds.</CardContent></Card>
+              <Card className="bg-[#FDFAF3] border-border"><CardContent className="p-8 text-center text-muted-foreground">No drift alerts. All features are within acceptable bounds.</CardContent></Card>
             )}
             <div className="space-y-2">
               {(driftAlertsQ.data?.alerts ?? []).map((a, i) => (
-                <Card key={i} className={`border ${a.isDrifted ? (a.psi > 0.2 ? "border-red-500/30 bg-red-500/5" : "border-amber-500/30 bg-amber-500/5") : "bg-[#0f1923] border-white/10"}`}>
+                <Card key={i} className={`border ${a.isDrifted ? (a.psi > 0.2 ? "border-red-500/30 bg-red-500/5" : "border-amber-500/30 bg-amber-500/5") : "bg-[#FDFAF3] border-border"}`}>
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2">
                         {a.isDrifted ? <AlertTriangle className="w-4 h-4 text-amber-400" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
-                        <span className="text-white text-sm font-medium">{a.model}</span>
-                        <span className="text-white/40 text-xs">·</span>
-                        <span className="text-white/60 text-xs font-mono">{a.feature}</span>
+                        <span className="text-foreground text-sm font-medium">{a.model}</span>
+                        <span className="text-muted-foreground text-xs">·</span>
+                        <span className="text-muted-foreground text-xs font-mono">{a.feature}</span>
                       </div>
                       <div className="flex items-center gap-4 text-xs">
-                        <span className="text-white/40">PSI: <span className={`font-mono font-bold ${a.psi > 0.2 ? "text-red-400" : a.psi > 0.1 ? "text-amber-400" : "text-emerald-400"}`}>{a.psi.toFixed(4)}</span></span>
-                        <span className="text-white/40">Threshold: <span className="font-mono text-white/60">{a.threshold.toFixed(4)}</span></span>
+                        <span className="text-muted-foreground">PSI: <span className={`font-mono font-bold ${a.psi > 0.2 ? "text-red-400" : a.psi > 0.1 ? "text-amber-400" : "text-emerald-400"}`}>{a.psi.toFixed(4)}</span></span>
+                        <span className="text-muted-foreground">Threshold: <span className="font-mono text-muted-foreground">{a.threshold.toFixed(4)}</span></span>
                         <DriftAlertBadge level={a.isDrifted ? (a.psi > 0.2 ? "critical" : "warning") : "healthy"} />
                       </div>
                     </div>
-                    <p className="text-white/20 text-xs mt-1">{a.computedAt ? new Date(a.computedAt).toLocaleString() : ""}</p>
+                    <p className="text-muted-foreground text-xs mt-1">{a.computedAt ? new Date(a.computedAt).toLocaleString() : ""}</p>
                   </CardContent>
                 </Card>
               ))}
@@ -893,24 +893,24 @@ function MLOpsDashboardInner() {
 
           {/* Dataset Snapshots Tab */}
           <TabsContent value="snapshots" className="space-y-4">
-            <p className="text-white/50 text-sm">Timestamped audit trail of dataset state before each training run.</p>
-            {snapshotsQ.isLoading && <Card className="bg-[#0f1923] border-white/10 animate-pulse"><CardContent className="p-5 h-32" /></Card>}
+            <p className="text-muted-foreground text-sm">Timestamped audit trail of dataset state before each training run.</p>
+            {snapshotsQ.isLoading && <Card className="bg-[#FDFAF3] border-border animate-pulse"><CardContent className="p-5 h-32" /></Card>}
             {!snapshotsQ.isLoading && !(snapshotsQ.data ?? []).length && (
-              <Card className="bg-[#0f1923] border-white/10"><CardContent className="p-8 text-center text-white/30">No snapshots yet. Use the Product Image Collector to create one.</CardContent></Card>
+              <Card className="bg-[#FDFAF3] border-border"><CardContent className="p-8 text-center text-muted-foreground">No snapshots yet. Use the Product Image Collector to create one.</CardContent></Card>
             )}
             <div className="space-y-2">
               {(snapshotsQ.data ?? []).map(snap => (
-                <Card key={snap.id} className="bg-[#0f1923] border-white/10">
+                <Card key={snap.id} className="bg-[#FDFAF3] border-border">
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <div>
-                        <p className="text-white text-sm font-medium">{snap.label ?? `Snapshot ${snap.id.slice(0, 8)}`}</p>
-                        <p className="text-white/40 text-xs mt-0.5">{new Date(snap.createdAt).toLocaleString()}</p>
+                        <p className="text-foreground text-sm font-medium">{snap.label ?? `Snapshot ${snap.id.slice(0, 8)}`}</p>
+                        <p className="text-muted-foreground text-xs mt-0.5">{new Date(snap.createdAt).toLocaleString()}</p>
                       </div>
                       <div className="flex items-center gap-4 text-xs">
-                        <span className="text-white/40">Images: <span className="text-white font-mono">{snap.totalImages}</span></span>
-                        <span className="text-white/40">Bbox: <span className="text-white font-mono">{snap.bboxImages}</span></span>
-                        <span className="text-white/40">Quality: <span className="text-white font-mono">{snap.qualityImages}</span></span>
+                        <span className="text-muted-foreground">Images: <span className="text-foreground font-mono">{snap.totalImages}</span></span>
+                        <span className="text-muted-foreground">Bbox: <span className="text-foreground font-mono">{snap.bboxImages}</span></span>
+                        <span className="text-muted-foreground">Quality: <span className="text-foreground font-mono">{snap.qualityImages}</span></span>
                       </div>
                     </div>
                   </CardContent>
@@ -923,7 +923,7 @@ function MLOpsDashboardInner() {
 
       {/* Create A/B Test Dialog */}
       <Dialog open={showCreateAbTest} onOpenChange={setShowCreateAbTest}>
-        <DialogContent className="bg-[#0f1923] border-white/10 text-white">
+        <DialogContent className="bg-[#FDFAF3] border-border text-foreground">
           <DialogHeader><DialogTitle>Create A/B Test</DialogTitle></DialogHeader>
           <div className="space-y-3 py-2">
             {([
@@ -932,19 +932,19 @@ function MLOpsDashboardInner() {
               { label: "Challenger Version", key: "challengerVersion" as const },
             ]).map(f => (
               <div key={f.key}>
-                <Label className="text-white/60 text-xs">{f.label}</Label>
-                <Input className="bg-white/5 border-white/10 text-white mt-1" value={abForm[f.key]}
+                <Label className="text-muted-foreground text-xs">{f.label}</Label>
+                <Input className="bg-muted border-border text-foreground mt-1" value={abForm[f.key]}
                   onChange={e => setAbForm(p => ({ ...p, [f.key]: e.target.value }))} />
               </div>
             ))}
             <div>
-              <Label className="text-white/60 text-xs">Traffic Split % (challenger)</Label>
-              <Input type="number" min={5} max={50} className="bg-white/5 border-white/10 text-white mt-1"
+              <Label className="text-muted-foreground text-xs">Traffic Split % (challenger)</Label>
+              <Input type="number" min={5} max={50} className="bg-muted border-border text-foreground mt-1"
                 value={abForm.trafficSplitPct} onChange={e => setAbForm(p => ({ ...p, trafficSplitPct: parseInt(e.target.value) || 20 }))} />
             </div>
             <div>
-              <Label className="text-white/60 text-xs">Notes (optional)</Label>
-              <Input className="bg-white/5 border-white/10 text-white mt-1" value={abForm.notes}
+              <Label className="text-muted-foreground text-xs">Notes (optional)</Label>
+              <Input className="bg-muted border-border text-foreground mt-1" value={abForm.notes}
                 onChange={e => setAbForm(p => ({ ...p, notes: e.target.value }))} />
             </div>
           </div>

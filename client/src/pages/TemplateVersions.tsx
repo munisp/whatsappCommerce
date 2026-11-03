@@ -415,7 +415,7 @@ export default function TemplateVersions() {
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center text-xs font-bold text-emerald-400">WC</div>
                   <div>
-                    <p className="text-xs font-semibold text-foreground">WhatsApp Commerce</p>
+                    <p className="text-xs font-semibold text-foreground">OAK</p>
                     <p className="text-xs text-muted-foreground">Business Account</p>
                   </div>
                 </div>

@@ -47,7 +47,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
         <Zap className="w-10 h-10 text-emerald-500" />
       </div>
       <div>
-        <h2 className="text-2xl font-bold text-foreground">Welcome to WhatsApp Commerce</h2>
+        <h2 className="text-2xl font-bold text-foreground">Welcome to OAK</h2>
         <p className="text-muted-foreground mt-2 max-w-md">
           This wizard will connect your business to WhatsApp, CRM (Twenty), ERP (Odoo), and eCommerce (Medusa) in one unified flow. Each step takes 1–2 minutes.
         </p>
@@ -520,7 +520,7 @@ export default function UnifiedOnboarding() {
   const handleFinish = async () => {
     await saveStep.mutateAsync({ step: "review", data: sessionData }).catch(() => null);
     setCompleted(true);
-    toast.success("Platform launched!", { description: "Your WhatsApp Commerce platform is now active." });
+    toast.success("Platform launched!", { description: "Your OAK platform is now active." });
   };
 
   if (completed) {
@@ -532,7 +532,7 @@ export default function UnifiedOnboarding() {
             <CheckCircle2 className="w-10 h-10 text-emerald-500" />
           </div>
           <h2 className="text-2xl font-bold">Platform Active!</h2>
-          <p className="text-muted-foreground">Your WhatsApp Commerce platform is fully configured. Head to the dashboard to start managing your business.</p>
+          <p className="text-muted-foreground">Your OAK platform is fully configured. Head to the dashboard to start managing your business.</p>
           <div className="grid grid-cols-2 gap-2">
             <a href="/dashboard" className="flex items-center justify-center gap-2 p-3 border rounded-lg hover:bg-muted text-sm font-medium">
               <BarChart3 className="w-4 h-4" /> Dashboard

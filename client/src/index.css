@@ -51,44 +51,306 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --font-sans: "Inter", system-ui, sans-serif;
+  --font-sans: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "Newsreader", Georgia, "Times New Roman", serif;
   --font-mono: "JetBrains Mono", monospace;
 }
 
+/* OAK palette. Existing colour classes across every screen resolve to these, so no raw Tailwind hues remain. */
+@theme {
+  --color-white: #FFFDF8;
+  --color-slate-50: #FAF6EC;
+  --color-slate-100: #F2EBDC;
+  --color-slate-200: #E5DCC8;
+  --color-slate-300: #D1C5AC;
+  --color-slate-400: #75695A;
+  --color-slate-500: #6B6050;
+  --color-slate-600: #574E3F;
+  --color-slate-700: #433B2F;
+  --color-slate-800: #2F2A22;
+  --color-slate-900: #23211C;
+  --color-slate-950: #16130F;
+  --color-gray-50: #FAF6EC;
+  --color-gray-100: #F2EBDC;
+  --color-gray-200: #E5DCC8;
+  --color-gray-300: #D1C5AC;
+  --color-gray-400: #75695A;
+  --color-gray-500: #6B6050;
+  --color-gray-600: #574E3F;
+  --color-gray-700: #433B2F;
+  --color-gray-800: #2F2A22;
+  --color-gray-900: #23211C;
+  --color-gray-950: #16130F;
+  --color-zinc-50: #FAF6EC;
+  --color-zinc-100: #F2EBDC;
+  --color-zinc-200: #E5DCC8;
+  --color-zinc-300: #D1C5AC;
+  --color-zinc-400: #75695A;
+  --color-zinc-500: #6B6050;
+  --color-zinc-600: #574E3F;
+  --color-zinc-700: #433B2F;
+  --color-zinc-800: #2F2A22;
+  --color-zinc-900: #23211C;
+  --color-zinc-950: #16130F;
+  --color-neutral-50: #FAF6EC;
+  --color-neutral-100: #F2EBDC;
+  --color-neutral-200: #E5DCC8;
+  --color-neutral-300: #D1C5AC;
+  --color-neutral-400: #75695A;
+  --color-neutral-500: #6B6050;
+  --color-neutral-600: #574E3F;
+  --color-neutral-700: #433B2F;
+  --color-neutral-800: #2F2A22;
+  --color-neutral-900: #23211C;
+  --color-neutral-950: #16130F;
+  --color-stone-50: #FAF6EC;
+  --color-stone-100: #F2EBDC;
+  --color-stone-200: #E5DCC8;
+  --color-stone-300: #D1C5AC;
+  --color-stone-400: #75695A;
+  --color-stone-500: #6B6050;
+  --color-stone-600: #574E3F;
+  --color-stone-700: #433B2F;
+  --color-stone-800: #2F2A22;
+  --color-stone-900: #23211C;
+  --color-stone-950: #16130F;
+  --color-emerald-50: #EEF4EE;
+  --color-emerald-100: #DCE8DD;
+  --color-emerald-200: #BBD2BE;
+  --color-emerald-300: #7FA788;
+  --color-emerald-400: #2F6B46;
+  --color-emerald-500: #2F6B46;
+  --color-emerald-600: #27593B;
+  --color-emerald-700: #1F4A31;
+  --color-emerald-800: #1F3A2D;
+  --color-emerald-900: #16291F;
+  --color-emerald-950: #0F1D16;
+  --color-green-50: #EEF4EE;
+  --color-green-100: #DCE8DD;
+  --color-green-200: #BBD2BE;
+  --color-green-300: #7FA788;
+  --color-green-400: #2F6B46;
+  --color-green-500: #2F6B46;
+  --color-green-600: #27593B;
+  --color-green-700: #1F4A31;
+  --color-green-800: #1F3A2D;
+  --color-green-900: #16291F;
+  --color-green-950: #0F1D16;
+  --color-teal-50: #EEF4EE;
+  --color-teal-100: #DCE8DD;
+  --color-teal-200: #BBD2BE;
+  --color-teal-300: #7FA788;
+  --color-teal-400: #2F6B46;
+  --color-teal-500: #2F6B46;
+  --color-teal-600: #27593B;
+  --color-teal-700: #1F4A31;
+  --color-teal-800: #1F3A2D;
+  --color-teal-900: #16291F;
+  --color-teal-950: #0F1D16;
+  --color-lime-50: #EEF4EE;
+  --color-lime-100: #DCE8DD;
+  --color-lime-200: #BBD2BE;
+  --color-lime-300: #7FA788;
+  --color-lime-400: #2F6B46;
+  --color-lime-500: #2F6B46;
+  --color-lime-600: #27593B;
+  --color-lime-700: #1F4A31;
+  --color-lime-800: #1F3A2D;
+  --color-lime-900: #16291F;
+  --color-lime-950: #0F1D16;
+  --color-blue-50: #EEF1F5;
+  --color-blue-100: #DCE2EB;
+  --color-blue-200: #BCC7D8;
+  --color-blue-300: #8E9FBA;
+  --color-blue-400: #33507A;
+  --color-blue-500: #33507A;
+  --color-blue-600: #2B4468;
+  --color-blue-700: #22304A;
+  --color-blue-800: #1C2A40;
+  --color-blue-900: #151F30;
+  --color-blue-950: #0E1520;
+  --color-sky-50: #EEF1F5;
+  --color-sky-100: #DCE2EB;
+  --color-sky-200: #BCC7D8;
+  --color-sky-300: #8E9FBA;
+  --color-sky-400: #33507A;
+  --color-sky-500: #33507A;
+  --color-sky-600: #2B4468;
+  --color-sky-700: #22304A;
+  --color-sky-800: #1C2A40;
+  --color-sky-900: #151F30;
+  --color-sky-950: #0E1520;
+  --color-cyan-50: #EEF1F5;
+  --color-cyan-100: #DCE2EB;
+  --color-cyan-200: #BCC7D8;
+  --color-cyan-300: #8E9FBA;
+  --color-cyan-400: #33507A;
+  --color-cyan-500: #33507A;
+  --color-cyan-600: #2B4468;
+  --color-cyan-700: #22304A;
+  --color-cyan-800: #1C2A40;
+  --color-cyan-900: #151F30;
+  --color-cyan-950: #0E1520;
+  --color-indigo-50: #EEF1F5;
+  --color-indigo-100: #DCE2EB;
+  --color-indigo-200: #BCC7D8;
+  --color-indigo-300: #8E9FBA;
+  --color-indigo-400: #33507A;
+  --color-indigo-500: #33507A;
+  --color-indigo-600: #2B4468;
+  --color-indigo-700: #22304A;
+  --color-indigo-800: #1C2A40;
+  --color-indigo-900: #151F30;
+  --color-indigo-950: #0E1520;
+  --color-violet-50: #EEF1F5;
+  --color-violet-100: #DCE2EB;
+  --color-violet-200: #BCC7D8;
+  --color-violet-300: #8E9FBA;
+  --color-violet-400: #33507A;
+  --color-violet-500: #33507A;
+  --color-violet-600: #2B4468;
+  --color-violet-700: #22304A;
+  --color-violet-800: #1C2A40;
+  --color-violet-900: #151F30;
+  --color-violet-950: #0E1520;
+  --color-purple-50: #EEF1F5;
+  --color-purple-100: #DCE2EB;
+  --color-purple-200: #BCC7D8;
+  --color-purple-300: #8E9FBA;
+  --color-purple-400: #33507A;
+  --color-purple-500: #33507A;
+  --color-purple-600: #2B4468;
+  --color-purple-700: #22304A;
+  --color-purple-800: #1C2A40;
+  --color-purple-900: #151F30;
+  --color-purple-950: #0E1520;
+  --color-amber-50: #FAF5E6;
+  --color-amber-100: #F3E9CB;
+  --color-amber-200: #E7D6A4;
+  --color-amber-300: #D3BA7A;
+  --color-amber-400: #83611A;
+  --color-amber-500: #B08D45;
+  --color-amber-600: #83611A;
+  --color-amber-700: #6D5016;
+  --color-amber-800: #584112;
+  --color-amber-900: #46330F;
+  --color-amber-950: #2C2009;
+  --color-yellow-50: #FAF5E6;
+  --color-yellow-100: #F3E9CB;
+  --color-yellow-200: #E7D6A4;
+  --color-yellow-300: #D3BA7A;
+  --color-yellow-400: #83611A;
+  --color-yellow-500: #B08D45;
+  --color-yellow-600: #83611A;
+  --color-yellow-700: #6D5016;
+  --color-yellow-800: #584112;
+  --color-yellow-900: #46330F;
+  --color-yellow-950: #2C2009;
+  --color-orange-50: #FBEFEA;
+  --color-orange-100: #F6DFD6;
+  --color-orange-200: #EBBFAE;
+  --color-orange-300: #D99A80;
+  --color-orange-400: #A63A24;
+  --color-orange-500: #B4552F;
+  --color-orange-600: #A63A24;
+  --color-orange-700: #872E1C;
+  --color-orange-800: #6C2517;
+  --color-orange-900: #561D12;
+  --color-orange-950: #36120B;
+  --color-red-50: #FBEFEA;
+  --color-red-100: #F6DFD6;
+  --color-red-200: #EBBFAE;
+  --color-red-300: #D99A80;
+  --color-red-400: #A63A24;
+  --color-red-500: #B4552F;
+  --color-red-600: #A63A24;
+  --color-red-700: #872E1C;
+  --color-red-800: #6C2517;
+  --color-red-900: #561D12;
+  --color-red-950: #36120B;
+  --color-rose-50: #FBEFEA;
+  --color-rose-100: #F6DFD6;
+  --color-rose-200: #EBBFAE;
+  --color-rose-300: #D99A80;
+  --color-rose-400: #A63A24;
+  --color-rose-500: #B4552F;
+  --color-rose-600: #A63A24;
+  --color-rose-700: #872E1C;
+  --color-rose-800: #6C2517;
+  --color-rose-900: #561D12;
+  --color-rose-950: #36120B;
+  --color-pink-50: #FBEFEA;
+  --color-pink-100: #F6DFD6;
+  --color-pink-200: #EBBFAE;
+  --color-pink-300: #D99A80;
+  --color-pink-400: #A63A24;
+  --color-pink-500: #B4552F;
+  --color-pink-600: #A63A24;
+  --color-pink-700: #872E1C;
+  --color-pink-800: #6C2517;
+  --color-pink-900: #561D12;
+  --color-pink-950: #36120B;
+  --color-fuchsia-50: #FBEFEA;
+  --color-fuchsia-100: #F6DFD6;
+  --color-fuchsia-200: #EBBFAE;
+  --color-fuchsia-300: #D99A80;
+  --color-fuchsia-400: #A63A24;
+  --color-fuchsia-500: #B4552F;
+  --color-fuchsia-600: #A63A24;
+  --color-fuchsia-700: #872E1C;
+  --color-fuchsia-800: #6C2517;
+  --color-fuchsia-900: #561D12;
+  --color-fuchsia-950: #36120B;
+}
+
 :root {
-  --radius: 0.625rem;
-  /* WhatsApp Commerce — dark teal/slate theme */
-  --background: oklch(0.12 0.015 220);
-  --foreground: oklch(0.95 0.005 220);
-  --card: oklch(0.16 0.015 220);
-  --card-foreground: oklch(0.95 0.005 220);
-  --popover: oklch(0.16 0.015 220);
-  --popover-foreground: oklch(0.95 0.005 220);
-  --primary: oklch(0.65 0.18 160);
-  --primary-foreground: oklch(0.10 0.01 160);
-  --secondary: oklch(0.22 0.015 220);
-  --secondary-foreground: oklch(0.90 0.005 220);
-  --muted: oklch(0.20 0.012 220);
-  --muted-foreground: oklch(0.60 0.01 220);
-  --accent: oklch(0.25 0.025 220);
-  --accent-foreground: oklch(0.95 0.005 220);
-  --destructive: oklch(0.60 0.22 25);
-  --border: oklch(0.25 0.015 220);
-  --input: oklch(0.22 0.015 220);
-  --ring: oklch(0.65 0.18 160);
-  --chart-1: oklch(0.65 0.18 160);
-  --chart-2: oklch(0.60 0.18 200);
-  --chart-3: oklch(0.70 0.15 270);
-  --chart-4: oklch(0.75 0.18 60);
-  --chart-5: oklch(0.65 0.20 25);
-  --sidebar: oklch(0.10 0.015 220);
-  --sidebar-foreground: oklch(0.90 0.005 220);
-  --sidebar-primary: oklch(0.65 0.18 160);
-  --sidebar-primary-foreground: oklch(0.10 0.01 160);
-  --sidebar-accent: oklch(0.18 0.015 220);
-  --sidebar-accent-foreground: oklch(0.90 0.005 220);
-  --sidebar-border: oklch(0.20 0.015 220);
-  --sidebar-ring: oklch(0.65 0.18 160);
+  /* OAK: forest, ivory, earth, brass, terracotta, charcoal */
+  --oak-forest: #1F3A2D;
+  --oak-forest-deep: #16291F;
+  --oak-ivory: #F7F2E7;
+  --oak-paper: #FDFAF3;
+  --oak-earth: #5A3E2B;
+  --oak-brass: #B08D45;
+  --oak-terracotta: #B4552F;
+  --oak-charcoal: #23211C;
+  --oak-indigo: #22304A;
+  --oak-success: #2F6B46;
+  --oak-warning: #83611A;
+  --oak-error: #A63A24;
+  --oak-info: #33507A;
+
+  --radius: 0.25rem;
+  --background: var(--oak-ivory);
+  --foreground: var(--oak-charcoal);
+  --card: var(--oak-paper);
+  --card-foreground: var(--oak-charcoal);
+  --popover: var(--oak-paper);
+  --popover-foreground: var(--oak-charcoal);
+  --primary: var(--oak-forest);
+  --primary-foreground: var(--oak-ivory);
+  --secondary: #ECE4D2;
+  --secondary-foreground: var(--oak-charcoal);
+  --muted: #EFE8D8;
+  --muted-foreground: #5F5545;
+  --accent: #E7DEC9;
+  --accent-foreground: var(--oak-forest);
+  --destructive: var(--oak-error);
+  --border: #DDD3BD;
+  --input: #CFC4AB;
+  --ring: var(--oak-brass);
+  --chart-1: #1F3A2D;
+  --chart-2: #B08D45;
+  --chart-3: #B4552F;
+  --chart-4: #33507A;
+  --chart-5: #5A3E2B;
+  --sidebar: var(--oak-forest);
+  --sidebar-foreground: #E9E2D0;
+  --sidebar-primary: var(--oak-brass);
+  --sidebar-primary-foreground: var(--oak-forest-deep);
+  --sidebar-accent: #2A4A3A;
+  --sidebar-accent-foreground: #FDFAF3;
+  --sidebar-border: #33523F;
+  --sidebar-ring: var(--oak-brass);
 }
 
 @layer base {
@@ -100,6 +362,19 @@
   }
   .font-mono {
     font-family: var(--font-mono);
+  }
+  h1, h2 {
+    font-family: var(--font-serif);
+    font-weight: 500 !important; /* Newsreader ships at 400/500 here: a bold class would fake a heavier cut */
+    letter-spacing: -0.01em;
+  }
+  /* Tables read like a ledger: quiet column labels and hairline rows. */
+  th {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
   }
 }
 
@@ -135,4 +410,75 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* OAK brand details. Used sparingly: a woven edge or a cowrie line, never a themed page. */
+.oak-weave-band {
+  height: 6px;
+  background: url("/images/oak/patterns/aso-oke-band.svg") repeat-x center / auto 100%;
+}
+.oak-cowrie-rule {
+  height: 20px;
+  background: url("/images/oak/patterns/cowrie-string.svg") repeat-x center;
+}
+.oak-weave-ground {
+  background-color: var(--oak-ivory);
+  background-image: url("/images/oak/patterns/aso-oke-weave.svg");
+}
+.oak-adire-ground {
+  background-color: var(--oak-indigo);
+  background-image: url("/images/oak/patterns/adire-indigo.svg");
+}
+.oak-display {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+.oak-eyebrow {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* The sidebar is forest, so components inside it read tokens meant for a dark ground. */
+[data-sidebar="sidebar"] {
+  --foreground: #F7F2E7;
+  --muted-foreground: #BFC9BA;
+  --accent: #2A4A3A;
+  --accent-foreground: #FDFAF3;
+  --border: #33523F;
+  --primary: #D3BA7A;
+  --primary-foreground: #16291F;
+  --input: #33523F;
+  --background: #16291F;
+  color: #E9E2D0;
+}
+
+/* Page frame and ground: a woven aso-oke edge around the window and a faint weave behind content. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  background:
+    url("/images/oak/patterns/aso-oke-band.svg") repeat-x top left / auto 8px,
+    url("/images/oak/patterns/aso-oke-band.svg") repeat-x bottom left / auto 8px,
+    url("/images/oak/patterns/aso-oke-band-vertical.svg") repeat-y top left / 8px auto,
+    url("/images/oak/patterns/aso-oke-band-vertical.svg") repeat-y top right / 8px auto;
+}
+@media (max-width: 640px) {
+  body::after {
+    background-size: auto 5px, auto 5px, 5px auto, 5px auto;
+  }
+}
+@media print {
+  body::after { display: none; }
+}
+body,
+main.bg-background,
+[data-slot="sidebar-inset"],
+.min-h-screen.bg-background {
+  background-image: url("/images/oak/patterns/aso-oke-weave.svg");
 }

@@ -256,7 +256,7 @@ export const membershipRouter = router({
       await notifyStaffPhone(
         input.tenantId,
         await resolveUserPhone(db0, input.userId),
-        `You have been added to a merchant workspace${result.role ? ` as ${result.role}` : ""} on WhatsApp Commerce. If you did not expect this, contact support.`,
+        `You have been added to a merchant workspace${result.role ? ` as ${result.role}` : ""} on OAK. If you did not expect this, contact support.`,
         "staff_membership_added",
       );
       return result;
@@ -307,7 +307,7 @@ export const membershipRouter = router({
       await notifyStaffPhone(
         input.tenantId,
         await resolveUserPhone(db0, input.userId),
-        "Your staff access to a WhatsApp Commerce merchant workspace has been removed.",
+        "Your staff access to a OAK merchant workspace has been removed.",
         "staff_membership_removed",
       );
       return result;
@@ -370,7 +370,7 @@ export const membershipRouter = router({
       // ONB-S-16: the invitee is notified on BOTH channels (best-effort).
       await notifyStaffPhone(
         input.tenantId, phone,
-        `You have been invited to join a WhatsApp Commerce merchant workspace as ${input.role}. Open the staff invite link and verify this phone number to accept. The invite expires in ${input.expiryHours}h.`,
+        `You have been invited to join a OAK merchant workspace as ${input.role}. Open the staff invite link and verify this phone number to accept. The invite expires in ${input.expiryHours}h.`,
         "staff_invite_sent",
       );
       return { inviteId: row.id, token, phone, role: input.role, expiresAt: expiresAt.toISOString() };

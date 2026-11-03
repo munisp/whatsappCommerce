@@ -11,9 +11,8 @@
  */
 import type { ReactNode } from "react";
 import { Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { startLogin } from "@/const";
+import { OakSignIn } from "@/components/OakSignIn";
 
 type AuthUser = NonNullable<ReturnType<typeof useAuth>["user"]>;
 
@@ -36,19 +35,9 @@ export function AuthGate({ children, allow, deniedTitle, deniedMessage }: AuthGa
   }
 
   if (!isAuthenticated || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="flex flex-col items-center gap-6 p-8 max-w-md w-full text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">Sign in to continue</h1>
-          <p className="text-sm text-muted-foreground">
-            Access to this application requires an authenticated account.
-          </p>
-          <Button onClick={() => startLogin()} size="lg" className="w-full">
-            Sign In
-          </Button>
-        </div>
-      </div>
-    );
+    return import.meta.env.BASE_URL.includes("/platform-admin")
+      ? <OakSignIn title="Platform Admin" description="Sign in to run OAK." photo="city-aerial" alt="An African city and its harbour from the air" />
+      : <OakSignIn />;
   }
 
   if (!allow(user)) {

@@ -12,7 +12,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 
-const COLORS = ["#22c55e", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
+const COLORS = ["#2F6B46", "#33507A", "#B08D45", "#A63A24", "#5A3E2B", "#33507A"];
 
 function StatCard({ title, value, sub, growth, loading }: {
   title: string; value: string; sub?: string; growth?: number; loading?: boolean;
@@ -132,8 +132,8 @@ function TenantAnalyticsInner() {
                 <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(v: any, name: string) => [name === "gmv" ? fmt(v) : v, name === "gmv" ? "GMV" : "Orders"]} />
                 <Legend />
-                <Line yAxisId="left" type="monotone" dataKey="gmv" stroke="#22c55e" strokeWidth={2} dot={false} name="GMV" />
-                <Line yAxisId="right" type="monotone" dataKey="orders" stroke="#3b82f6" strokeWidth={2} dot={false} name="Orders" />
+                <Line yAxisId="left" type="monotone" dataKey="gmv" stroke="#2F6B46" strokeWidth={2} dot={false} name="GMV" />
+                <Line yAxisId="right" type="monotone" dataKey="orders" stroke="#33507A" strokeWidth={2} dot={false} name="Orders" />
               </LineChart>
             </ResponsiveContainer>
           </CardContent>
@@ -152,7 +152,7 @@ function TenantAnalyticsInner() {
                   <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => fmt(v)} />
                   <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={100} />
                   <Tooltip formatter={(v: any) => [fmt(v), "Revenue"]} />
-                  <Bar dataKey="revenue" fill="#22c55e" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="revenue" fill="#2F6B46" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -225,8 +225,8 @@ function TenantAnalyticsInner() {
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="customers" fill="#3b82f6" name="Customers" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="orders" fill="#22c55e" name="Orders" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="customers" fill="#33507A" name="Customers" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="orders" fill="#2F6B46" name="Orders" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>

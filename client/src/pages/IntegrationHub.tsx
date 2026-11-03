@@ -97,7 +97,7 @@ function IntegrationHubInner() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Integration Hub</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Connect Twenty CRM and Odoo ERP to power your WhatsApp commerce experience
+            Connect Twenty CRM and Odoo ERP to power your OAK shop
           </p>
         </div>
 

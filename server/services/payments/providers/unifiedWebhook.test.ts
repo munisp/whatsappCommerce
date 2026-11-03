@@ -11,7 +11,13 @@ const { confirmMock, captureMock, getChainMock } = vi.hoisted(() => ({
   getChainMock: vi.fn(),
 }));
 
-vi.mock("../../../db", () => ({ getDb: async () => ({ __db: true }) }));
+// The signer is chosen from the payment's own row, so the fake database answers that lookup.
+vi.mock("../../../db", () => ({
+  getDb: async () => ({
+    __db: true,
+    select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ tenantId: "t1" }] }) }) }),
+  }),
+}));
 vi.mock("../../paymentConfirm", () => ({ confirmProviderPayment: confirmMock }));
 vi.mock("../../observability", () => ({ captureException: captureMock }));
 vi.mock("./registry", async (importActual) => {
@@ -59,13 +65,14 @@ describe("unified payment webhook", () => {
     const { req, res } = makeReqRes("paystack", raw, hmac(raw, "whsec"));
     await handleUnifiedPaymentWebhook(req, res);
     expect(confirmMock).toHaveBeenCalledTimes(1);
-    expect(confirmMock).toHaveBeenCalledWith({ __db: true }, {
+    expect(confirmMock).toHaveBeenCalledWith(expect.objectContaining({ __db: true }), expect.objectContaining({
       provider: "paystack",
       reference: "PAY-9",
       amountMajor: 1234.56,
       currency: "NGN",
       rawPayload: payload.data,
-    });
+      expectedTenantId: "t1", // refuses a payment that belongs to another shop
+    }));
     expect(res.status).toHaveBeenCalledWith(200);
     expect(getChainMock).toHaveBeenCalledWith("t1");
   });

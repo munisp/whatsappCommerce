@@ -73,21 +73,21 @@ const KYB_DOCUMENT_TYPES = [
 ];
 
 const KYB_STATUS_META: Record<string, { label: string; className: string }> = {
-  not_started: { label: "Not started", className: "bg-zinc-500/15 text-zinc-300 border-zinc-500/30" },
-  pending: { label: "Pending review", className: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
-  approved: { label: "Approved", className: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
-  rejected: { label: "Rejected", className: "bg-red-500/15 text-red-300 border-red-500/30" },
-  resubmit_required: { label: "Resubmission required", className: "bg-orange-500/15 text-orange-300 border-orange-500/30" },
+  not_started: { label: "Not started", className: "bg-zinc-500/15 text-foreground border-zinc-500/30" },
+  pending: { label: "Pending review", className: "bg-amber-500/15 text-amber-700 border-amber-500/30" },
+  approved: { label: "Approved", className: "bg-emerald-500/15 text-emerald-700 border-emerald-500/30" },
+  rejected: { label: "Rejected", className: "bg-red-500/15 text-red-700 border-red-500/30" },
+  resubmit_required: { label: "Resubmission required", className: "bg-orange-500/15 text-orange-700 border-orange-500/30" },
 };
 
 type WizardStepId = (typeof STEPS)[number]["id"];
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
-  draft: { label: "Draft", className: "bg-zinc-500/15 text-zinc-300 border-zinc-500/30" },
-  configuring: { label: "Configuring", className: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
-  validating: { label: "Validating", className: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
-  live: { label: "Live", className: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
-  failed: { label: "Failed", className: "bg-red-500/15 text-red-300 border-red-500/30" },
+  draft: { label: "Draft", className: "bg-zinc-500/15 text-foreground border-zinc-500/30" },
+  configuring: { label: "Configuring", className: "bg-blue-500/15 text-blue-700 border-blue-500/30" },
+  validating: { label: "Validating", className: "bg-amber-500/15 text-amber-700 border-amber-500/30" },
+  live: { label: "Live", className: "bg-emerald-500/15 text-emerald-700 border-emerald-500/30" },
+  failed: { label: "Failed", className: "bg-red-500/15 text-red-700 border-red-500/30" },
 };
 
 const PROVIDER_LABELS: Record<IntegrationProvider, string> = {
@@ -435,7 +435,7 @@ function TenantOnboardingWizardInner() {
                     active
                       ? "border-primary text-primary"
                       : done
-                        ? "border-emerald-500/40 text-emerald-300"
+                        ? "border-emerald-500/40 text-emerald-700"
                         : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
@@ -1156,7 +1156,7 @@ function TenantOnboardingWizardInner() {
                     </Alert>
                   )}
                   {isLive ? (
-                    <div className="flex items-center gap-2 text-emerald-300">
+                    <div className="flex items-center gap-2 text-emerald-700">
                       <CheckCircle2 className="w-5 h-5" /> Tenant is live.
                     </div>
                   ) : (

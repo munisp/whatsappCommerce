@@ -262,7 +262,7 @@ export default function Dashboard() {
                           className="h-full rounded transition-all duration-500 flex items-center px-2"
                           style={{ width: `${Math.max(pct, 4)}%`, background: colors[idx] }}
                         >
-                          <span className="text-xs font-medium text-white">{step.count}</span>
+                          <span className="text-xs font-medium text-foreground">{step.count}</span>
                         </div>
                       </div>
                       {step.dropOff > 0 && (
@@ -278,7 +278,7 @@ export default function Dashboard() {
                       className="h-full rounded flex items-center px-2"
                       style={{ width: `${Math.max(funnelData.completionRate, 4)}%`, background: "oklch(0.65 0.18 130)" }}
                     >
-                      <span className="text-xs font-medium text-white">{funnelData.completedCount}</span>
+                      <span className="text-xs font-medium text-foreground">{funnelData.completedCount}</span>
                     </div>
                   </div>
                   <span className="text-xs text-green-400 w-20 shrink-0">{funnelData.completionRate}% rate</span>

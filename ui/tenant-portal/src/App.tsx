@@ -275,7 +275,7 @@ function Router() {
 
 // Public/token-based routes render without the auth wall: customers,
 // suppliers, and dispute counterparties reach these via a shared link and
-// are never expected to have a WhatsApp Commerce account. The server
+// are never expected to have a OAK account. The server
 // enforces access via the token itself, not session auth.
 const PUBLIC_PREFIXES = ["/track/", "/evidence/", "/sla-extension/", "/shop/"];
 
@@ -370,7 +370,7 @@ function AppRoutes() {
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider defaultTheme="dark">
+      <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster />
           <WouterRouter base={BASE_PATH}>

@@ -93,29 +93,29 @@ function CreateRuleDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-md bg-zinc-900 border-zinc-700">
+      <DialogContent className="max-w-md bg-card border-border">
         <DialogHeader>
-          <DialogTitle className="text-white">Create Alert Rule</DialogTitle>
+          <DialogTitle className="text-foreground">Create Alert Rule</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
-            <Label className="text-zinc-300">Rule Name</Label>
+            <Label className="text-foreground">Rule Name</Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Nightly Reconciliation Alert"
-              className="bg-zinc-800 border-zinc-600 text-white"
+              className="bg-card border-border text-foreground"
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-zinc-300">Rule Type</Label>
+            <Label className="text-foreground">Rule Type</Label>
             <Select value={ruleType} onValueChange={(v) => { setRuleType(v); setThreshold(""); }}>
-              <SelectTrigger className="bg-zinc-800 border-zinc-600 text-white">
+              <SelectTrigger className="bg-card border-border text-foreground">
                 <SelectValue placeholder="Select type" />
               </SelectTrigger>
-              <SelectContent className="bg-zinc-800 border-zinc-700">
+              <SelectContent className="bg-card border-border">
                 {meta.map((m) => (
-                  <SelectItem key={m.value} value={m.value} className="text-white">
+                  <SelectItem key={m.value} value={m.value} className="text-foreground">
                     {m.label}
                   </SelectItem>
                 ))}
@@ -130,7 +130,7 @@ function CreateRuleDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-zinc-300">
+              <Label className="text-foreground">
                 Threshold {selectedMeta ? `(${selectedMeta.unit})` : ""}
               </Label>
               <Input
@@ -138,29 +138,29 @@ function CreateRuleDialog({
                 value={threshold}
                 onChange={(e) => setThreshold(e.target.value)}
                 placeholder={String(selectedMeta?.defaultThreshold ?? 5)}
-                className="bg-zinc-800 border-zinc-600 text-white"
+                className="bg-card border-border text-foreground"
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-zinc-300">Window (hours)</Label>
+              <Label className="text-foreground">Window (hours)</Label>
               <Input
                 type="number"
                 value={windowHours}
                 onChange={(e) => setWindowHours(e.target.value)}
-                className="bg-zinc-800 border-zinc-600 text-white"
+                className="bg-card border-border text-foreground"
               />
             </div>
           </div>
-          <div className="flex items-center justify-between rounded-lg border border-zinc-700 p-3">
+          <div className="flex items-center justify-between rounded-lg border border-border p-3">
             <div>
-              <p className="text-sm text-zinc-300">Notify owner on trigger</p>
+              <p className="text-sm text-foreground">Notify owner on trigger</p>
               <p className="text-xs text-zinc-500">Send a push notification when this rule fires</p>
             </div>
             <Switch checked={notifyOwner} onCheckedChange={setNotifyOwner} />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} className="border-zinc-600 text-zinc-300">
+          <Button variant="outline" onClick={onClose} className="border-border text-foreground">
             Cancel
           </Button>
           <Button
@@ -197,32 +197,32 @@ function EditThresholdDialog({
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-sm bg-zinc-900 border-zinc-700">
+      <DialogContent className="max-w-sm bg-card border-border">
         <DialogHeader>
-          <DialogTitle className="text-white">Edit Threshold — {rule.name}</DialogTitle>
+          <DialogTitle className="text-foreground">Edit Threshold — {rule.name}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
-            <Label className="text-zinc-300">Threshold ({rule.unit})</Label>
+            <Label className="text-foreground">Threshold ({rule.unit})</Label>
             <Input
               type="number"
               value={threshold}
               onChange={(e) => setThreshold(e.target.value)}
-              className="bg-zinc-800 border-zinc-600 text-white"
+              className="bg-card border-border text-foreground"
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-zinc-300">Window (hours)</Label>
+            <Label className="text-foreground">Window (hours)</Label>
             <Input
               type="number"
               value={windowHours}
               onChange={(e) => setWindowHours(e.target.value)}
-              className="bg-zinc-800 border-zinc-600 text-white"
+              className="bg-card border-border text-foreground"
             />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} className="border-zinc-600 text-zinc-300">
+          <Button variant="outline" onClick={onClose} className="border-border text-foreground">
             Cancel
           </Button>
           <Button
@@ -298,7 +298,7 @@ function AlertRulesInner() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-white">Alert Rules</h1>
+            <h1 className="text-2xl font-bold text-foreground">Alert Rules</h1>
             <p className="text-zinc-400 text-sm mt-1">
               Configure thresholds for automated monitoring alerts. Rules are evaluated by
               registered heartbeat jobs and trigger owner notifications when exceeded.
@@ -309,7 +309,7 @@ function AlertRulesInner() {
               variant="outline"
               onClick={() => seedMutation.mutate()}
               disabled={seedMutation.isPending}
-              className="border-zinc-600 text-zinc-300 hover:text-white gap-2 text-xs"
+              className="border-border text-foreground hover:text-white gap-2 text-xs"
             >
               <Wand2 className="w-3.5 h-3.5" />
               Seed Defaults
@@ -325,11 +325,11 @@ function AlertRulesInner() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="bg-zinc-800 border border-zinc-700">
-            <TabsTrigger value="rules" className="data-[state=active]:bg-zinc-700 text-zinc-300">
+          <TabsList className="bg-card border border-border">
+            <TabsTrigger value="rules" className="data-[state=active]:bg-muted text-foreground">
               Rules ({rules?.length ?? 0})
             </TabsTrigger>
-            <TabsTrigger value="history" className="data-[state=active]:bg-zinc-700 text-zinc-300">
+            <TabsTrigger value="history" className="data-[state=active]:bg-muted text-foreground">
               <History className="w-3.5 h-3.5 mr-1.5" />
               History
             </TabsTrigger>
@@ -339,23 +339,23 @@ function AlertRulesInner() {
           <TabsContent value="rules" className="space-y-4 mt-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {meta.map((m) => (
-                <Card key={m.value} className="bg-zinc-900 border-zinc-700">
+                <Card key={m.value} className="bg-card border-border">
                   <CardContent className="p-3">
                     <Badge className={`text-xs mb-2 ${RULE_TYPE_COLORS[m.value] ?? ""}`}>
                       {m.label}
                     </Badge>
                     <p className="text-xs text-zinc-500 leading-relaxed">{m.description}</p>
                     <p className="text-xs text-zinc-400 mt-1.5">
-                      Default: <span className="text-white font-medium">{m.defaultThreshold} {m.unit}</span>
+                      Default: <span className="text-foreground font-medium">{m.defaultThreshold} {m.unit}</span>
                     </p>
                   </CardContent>
                 </Card>
               ))}
             </div>
 
-            <Card className="bg-zinc-900 border-zinc-700">
+            <Card className="bg-card border-border">
               <CardHeader className="pb-3">
-                <CardTitle className="text-white text-base">Configured Rules</CardTitle>
+                <CardTitle className="text-foreground text-base">Configured Rules</CardTitle>
                 <CardDescription className="text-zinc-400">
                   {rules?.length ?? 0} rule{rules?.length !== 1 ? "s" : ""} configured
                 </CardDescription>
@@ -364,7 +364,7 @@ function AlertRulesInner() {
                 {isLoading ? (
                   <div className="space-y-3">
                     {[1, 2, 3].map((i) => (
-                      <Skeleton key={i} className="h-16 w-full bg-zinc-800" />
+                      <Skeleton key={i} className="h-16 w-full bg-card" />
                     ))}
                   </div>
                 ) : !rules?.length ? (
@@ -378,7 +378,7 @@ function AlertRulesInner() {
                     {rules.map((rule) => (
                       <div
                         key={rule.id}
-                        className="flex items-center gap-4 rounded-lg border border-zinc-700 bg-zinc-800/50 p-4 transition-colors hover:bg-zinc-800"
+                        className="flex items-center gap-4 rounded-lg border border-border bg-card/50 p-4 transition-colors hover:bg-card"
                       >
                         <Switch
                           checked={rule.isEnabled}
@@ -386,22 +386,22 @@ function AlertRulesInner() {
                         />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-white font-medium text-sm truncate">{rule.name}</span>
+                            <span className="text-foreground font-medium text-sm truncate">{rule.name}</span>
                             <Badge className={`text-xs ${RULE_TYPE_COLORS[rule.ruleType] ?? ""}`}>
                               {rule.label}
                             </Badge>
                             {!rule.isEnabled && (
-                              <Badge className="text-xs bg-zinc-700 text-zinc-400">Disabled</Badge>
+                              <Badge className="text-xs bg-muted text-zinc-400">Disabled</Badge>
                             )}
                           </div>
                           <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500 flex-wrap">
                             <span className="flex items-center gap-1">
                               <AlertTriangle className="w-3 h-3" />
-                              Threshold: <span className="text-zinc-300">{rule.threshold} {rule.unit}</span>
+                              Threshold: <span className="text-foreground">{rule.threshold} {rule.unit}</span>
                             </span>
                             <span className="flex items-center gap-1">
                               <Clock className="w-3 h-3" />
-                              Window: <span className="text-zinc-300">{rule.windowHours}h</span>
+                              Window: <span className="text-foreground">{rule.windowHours}h</span>
                             </span>
                             {rule.notifyOwnerOnTrigger ? (
                               <span className="flex items-center gap-1 text-emerald-400">
@@ -423,7 +423,7 @@ function AlertRulesInner() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="border-zinc-600 text-zinc-300 hover:text-white h-8 text-xs"
+                            className="border-border text-foreground hover:text-white h-8 text-xs"
                             onClick={() => setEditingRule(rule as AlertRuleRow)}
                           >
                             Edit
@@ -451,10 +451,10 @@ function AlertRulesInner() {
 
           {/* ── History tab ────────────────────────────────────────────── */}
           <TabsContent value="history" className="mt-4">
-            <Card className="bg-zinc-900 border-zinc-700">
+            <Card className="bg-card border-border">
               <CardHeader className="pb-3 flex flex-row items-center justify-between">
                 <div>
-                  <CardTitle className="text-white text-base">Trigger History</CardTitle>
+                  <CardTitle className="text-foreground text-base">Trigger History</CardTitle>
                   <CardDescription className="text-zinc-400">
                     {eventsData?.total ?? 0} events in the last {historyDays} days
                   </CardDescription>
@@ -463,13 +463,13 @@ function AlertRulesInner() {
                   value={String(historyDays)}
                   onValueChange={(v) => setHistoryDays(parseInt(v))}
                 >
-                  <SelectTrigger className="w-32 bg-zinc-800 border-zinc-600 text-zinc-300 h-8 text-xs">
+                  <SelectTrigger className="w-32 bg-card border-border text-foreground h-8 text-xs">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
-                    <SelectItem value="7" className="text-white text-xs">Last 7 days</SelectItem>
-                    <SelectItem value="30" className="text-white text-xs">Last 30 days</SelectItem>
-                    <SelectItem value="90" className="text-white text-xs">Last 90 days</SelectItem>
+                  <SelectContent className="bg-card border-border">
+                    <SelectItem value="7" className="text-foreground text-xs">Last 7 days</SelectItem>
+                    <SelectItem value="30" className="text-foreground text-xs">Last 30 days</SelectItem>
+                    <SelectItem value="90" className="text-foreground text-xs">Last 90 days</SelectItem>
                   </SelectContent>
                 </Select>
               </CardHeader>
@@ -477,7 +477,7 @@ function AlertRulesInner() {
                 {eventsLoading ? (
                   <div className="space-y-3">
                     {[1, 2, 3, 4].map((i) => (
-                      <Skeleton key={i} className="h-14 w-full bg-zinc-800" />
+                      <Skeleton key={i} className="h-14 w-full bg-card" />
                     ))}
                   </div>
                 ) : !eventsData?.events.length ? (
@@ -493,7 +493,7 @@ function AlertRulesInner() {
                     {eventsData.events.map((evt) => (
                       <div
                         key={evt.id}
-                        className="flex items-center gap-4 rounded-lg border border-zinc-700 bg-zinc-800/40 p-3"
+                        className="flex items-center gap-4 rounded-lg border border-border bg-card/40 p-3"
                       >
                        {evt.notificationSent ? (
                           <XCircle className="w-4 h-4 text-red-400 shrink-0" />
@@ -502,7 +502,7 @@ function AlertRulesInner() {
                         )}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-white text-sm font-medium">{evt.ruleName}</span>
+                            <span className="text-foreground text-sm font-medium">{evt.ruleName}</span>
                             <Badge className={`text-xs ${RULE_TYPE_COLORS[evt.ruleType] ?? ""}`}>
                               {evt.ruleType.replace(/_/g, " ")}
                             </Badge>
@@ -514,13 +514,13 @@ function AlertRulesInner() {
                           </div>
                           <div className="flex items-center gap-3 mt-0.5 text-xs text-zinc-500">
                             <span>
-                              Actual: <span className="text-zinc-300 font-medium">{evt.actualValue.toFixed(2)}</span>
+                              Actual: <span className="text-foreground font-medium">{evt.actualValue.toFixed(2)}</span>
                             </span>
                             <span>
-                              Threshold: <span className="text-zinc-300">{evt.threshold}</span>
+                              Threshold: <span className="text-foreground">{evt.threshold}</span>
                             </span>
                             <span>
-                              Window: <span className="text-zinc-300">{evt.windowHours}h</span>
+                              Window: <span className="text-foreground">{evt.windowHours}h</span>
                             </span>
                           </div>
                         </div>

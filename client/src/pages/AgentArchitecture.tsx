@@ -239,7 +239,7 @@ function AgentArchitectureInner() {
         </div>
 
         {/* Architecture Diagram (text-based) */}
-        <Card className="border-zinc-800 bg-zinc-900/50">
+        <Card className="border-border bg-card/50">
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <Database className="h-4 w-4 text-muted-foreground" />
@@ -247,7 +247,7 @@ function AgentArchitectureInner() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="font-mono text-xs text-muted-foreground bg-zinc-950 rounded-lg p-4 overflow-x-auto">
+            <div className="font-mono text-xs text-muted-foreground bg-card rounded-lg p-4 overflow-x-auto">
               <pre>{`WhatsApp User
       │  (HTTPS POST)
       ▼
@@ -339,7 +339,7 @@ function AgentArchitectureInner() {
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             {agentCapabilities.map((cap) => (
-              <Card key={cap.title} className="border-zinc-800 bg-zinc-900/50 hover:bg-zinc-900 transition-colors">
+              <Card key={cap.title} className="border-border bg-card/50 hover:bg-card transition-colors">
                 <CardContent className="p-4">
                   <cap.icon className="h-5 w-5 text-green-400 mb-2" />
                   <p className="text-sm font-semibold mb-1">{cap.title}</p>
@@ -350,7 +350,7 @@ function AgentArchitectureInner() {
           </div>
         </div>
 
-        <Separator className="bg-zinc-800" />
+        <Separator className="bg-card" />
 
         {/* Middleware Components */}
         <div>
@@ -360,7 +360,7 @@ function AgentArchitectureInner() {
           </h2>
           <div className="space-y-2">
             {middlewareComponents.map((comp) => (
-              <div key={comp.name} className="flex items-start gap-3 p-3 rounded-lg border border-zinc-800 bg-zinc-900/30 hover:bg-zinc-900/60 transition-colors">
+              <div key={comp.name} className="flex items-start gap-3 p-3 rounded-lg border border-border bg-card/30 hover:bg-card/60 transition-colors">
                 <Badge variant="outline" className={`flex-shrink-0 text-xs font-mono ${comp.color}`}>
                   {comp.badge}
                 </Badge>
@@ -385,7 +385,7 @@ function AgentArchitectureInner() {
               <p className="text-sm font-semibold text-amber-400 mb-1">Deployment Note</p>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 The Go Event Gateway, Rust Message Processor, and Python KYC Verifier run as separate Docker containers
-                (see <code className="bg-zinc-800 px-1 rounded">services/middleware/docker-compose.middleware.yml</code>).
+                (see <code className="bg-card px-1 rounded">services/middleware/docker-compose.middleware.yml</code>).
                 The Temporal worker and Dapr sidecar are co-deployed alongside the Node.js app.
                 The Heartbeat inventory sync job activates automatically after the first Publish — it cannot run
                 in the sandbox dev environment because the platform requires a live HTTPS URL to register the schedule.

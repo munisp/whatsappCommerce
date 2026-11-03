@@ -40,24 +40,24 @@ export default function PortalOrders() {
     <TenantPortalLayout>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-white">My Orders</h1>
+          <h1 className="text-2xl font-bold text-foreground">My Orders</h1>
           <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger className="w-40 bg-slate-800 border-slate-700 text-white">
+            <SelectTrigger className="w-40 bg-card border-border text-foreground">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent className="bg-slate-800 border-slate-700">
+            <SelectContent className="bg-card border-border">
               {["all","pending","confirmed","processing","shipped","delivered","cancelled"].map(s => (
-                <SelectItem key={s} value={s} className="text-slate-200 capitalize">{s}</SelectItem>
+                <SelectItem key={s} value={s} className="text-foreground capitalize">{s}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
 
-        <Card className="bg-slate-800 border-slate-700">
+        <Card className="bg-card border-border">
           <CardContent className="p-0">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-700 text-slate-400 text-xs">
+                <tr className="border-b border-border text-slate-400 text-xs">
                   <th className="text-left p-4 w-8"></th>
                   <th className="text-left p-4">Order #</th>
                   <th className="text-left p-4">Date</th>
@@ -70,16 +70,16 @@ export default function PortalOrders() {
               <tbody>
                 {(orders ?? []).map(order => (
                   <>
-                  <tr key={order.id} className={`border-b border-slate-700/50 hover:bg-slate-700/30 cursor-pointer ${expandedId === order.id ? "bg-slate-700/40" : ""}`}
+                  <tr key={order.id} className={`border-b border-border/50 hover:bg-muted/30 cursor-pointer ${expandedId === order.id ? "bg-muted/40" : ""}`}
                     onClick={() => setExpandedId(expandedId === order.id ? null : order.id)}>
                     <td className="p-4 text-slate-400">
                       {expandedId === order.id ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                     </td>
-                    <td className="p-4 font-mono text-white">{order.orderNumber}</td>
+                    <td className="p-4 font-mono text-foreground">{order.orderNumber}</td>
                     <td className="p-4 text-slate-400">{new Date(order.createdAt).toLocaleDateString()}</td>
                     <td className="p-4 text-emerald-400 font-semibold">${Number(order.totalAmount).toFixed(2)}</td>
                     <td className="p-4">
-                      <Badge variant="outline" className="text-xs border-slate-600 text-slate-300">{order.paymentStatus}</Badge>
+                      <Badge variant="outline" className="text-xs border-border text-foreground">{order.paymentStatus}</Badge>
                     </td>
                     <td className="p-4">
                       <Badge className={`text-xs ${STATUS_COLORS[order.status] ?? ""}`}>{order.status}</Badge>
@@ -89,12 +89,12 @@ export default function PortalOrders() {
                         <Select
                           onValueChange={(v: any) => { updateMutation.mutate({ orderId: order.id, status: v }); }}
                         >
-                          <SelectTrigger className="h-7 w-32 bg-slate-700 border-slate-600 text-xs text-white">
+                          <SelectTrigger className="h-7 w-32 bg-muted border-border text-xs text-foreground">
                             <SelectValue placeholder="Update…" />
                           </SelectTrigger>
-                          <SelectContent className="bg-slate-800 border-slate-700">
+                          <SelectContent className="bg-card border-border">
                             {["confirmed","processing","shipped","delivered","cancelled"].map(s => (
-                              <SelectItem key={s} value={s} className="text-slate-200 text-xs capitalize">{s}</SelectItem>
+                              <SelectItem key={s} value={s} className="text-foreground text-xs capitalize">{s}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -102,24 +102,24 @@ export default function PortalOrders() {
                     </td>
                   </tr>
                   {expandedId === order.id && (
-                    <tr key={`${order.id}-detail`} className="bg-slate-800/60 border-b border-slate-700/50">
+                    <tr key={`${order.id}-detail`} className="bg-card/60 border-b border-border/50">
                       <td colSpan={7} className="px-6 py-4">
                         {detailLoading ? (
-                          <div className="space-y-2"><Skeleton className="h-4 w-48 bg-slate-700" /><Skeleton className="h-4 w-32 bg-slate-700" /></div>
+                          <div className="space-y-2"><Skeleton className="h-4 w-48 bg-muted" /><Skeleton className="h-4 w-32 bg-muted" /></div>
                         ) : orderDetail ? (
                           <div className="space-y-3">
                             <div className="grid grid-cols-3 gap-4 text-xs">
-                              <div><p className="text-slate-500">Customer ID</p><p className="text-slate-200 font-mono text-[10px]">{orderDetail.order.customerId ?? "—"}</p></div>
-                              <div><p className="text-slate-500">Payment</p><p className="text-slate-200 capitalize">{orderDetail.order.paymentStatus}</p></div>
-                              <div><p className="text-slate-500">Notes</p><p className="text-slate-200">{(orderDetail.order as any).notes ?? "—"}</p></div>
+                              <div><p className="text-slate-500">Customer ID</p><p className="text-foreground font-mono text-[10px]">{orderDetail.order.customerId ?? "—"}</p></div>
+                              <div><p className="text-slate-500">Payment</p><p className="text-foreground capitalize">{orderDetail.order.paymentStatus}</p></div>
+                              <div><p className="text-slate-500">Notes</p><p className="text-foreground">{(orderDetail.order as any).notes ?? "—"}</p></div>
                             </div>
                             {orderDetail.items && orderDetail.items.length > 0 && (
                               <div>
                                 <p className="text-xs text-slate-500 mb-2">Items</p>
                                 <div className="space-y-1">
                                   {orderDetail.items.map((item: any, i: number) => (
-                                    <div key={i} className="flex items-center justify-between text-xs bg-slate-700/40 rounded px-3 py-2">
-                                      <span className="text-slate-200">{item.productName ?? item.productId}</span>
+                                    <div key={i} className="flex items-center justify-between text-xs bg-muted/40 rounded px-3 py-2">
+                                      <span className="text-foreground">{item.productName ?? item.productId}</span>
                                       <span className="text-slate-400">x{item.quantity}</span>
                                       <span className="text-emerald-400">${Number(item.unitPrice ?? 0).toFixed(2)}</span>
                                     </div>
