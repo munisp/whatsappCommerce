@@ -201,7 +201,11 @@ export default function Conversations() {
                   virtualizer={virtualizer}
                   colSpan={9}
                   emptyState={
-                    <div className="text-center text-muted-foreground py-8">No conversations found</div>
+                    <div className="text-center text-muted-foreground py-8 space-y-1">
+                      <p className="font-medium text-foreground">No WhatsApp chats yet</p>
+                      <p className="text-sm">When customers message your shop on WhatsApp, each chat appears here.</p>
+                      <p className="text-sm">Orders from your web store are under Orders and Payments.</p>
+                    </div>
                   }
                   renderRow={(c) => (
                   <TableRow key={c.id} className="border-border hover:bg-accent/30 cursor-pointer" onClick={() => { setSelectedConv(c as any); setTimelineOpen(true); }}>

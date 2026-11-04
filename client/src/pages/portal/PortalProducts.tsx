@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Package, Edit2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import { formatMoney, formatMoneyShort } from "@/lib/money";
 type ProductRow = {
   id: string; tenantId: string; sku: string; name: string;
   description: string | null; category: string | null; price: string;
@@ -72,7 +73,7 @@ export default function PortalProducts() {
                 <p className="font-semibold text-foreground text-sm mb-1 truncate">{p.name}</p>
                 <p className="text-xs text-slate-400 mb-2">SKU: {p.sku}</p>
                 <div className="flex items-center justify-between">
-                  <span className="text-emerald-400 font-bold">${Number(p.price).toFixed(2)}</span>
+                  <span className="text-emerald-400 font-bold">{formatMoney(p.price, (p as any).currency)}</span>
                   <div className="flex items-center gap-1 text-xs text-slate-400">
                     {p.stockQuantity <= (p.lowStockThreshold ?? 10) && (
                       <AlertTriangle className="h-3 w-3 text-amber-400" />

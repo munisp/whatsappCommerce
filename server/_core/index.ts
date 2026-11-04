@@ -1695,8 +1695,26 @@ async function startServer() {
   server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
     if (url.pathname === "/api/ws/conversations") {
+      // Live events belong to one shop: only a signed-in user who may see
+      // that shop gets its stream (same rule as every tRPC tenant route).
+      const requested = url.searchParams.get("tenantId") ?? "";
+      void (async () => {
+        let allowed = false;
+        try {
+          const user = await sdk.authenticateRequest(req as any);
+          const { assertTenantAccess } = await import("./trpc");
+          if (user && requested) {
+            assertTenantAccess(user as any, requested);
+            allowed = true;
+          }
+        } catch { allowed = false; }
+        if (!allowed) {
+          socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+          socket.destroy();
+          return;
+        }
       wss.handleUpgrade(req, socket, head, (ws) => {
-        const tenantId = url.searchParams.get("tenantId") ?? "unknown";
+        const tenantId = requested;
         if (!tenantClients.has(tenantId)) tenantClients.set(tenantId, new Set());
         tenantClients.get(tenantId)!.add(ws);
         // Send a welcome ping
@@ -1722,6 +1740,7 @@ async function startServer() {
           if (simInterval) clearInterval(simInterval);
         });
       });
+      })();
     } else {
       socket.destroy();
     }

@@ -15,11 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import {
-  Building2, CreditCard, MessageSquare, ShieldCheck, CheckCircle2,
-  ArrowRight, ArrowLeft, Upload, Camera, Eye, Loader2, AlertCircle,
-  TrendingUp, DollarSign, Zap, Star, Info,
-} from "lucide-react";
+import { Building2, CreditCard, MessageSquare, ShieldCheck, CheckCircle2, ArrowRight, ArrowLeft, Upload, Camera, Eye, Loader2, AlertCircle, TrendingUp, Banknote, Zap, Star, Info } from "lucide-react";
 import { Mail } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -103,7 +99,7 @@ function BillingPlanCard({
     subscription: {
       name: "Subscription",
       tagline: "Predictable monthly cost",
-      icon: <DollarSign className="w-6 h-6 text-blue-500" />,
+      icon: <Banknote className="w-6 h-6 text-blue-500" />,
       color: "blue",
       description: "Fixed monthly fee. Full access regardless of volume.",
       example: "Growth: $149/month → up to $50k GMV",

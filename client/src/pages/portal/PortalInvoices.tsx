@@ -2,7 +2,8 @@ import { TenantPortalLayout } from "@/components/TenantPortalLayout";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { FileText, DollarSign } from "lucide-react";
+import { FileText, Banknote } from "lucide-react";
+import { formatMoney, formatMoneyShort } from "@/lib/money";
 
 const STATUS_COLORS: Record<string, string> = {
   draft: "bg-muted/20 text-slate-400 border-border/30",
@@ -26,9 +27,9 @@ export default function PortalInvoices() {
 
         <div className="grid grid-cols-3 gap-4">
           {[
-            { label: "Total Invoiced", value: `$${total.toLocaleString()}`, color: "text-foreground" },
-            { label: "Paid", value: `$${paid.toLocaleString()}`, color: "text-emerald-400" },
-            { label: "Outstanding", value: `$${outstanding.toLocaleString()}`, color: "text-amber-400" },
+            { label: "Total Invoiced", value: formatMoney(total), color: "text-foreground" },
+            { label: "Paid", value: formatMoney(paid), color: "text-emerald-400" },
+            { label: "Outstanding", value: formatMoney(outstanding), color: "text-amber-400" },
           ].map(({ label, value, color }) => (
             <Card key={label} className="bg-card border-border">
               <CardContent className="p-4">
@@ -60,7 +61,7 @@ export default function PortalInvoices() {
                       {inv.periodStart ? new Date(inv.periodStart).toLocaleDateString() : "—"} –{" "}
                       {inv.periodEnd ? new Date(inv.periodEnd).toLocaleDateString() : "—"}
                     </td>
-                    <td className="p-4 text-emerald-400 font-semibold">${Number(inv.totalAmount).toFixed(2)}</td>
+                    <td className="p-4 text-emerald-400 font-semibold">{formatMoney(inv.totalAmount, (inv as any).currency)}</td>
                     <td className="p-4 text-foreground capitalize">{inv.type}</td>
                     <td className="p-4">
                       <Badge className={`text-xs ${STATUS_COLORS[inv.status] ?? ""}`}>{inv.status}</Badge>

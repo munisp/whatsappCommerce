@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { usePollInterval } from "@/hooks/usePollInterval";
-import { Bell, Check, CheckCheck, Package, Lock, AlertTriangle, DollarSign, Truck, RotateCcw, Info } from "lucide-react";
+import { Bell, Check, CheckCheck, Package, Lock, AlertTriangle, Banknote, Truck, RotateCcw, Info } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -21,11 +21,11 @@ const CATEGORIES: { key: Category; label: string }[] = [
 const NOTIF_ICONS: Record<NotifType, React.ElementType> = {
   escrow_held: Lock,
   delivery_confirmed: Package,
-  escrow_settled: DollarSign,
+  escrow_settled: Banknote,
   escrow_refunded: RotateCcw,
   dispute_opened: AlertTriangle,
   dispute_resolved: CheckCheck,
-  withdrawal_processed: DollarSign,
+  withdrawal_processed: Banknote,
   shipment_update: Truck,
   system: Info,
 };

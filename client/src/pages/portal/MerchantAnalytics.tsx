@@ -10,7 +10,7 @@ import { CapabilityGuard } from "@/components/CapabilityGuard";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { TrendingUp, ShoppingCart, DollarSign, Package, BarChart3, Download } from "lucide-react";
+import { TrendingUp, ShoppingCart, Banknote, Package, BarChart3, Download } from "lucide-react";
 
 type Period = "7d" | "30d" | "90d";
 
@@ -48,7 +48,7 @@ function MerchantAnalyticsInner() {
     {
       label: "Total GMV",
       value: data ? fmt(data.summary.totalGmv) : "—",
-      icon: DollarSign,
+      icon: Banknote,
       color: "text-emerald-600",
       bg: "bg-emerald-50",
     },

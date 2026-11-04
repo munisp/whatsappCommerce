@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
 import { formatDistanceToNow } from "date-fns";
-import { CreditCard, DollarSign, RefreshCw, XCircle } from "lucide-react";
+import { CreditCard, Banknote, RefreshCw, XCircle } from "lucide-react";
 import { useState } from "react";
 
 
@@ -52,7 +52,7 @@ function PaymentsInner() {
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: "Total Revenue", value: `${({ NGN: "₦", USD: "$", GHS: "GH₵", KES: "KSh ", ZAR: "R" } as Record<string, string>)[(paymentList?.[0] as any)?.currency ?? "NGN"] ?? ((paymentList?.[0] as any)?.currency ?? "") + " "}${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: DollarSign, color: "text-primary" },
+            { label: "Total Revenue", value: `${({ NGN: "₦", USD: "$", GHS: "GH₵", KES: "KSh ", ZAR: "R" } as Record<string, string>)[(paymentList?.[0] as any)?.currency ?? "NGN"] ?? ((paymentList?.[0] as any)?.currency ?? "") + " "}${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: Banknote, color: "text-primary" },
             { label: "Completed", value: completed.length, icon: CreditCard, color: "text-green-400" },
             { label: "Pending", value: pending.length, icon: RefreshCw, color: "text-yellow-400" },
             { label: "Failed", value: failed.length, icon: XCircle, color: "text-red-400" },
