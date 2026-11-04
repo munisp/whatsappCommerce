@@ -49,14 +49,20 @@ export const journey: Journey = {
     assert(Math.abs(Number(saved.latitude) - SHOP.lat) < 1e-6, `latitude persisted (${saved.latitude})`);
     assert(Math.abs(Number(saved.longitude) - SHOP.lng) < 1e-6, `longitude persisted (${saved.longitude})`);
     assert(saved.geohash === expectedHash, "persisted geohash matches");
-    assert(saved.discoverable === false, "discoverable defaults to false");
+    // Saving a first location is the opt-in (2026-11-04): shops that set a
+    // location kept forgetting the separate switch and stayed invisible.
+    assert(saved.discoverable === true, "a first saved location turns nearby search on");
 
-    // Not discoverable yet → invisible even to a nearby customer.
+    // The owner can still switch it off → invisible even to a nearby customer.
+    await merchant.geo.merchant.setDiscoverable({ discoverable: false });
     let res = await pub.geo.discover({ lat: NEAR_CUSTOMER.lat, lng: NEAR_CUSTOMER.lng });
     assert(
       !res.items.some((i: any) => i.tenantId === TENANT_ID),
       "non-discoverable merchant hidden at 3 km",
     );
+    // Saving the location again keeps the owner's choice (still hidden).
+    await merchant.geo.merchant.setLocation({ latitude: SHOP.lat, longitude: SHOP.lng });
+    assert((await merchant.geo.merchant.getLocation())?.discoverable === false, "a later save keeps the owner's choice");
 
     // Toggle on → nearby customer sees the merchant inside the 5 km radius.
     await merchant.geo.merchant.setDiscoverable({ discoverable: true });
