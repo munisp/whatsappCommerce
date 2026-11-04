@@ -14,6 +14,28 @@ import { router, adminProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 
 type Row = Record<string, any>;
+
+// The platform's in-cluster services and the port each listens on.
+const SERVICES: Record<string, number> = {
+  "ai-agent": 8090, "commerce-engine": 8083, "conversation-orchestrator": 8082, "event-gateway": 8002, "event-processor": 8091,
+  "fluvio-consumer": 8098, gateway: 8080, "hermes-bridge": 8095, "hermes-router": 8096, "ledger-bridge": 8095, "ml-stack": 8099,
+  "payment-orchestrator": 8084, "recon-worker": 8096, "webhook-ingestor": 8081,
+};
+
+/** GET /health on each service, in parallel, 2.5 s each. */
+async function probeServices() {
+  const checkedAt = new Date().toISOString();
+  return Promise.all(Object.entries(SERVICES).map(async ([name, port]) => {
+    const started = Date.now();
+    try {
+      const res = await fetch(`http://${name}:${port}/health`, { signal: AbortSignal.timeout(2500) });
+      return { name, status: res.ok ? "healthy" : "degraded", latencyMs: Date.now() - started, detail: res.ok ? null : `HTTP ${res.status}`, checkedAt };
+    } catch (e: any) {
+      const timedOut = e?.name === "TimeoutError" || /abort/i.test(String(e?.message));
+      return { name, status: "down", latencyMs: null, detail: timedOut ? "no answer within 2.5 s" : String(e?.cause?.code ?? e?.message ?? "unreachable"), checkedAt };
+    }
+  }));
+}
 const num = (v: unknown) => Number(v ?? 0) || 0;
 
 /** A shop's setup state as people say it. */
@@ -81,6 +103,36 @@ export const platformOverviewRouter = router({
           ssoEmail: r.email ?? null, ssoName: r.name ?? null, ssoProvider: "keycloak", role: String(r.role ?? "user"),
           firstSsoLoginAt: r.created_at ?? null, lastSsoLoginAt: r.last_signed_in ?? null,
         })),
+      };
+    }),
+
+  /**
+   * AI assistant activity across every shop, and the backing services'
+   * health probed live (the old service_health table was a seed nobody
+   * updated). Intent names come straight from agent_events.
+   */
+  agent: adminProcedure
+    .input(z.object({ days: z.number().int().min(1).max(365).default(30) }).optional())
+    .query(async ({ input }) => {
+      const db = await getDb();
+      const days = input?.days ?? 30;
+      const empty = { totals: { interactions: 0, escalated: 0, avgLatencyMs: 0, shops: 0 }, intents: [] as { intent: string; count: number; share: number }[], services: [] as any[] };
+      if (!db) return empty;
+      const [t] = (await db.execute(sql`
+        SELECT count(*) AS n, count(*) FILTER (WHERE escalated) AS esc, coalesce(avg("latencyMs"), 0) AS lat, count(DISTINCT "tenantId") AS shops
+        FROM agent_events WHERE "createdAt" >= now() - make_interval(days => ${days})
+      `)) as Row[];
+      const intents = (await db.execute(sql`
+        SELECT coalesce(nullif("intentType", ''), 'unknown') AS intent, count(*) AS n
+        FROM agent_events WHERE "createdAt" >= now() - make_interval(days => ${days})
+        GROUP BY 1 ORDER BY 2 DESC LIMIT 12
+      `)) as Row[];
+      const total = num(t?.n);
+      const services = await probeServices();
+      return {
+        totals: { interactions: total, escalated: num(t?.esc), avgLatencyMs: Math.round(num(t?.lat)), shops: num(t?.shops) },
+        intents: intents.map((r) => ({ intent: String(r.intent), count: num(r.n), share: total ? num(r.n) / total : 0 })),
+        services,
       };
     }),
 

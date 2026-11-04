@@ -1,0 +1,39 @@
+# Runs the platform's scheduled jobs (/api/scheduled/*) — services/scheduler.
+# Nothing called these routes after the move off the original host, so stock
+# held by unpaid orders, escrow deadlines, WhatsApp retries and verification
+# sweeps never ran. ONLY_ROUTES switches jobs on deliberately; add more here
+# after review (the money-moving and marketing jobs are left off on purpose).
+#
+# Needs the shared secret whatsapp-cron/CRON_JWT, which the server reads too
+# (kubectl set env deploy/server --from=secret/whatsapp-cron --keys=CRON_JWT).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduler
+  namespace: whatsapp-commerce
+  labels: { app: scheduler }
+spec:
+  replicas: 1 # exactly one: two would run every job twice
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: scheduler }
+  template:
+    metadata:
+      labels: { app: scheduler }
+    spec:
+      containers:
+        - name: scheduler
+          image: registry.digitalocean.com/talentgraph-auth/whatsapp-scheduler:qa1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PLATFORM_URL
+              value: http://server:3000
+            - name: CRON_JWT
+              valueFrom:
+                secretKeyRef: { name: whatsapp-cron, key: CRON_JWT }
+            - name: ONLY_ROUTES
+              value: >-
+                inventory-reservation-sweep,sla-scan,wa-send-retry,wa-webhook-retry,psp-confirm-retry,kyb-sla-sweep,kyc-expiry-sweep
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 128Mi }

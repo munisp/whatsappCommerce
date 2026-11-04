@@ -223,7 +223,7 @@ function RevenueDashboardInner() {
                       <Tooltip content={<CustomTooltip />} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
                       <Area type="monotone" dataKey="gmv" name="GMV (₦)" stroke="#33507A" fill="url(#gmvGrad)" strokeWidth={2} />
-                      <Area type="monotone" dataKey="platformRevenue" name="Platform Revenue ($)" stroke="#2F6B46" fill="url(#revGrad)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="platformRevenue" name="Platform Revenue (₦)" stroke="#2F6B46" fill="url(#revGrad)" strokeWidth={2} />
                     </AreaChart>
                   </ResponsiveContainer>
                 )}
@@ -335,7 +335,7 @@ function RevenueDashboardInner() {
                       <YAxis tick={{ fontSize: 11, fill: "#75695A" }} tickFormatter={(v) => fmtUsd(v)} />
                       <Tooltip content={<CustomTooltip />} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Area type="monotone" dataKey="platformRevenue" name="Platform Revenue ($)" stroke="#2F6B46" fill="url(#foreGrad)" strokeWidth={2} connectNulls />
+                      <Area type="monotone" dataKey="platformRevenue" name="Platform Revenue (₦)" stroke="#2F6B46" fill="url(#foreGrad)" strokeWidth={2} connectNulls />
                       <Area type="monotone" dataKey="gmv" name="GMV (₦)" stroke="#33507A" fill="none" strokeWidth={1.5} connectNulls />
                     </AreaChart>
                   </ResponsiveContainer>
