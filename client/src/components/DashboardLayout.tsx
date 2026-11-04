@@ -296,7 +296,8 @@ const PLATFORM_NAV_GROUPS: NavGroup[] = [
     label: "Overview",
     icon: LayoutDashboard,
     items: [
-      { icon: LayoutDashboard, label: "Admin Home",       path: "/" },
+      { icon: LayoutDashboard, label: "Overview",         path: "/" },
+      { icon: Plug,            label: "Integrations",     path: "/integrations" },
     ],
   },
   {

@@ -18,6 +18,7 @@ const BASE_PATH = import.meta.env.BASE_URL.replace(/\/$/, "");
 // ui/tenant-portal. See ui/platform-admin/ROUTES.md for the full triage
 // and known ambiguous/duplicate items.
 const AdminPortal = lazy(() => import("@/pages/AdminPortal"));
+const PlatformOverview = lazy(() => import("@/pages/PlatformOverview"));
 const AgentConsole = lazy(() => import("@/pages/AgentConsole"));
 const AgentArchitecture = lazy(() => import("@/pages/AgentArchitecture"));
 const NLPSimulator = lazy(() => import("@/pages/NLPSimulator"));
@@ -83,7 +84,8 @@ function Router() {
   return (
     <Suspense fallback={<RouteFallback />}>
       <Switch>
-        <Route path="/" component={AdminPortal} />
+        <Route path="/" component={PlatformOverview} />
+        <Route path="/integrations" component={AdminPortal} />
         <Route path="/tenants" component={Tenants} />
         <Route path="/feature-rollout" component={FeatureRollout} />
         <Route path="/tenant-analytics" component={TenantAnalytics} />

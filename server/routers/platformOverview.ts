@@ -1,0 +1,128 @@
+/**
+ * Platform admin home and shop directory (ui/platform-admin).
+ *
+ *   overview  — the numbers a platform owner checks first, what needs them,
+ *               and what just happened
+ *   shops     — every shop with what matters about it: setup state, how it
+ *               reaches customers on WhatsApp, verification, products, orders
+ *
+ * Admin only. Read-only.
+ */
+import { sql } from "drizzle-orm";
+import { router, adminProcedure } from "../_core/trpc";
+import { getDb } from "../db";
+
+type Row = Record<string, any>;
+const num = (v: unknown) => Number(v ?? 0) || 0;
+
+/** A shop's setup state as people say it. */
+function setupState(status: string, onboarding: string | null): "live" | "setting_up" | "failed" | "suspended" | "trial" {
+  if (status === "suspended" || status === "churned") return "suspended";
+  if (onboarding === "live" && status === "active") return "live";
+  if (onboarding === "failed") return "failed";
+  if (onboarding && onboarding !== "live") return "setting_up";
+  return status === "active" ? "setting_up" : "trial";
+}
+
+async function shopRows(db: any): Promise<Row[]> {
+  return (await db.execute(sql`
+    SELECT t.id, t.name, t.slug, t.status::text AS status, t.plan::text AS plan, t."createdAt" AS created_at,
+           t.settings->'onboarding'->>'status' AS onboarding,
+           t.settings->'onboarding'->'reasons' AS onboarding_reasons,
+           t."whatsappPhoneNumberId" IS NOT NULL AS own_number,
+           (SELECT k.status::text FROM kyc_applications k WHERE k."tenantId" = t.id AND k.type = 'kyb' ORDER BY k."createdAt" DESC LIMIT 1) AS kyb,
+           EXISTS (SELECT 1 FROM merchant_locations ml WHERE ml.tenant_id = t.id) AS has_location,
+           (SELECT count(*) FROM products p WHERE p."tenantId" = t.id AND p.status = 'active') AS products,
+           (SELECT count(*) FROM products p WHERE p."tenantId" = t.id AND p.status = 'active' AND coalesce(p."imageUrl", '') = '') AS products_without_photo,
+           (SELECT count(*) FROM orders o WHERE o."tenantId" = t.id) AS orders,
+           (SELECT max(o."createdAt") FROM orders o WHERE o."tenantId" = t.id) AS last_order_at
+    FROM tenants t
+    ORDER BY t."createdAt" DESC
+  `)) as Row[];
+}
+
+function toShop(r: Row) {
+  return {
+    id: String(r.id), name: String(r.name ?? ""), slug: String(r.slug ?? ""), status: String(r.status ?? ""), plan: r.plan ?? null,
+    createdAt: r.created_at, state: setupState(String(r.status ?? ""), r.onboarding ?? null),
+    setupProblems: Array.isArray(r.onboarding_reasons) ? (r.onboarding_reasons as string[]) : [],
+    whatsapp: r.own_number ? ("own" as const) : ("shared" as const),
+    verification: (r.kyb ?? "not_started") as string,
+    hasLocation: !!r.has_location,
+    products: num(r.products), productsWithoutPhoto: num(r.products_without_photo),
+    orders: num(r.orders), lastOrderAt: r.last_order_at ?? null,
+  };
+}
+
+export const platformOverviewRouter = router({
+  shops: adminProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return (await shopRows(db)).map(toShop);
+  }),
+
+  overview: adminProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return null;
+    const shops = (await shopRows(db)).map(toShop);
+    const count = (s: string) => shops.filter((x) => x.state === s).length;
+
+    const [orders] = (await db.execute(sql`
+      SELECT count(*) FILTER (WHERE "createdAt" >= now() - interval '7 days') AS orders_7d,
+             count(*) FILTER (WHERE "createdAt" >= date_trunc('day', now())) AS orders_today,
+             coalesce(sum("totalAmount"::numeric) FILTER (WHERE "createdAt" >= now() - interval '7 days' AND "paymentStatus" = 'completed' AND currency = 'NGN'), 0) AS paid_ngn_7d,
+             count(*) FILTER (WHERE "createdAt" >= now() - interval '7 days' AND "paymentStatus" = 'completed') AS paid_7d
+      FROM orders
+    `)) as Row[];
+    const [msgs] = (await db.execute(sql`
+      SELECT count(*) FILTER (WHERE status IN ('sent', 'delivered', 'read')) AS sent,
+             count(*) FILTER (WHERE status = 'failed') AS failed
+      FROM whatsapp_notification_log WHERE "createdAt" >= now() - interval '24 hours'
+    `)) as Row[];
+    const [inbound] = (await db.execute(sql`
+      SELECT count(*) AS received FROM channel_messages
+      WHERE direction = 'inbound' AND "createdAt" >= now() - interval '24 hours'
+    `).catch(() => [{ received: 0 }])) as Row[];
+    const kybQueue = (await db.execute(sql`
+      SELECT k."tenantId" AS tenant_id, t.name, k.status::text AS status, k."createdAt" AS at
+      FROM kyc_applications k JOIN tenants t ON t.id = k."tenantId"
+      WHERE k.type = 'kyb' AND k.status IN ('pending', 'under_review', 'appealed')
+      ORDER BY k."createdAt" ASC LIMIT 20
+    `)) as Row[];
+    const recentOrders = (await db.execute(sql`
+      SELECT o.id, o."orderNumber" AS number, o."totalAmount" AS total, o.currency, o.status::text AS status,
+             o."paymentStatus"::text AS payment, o."createdAt" AS at, t.name AS shop, t.id AS tenant_id
+      FROM orders o JOIN tenants t ON t.id = o."tenantId"
+      ORDER BY o."createdAt" DESC LIMIT 8
+    `)) as Row[];
+
+    // What a platform owner should act on, most important first.
+    const attention: Array<{ kind: string; severity: "high" | "medium" | "low"; tenantId?: string; shop?: string; title: string; detail: string; action?: string }> = [];
+    for (const k of kybQueue) {
+      attention.push({ kind: "verification", severity: "high", tenantId: String(k.tenant_id), shop: String(k.name),
+        title: `${k.name} is waiting for verification`, detail: `Submitted ${new Date(k.at).toDateString()}. The shop can't take orders until it's approved.`, action: "/kyb-review" });
+    }
+    for (const s of shops.filter((x) => x.state === "failed")) {
+      attention.push({ kind: "setup_failed", severity: "high", tenantId: s.id, shop: s.name, title: `${s.name} failed setup`,
+        detail: s.setupProblems.length ? s.setupProblems.join("; ") : "Its setup checks didn't pass.", action: `/tenants/${s.id}` });
+    }
+    for (const s of shops.filter((x) => x.state === "live")) {
+      if (s.products === 0) attention.push({ kind: "no_products", severity: "medium", tenantId: s.id, shop: s.name, title: `${s.name} is live with no products`, detail: "Customers who reach it have nothing to buy.", action: `/tenants/${s.id}` });
+      if (s.whatsapp === "shared" && !s.hasLocation) attention.push({ kind: "no_location", severity: "medium", tenantId: s.id, shop: s.name, title: `${s.name} has no map location`, detail: "It never shows up when customers search for shops near them on WhatsApp.", action: `/tenants/${s.id}` });
+      if (s.whatsapp === "shared" && s.hasLocation && s.verification !== "approved") attention.push({ kind: "not_discoverable", severity: "low", tenantId: s.id, shop: s.name, title: `${s.name} isn't verified`, detail: "Unverified shops are left out of nearby search on the shared number.", action: "/kyb-review" });
+      if (s.products > 0 && s.productsWithoutPhoto === s.products) attention.push({ kind: "no_photos", severity: "low", tenantId: s.id, shop: s.name, title: `${s.name} has no product photos`, detail: `${s.products} product${s.products === 1 ? "" : "s"}, none with a photo — WhatsApp product cards show text only.`, action: `/tenants/${s.id}` });
+    }
+    const order = { high: 0, medium: 1, low: 2 } as const;
+    attention.sort((a, b) => order[a.severity] - order[b.severity]);
+
+    return {
+      shops: { total: shops.length, live: count("live"), settingUp: count("setting_up") + count("trial"), failed: count("failed"), suspended: count("suspended") },
+      orders: { today: num(orders?.orders_today), last7d: num(orders?.orders_7d), paid7d: num(orders?.paid_7d), paidNgn7d: num(orders?.paid_ngn_7d) },
+      messages: { sent24h: num(msgs?.sent), failed24h: num(msgs?.failed), received24h: num(inbound?.received) },
+      verificationQueue: kybQueue.length,
+      attention: attention.slice(0, 30),
+      recentOrders: recentOrders.map((o) => ({ id: String(o.id), number: o.number, total: num(o.total), currency: o.currency, status: o.status, payment: o.payment, at: o.at, shop: o.shop, tenantId: String(o.tenant_id) })),
+      newestShops: shops.slice(0, 6),
+    };
+  }),
+});
