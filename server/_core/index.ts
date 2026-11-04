@@ -1895,7 +1895,19 @@ async function startServer() {
         // session-authenticated behavior; the capability-token path below is
         // untouched (already bound to the exact key).
         const { keyTenantScope, sessionMayReadScopedKey } = await import("../services/storageSecurity");
-        const scope = keyTenantScope(key);
+        let scope = keyTenantScope(key);
+        // Business-verification documents (kyc/<applicationId>/…) carry no
+        // shop segment: their shop is the application's. Only that shop and
+        // platform admins may read them — never any signed-in account.
+        if (!scope && key.startsWith("kyc/")) {
+          const appId = key.split("/")[1] ?? "";
+          const kdb = await getDb();
+          const { kycApplications } = await import("../../drizzle/schema");
+          const [kapp] = kdb && appId
+            ? await kdb.select({ tenantId: kycApplications.tenantId }).from(kycApplications).where(eq(kycApplications.id, appId)).limit(1).catch(() => [] as any[])
+            : [];
+          scope = kapp?.tenantId ?? "__no_owner__";
+        }
         if (!scope || sessionMayReadScopedKey(user as any, scope)) authorized = true;
       }
       if (!authorized) {

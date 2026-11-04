@@ -276,6 +276,21 @@ export const kycRouter = router({
       assertTenantAccess(ctx.user, app.tenantId);
       // 1. Store file in S3
       const buffer = Buffer.from(input.fileBase64, "base64");
+      // Business documents: a real PDF or photo, under 10 MB. The file's own
+      // bytes decide its type, not the type the browser claimed.
+      if (buffer.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "That file is empty. Choose the document again." });
+      }
+      if (buffer.length > 10 * 1024 * 1024) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "That file is over 10 MB. Upload a smaller scan or photo." });
+      }
+      const { sniffMime } = await import("../services/storageSecurity");
+      const KYB_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+      const sniffed = sniffMime(buffer.subarray(0, 64));
+      if (!sniffed || !KYB_TYPES.includes(sniffed)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Upload a PDF, JPG, PNG or WebP file." });
+      }
+      input.mimeType = sniffed;
       const key = `kyc/${input.applicationId}/${input.documentType}-${Date.now()}`;
       const { url: fileUrl } = await storagePut(key, buffer, input.mimeType);
       // 2. Save document record
@@ -408,7 +423,7 @@ export const kycRouter = router({
           // [notes, waiver].filter(Boolean).join("\n") semantics. ===
           if (pendingDocs.length > 0) {
             await db.update(kycDocuments)
-              .set({ verificationNotes: sql`concat_ws('\n', ${kycDocuments.verificationNotes}, ${waiverNote})` })
+              .set({ verificationNotes: sql`concat_ws(chr(10), ${kycDocuments.verificationNotes}, ${waiverNote}::text)` })
               .where(inArray(kycDocuments.id, pendingDocs.map((d) => d.id)));
           }
           reviewNotes = [input.notes, waiverNote].filter(Boolean).join("\n");
