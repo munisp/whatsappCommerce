@@ -210,6 +210,25 @@ export const setTelegramOnboardingPhone = (chatId: string, phone: string): Promi
   kvSet(`onbtg:phone:${chatId}`, phone, TG_ONBOARDING_PHONE_TTL_SECONDS);
 export const clearTelegramOnboardingPhone = (chatId: string): Promise<void> => kvDel(`onbtg:phone:${chatId}`);
 
+// A business owner setting up a shop on the shared number: while set, their
+// messages go to the onboarding assistant instead of the shop directory.
+const SELLING_TTL_SECONDS = 3 * 24 * 3600;
+export const getSelling = (phone: string): Promise<string | null> => kvGet(`plat:sell:${digits(phone)}`);
+export const setSelling = (phone: string): Promise<void> => kvSet(`plat:sell:${digits(phone)}`, "1", SELLING_TTL_SECONDS);
+export const clearSelling = (phone: string): Promise<void> => kvDel(`plat:sell:${digits(phone)}`);
+
+/**
+ * "I want to sell here": SELL, "create a shop", "open my store", "how do I
+ * register my business", "become a vendor" — a business owner, not a buyer.
+ */
+export function isSellIntent(text: string | null | undefined): boolean {
+  const t = (text ?? "").trim().toLowerCase();
+  if (!t || t.length > 160) return false;
+  if (/^(sell|seller|vendor|merchant|sell on oak|start selling)[.!?]*$/.test(t)) return true;
+  if (/\b(i (want|wan|wanna|would like|'d like|need) to sell|start selling|become an? (seller|vendor|merchant)|sell (my|our) (goods|products|items|things)|sell on (here|this|oak|whatsapp))\b/.test(t)) return true;
+  return /\b(create|open|start|register|set ?up|setup|make|build|launch|list|add)\b[^.?!]{0,24}\b(shop|store|business|stall|boutique)\b/.test(t);
+}
+
 export const getActiveShop = (phone: string): Promise<string | null> => kvGet(`plat:active:${digits(phone)}`);
 export const setActiveShop = (phone: string, tenantId: string): Promise<void> => kvSet(`plat:active:${digits(phone)}`, tenantId, ACTIVE_TTL_SECONDS);
 export const clearActiveShop = (phone: string): Promise<void> => kvDel(`plat:active:${digits(phone)}`);

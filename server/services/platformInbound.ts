@@ -24,12 +24,15 @@ import {
   clearActiveShop,
   clearPendingQuery,
   clearResultsList,
+  clearSelling,
   getActiveShop,
+  getSelling,
   getCustomerLocation,
   getPendingQuery,
   getResultsList,
   isGreeting,
   isHomeCommand,
+  isSellIntent,
   type LatLng,
   parseShopDirective,
   resolvePlatformWaCredentialsFull,
@@ -38,6 +41,7 @@ import {
   setCustomerLocation,
   setPendingQuery,
   setResultsList,
+  setSelling,
 } from "./platformNumber";
 import { defaultRadiusKm, discoverNearbyPure, loadDiscoveryData, maxRadiusKm, type DiscoverItem } from "./geoDiscovery";
 import { getDb } from "../db";
@@ -92,6 +96,53 @@ function directoryPrompt(): string {
   );
 }
 
+/**
+ * Run the onboarding assistant for a business owner, answered from the shared
+ * number (the same assistant as the onboarding number and the Telegram bot).
+ */
+async function runShopSetup(phone: string, msg: any): Promise<void> {
+  const { handleInbound } = await import("./waOnboarding");
+  await handleInbound(msg, phone, {
+    tenantId: null,
+    channel: "whatsapp",
+    transport: {
+      sendText: async (body) => {
+        await sendPlatformText(phone, body);
+        return { sent: true, simulated: false };
+      },
+      sendButtons: async (body, buttons) => {
+        const ok = await sendPlatformButtons(phone, body, buttons);
+        if (!ok) await sendPlatformText(phone, body + "\n\n" + buttons.map((b, i) => `${i + 1}. ${b.title}`).join("\n"));
+        return { sent: true, simulated: false };
+      },
+    },
+  });
+}
+
+/** Reply buttons from the platform number; false when they couldn't be sent. */
+async function sendPlatformButtons(toPhone: string, body: string, buttons: { id: string; title: string }[]): Promise<boolean> {
+  const creds = await resolvePlatformWaCredentialsFull();
+  if (!creds || buttons.length === 0 || buttons.length > 3) return false;
+  try {
+    const res = await fetch(`${GRAPH_API_BASE}/${creds.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${creds.accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messaging_product: "whatsapp", recipient_type: "individual", to: normalizeWaPhone(toPhone), type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: body.length > 1024 ? body.slice(0, 1023) + "…" : body },
+          action: { buttons: buttons.map((b) => ({ type: "reply", reply: { id: b.id.slice(0, 256), title: b.title.length > 20 ? b.title.slice(0, 19) + "…" : b.title } })) },
+        },
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Load a shop row only if it is still reachable on the platform number. */
 async function loadReachableShop(tenantId: string): Promise<any | null> {
   const db = await getDb();
@@ -113,6 +164,9 @@ export async function platformActiveShop(opts: {
   text: string;
 }): Promise<{ shopRow: any; text?: string } | null> {
   // A web store link names its shop, which takes priority over wherever the customer last was.
+  // A business owner setting up (or asking to set up) a shop talks to the
+  // onboarding assistant in the directory, not to the shop they were browsing.
+  if (isSellIntent(opts.text) || (await getSelling(opts.customerPhone))) return null;
   const directive = parseShopDirective(opts.text);
   if (directive) {
     const shop = await resolveShopRef(directive.ref);
@@ -392,6 +446,30 @@ export async function handlePlatformDirectory(opts: {
   contactName?: string;
 }): Promise<void> {
   const { customerPhone, msg } = opts;
+
+  // ── Shop setup on the shared number (SELL / "create a shop") ─────────────
+  {
+    const sellText = typeof msg?.text?.body === "string" ? msg.text.body.trim() : "";
+    if (await getSelling(customerPhone)) {
+      if (isHomeCommand(sellText)) {
+        await clearSelling(customerPhone);
+        await sendPlatformText(customerPhone, "You've left shop setup — it's saved. Send *SELL* any time to carry on.\n\n" + directoryPrompt());
+        return;
+      }
+      const { hasOpenOnboarding } = await import("./waOnboarding");
+      if (await hasOpenOnboarding(customerPhone)) {
+        await runShopSetup(customerPhone, msg);
+        return;
+      }
+      await clearSelling(customerPhone); // setup finished, failed or moved to the web: back to shopping
+    }
+    if (msg?.type === "text" && isSellIntent(sellText)) {
+      await clearActiveShop(customerPhone);
+      await setSelling(customerPhone);
+      await runShopSetup(customerPhone, msg);
+      return;
+    }
+  }
 
   // Location share → remember it, then run any pending product search.
   if (msg?.type === "location" && typeof msg?.location?.latitude === "number" && typeof msg?.location?.longitude === "number") {
