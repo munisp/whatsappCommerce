@@ -68,7 +68,9 @@ export function keyTenantScope(key: string): string | null {
  * above TENANT_SCOPED_KEY_PREFIXES); tenant-branding logos are public
  * branding assets (RICH-9 welcome banner). Everything else stays gated.
  */
-const PUBLIC_KEY_PREFIXES = new Set(["product-images", "tenant-branding"]);
+// medusa-onboarding holds product photos from the old product form; WhatsApp and the web store fetch them
+// with no session, so they're public like product-images.
+const PUBLIC_KEY_PREFIXES = new Set(["product-images", "tenant-branding", "medusa-onboarding"]);
 
 /** True when the storage key is in a catalog/brand-public namespace. */
 export function isPublicStorageKey(key: string): boolean {

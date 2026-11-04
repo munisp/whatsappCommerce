@@ -9,11 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import {
-  Package, ShoppingBag, FileText, RefreshCw, Settings,
-  MessageSquare, Send, Loader2, CheckCircle2, AlertCircle,
-  DollarSign, BarChart3, Phone, TrendingUp
-} from "lucide-react";
+import { Package, ShoppingBag, FileText, RefreshCw, Settings, MessageSquare, Send, Loader2, CheckCircle2, AlertCircle, Banknote, BarChart3, Phone, TrendingUp } from "lucide-react";
 
 const ORDER_STATE_COLORS: Record<string, string> = {
   draft: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30",

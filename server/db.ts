@@ -305,7 +305,7 @@ export async function getTenantStats() {
 export async function getProducts(tenantId: string, limit = 50, offset = 0, search?: string) {
   const db = await getDb();
   if (!db) return [];
-  const conditions = [eq(products.tenantId, tenantId)];
+  const conditions = [eq(products.tenantId, tenantId), sql`not coalesce(${products.metadata} ? 'deletedAt', false)`];
   if (search) conditions.push(like(products.name, `%${search}%`));
   return db.select().from(products).where(and(...conditions)).orderBy(desc(products.createdAt)).limit(limit).offset(offset);
 }
@@ -540,7 +540,34 @@ export async function getPaymentIntents(tenantId: string, status?: string, limit
   if (!db) return [];
   const conditions = [eq(paymentIntents.tenantId, tenantId)];
   if (status) conditions.push(eq(paymentIntents.status, status as any));
-  return db.select().from(paymentIntents).where(and(...conditions)).orderBy(desc(paymentIntents.createdAt)).limit(limit).offset(offset);
+  const want = limit + offset;
+  const intents = await db.select().from(paymentIntents).where(and(...conditions)).orderBy(desc(paymentIntents.createdAt)).limit(want);
+
+  // Chat and web-store orders record their payment in payment_transactions,
+  // not payment_intents, so the Payments page never showed a shop's real
+  // order payments. Add them in the intent shape (status "initiated" reads
+  // as "pending"), skipping orders that already have an intent row.
+  const { paymentTransactions } = await import("../drizzle/schema");
+  const txStatus = status === "pending" ? "initiated" : status;
+  const txConditions = [eq(paymentTransactions.tenantId, tenantId)];
+  if (txStatus) txConditions.push(eq(paymentTransactions.status, txStatus as any));
+  const txns = await db.select().from(paymentTransactions).where(and(...txConditions))
+    .orderBy(desc(paymentTransactions.createdAt)).limit(want).catch(() => [] as any[]);
+  const intentOrders = new Set(intents.map((i: any) => i.orderId).filter(Boolean));
+  const fromTxns = txns
+    .filter((t: any) => !t.orderId || !intentOrders.has(t.orderId))
+    .map((t: any) => ({
+      id: t.id, tenantId: t.tenantId, orderId: t.orderId, customerId: t.customerId,
+      amount: t.amount, currency: t.currency, provider: t.provider,
+      status: t.status === "initiated" ? "pending" : t.status,
+      providerPaymentId: t.providerTxId ?? t.providerRef ?? null,
+      idempotencyKey: t.providerRef ?? t.id,
+      ledgerPendingId: null, failureReason: t.failureReason ?? null, metadata: t.metadata ?? null,
+      completedAt: t.paidAt ?? null, createdAt: t.createdAt, updatedAt: t.updatedAt,
+    }));
+  return [...intents, ...fromTxns]
+    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(offset, offset + limit) as typeof intents;
 }
 
 // ─── Agent Event Helpers ──────────────────────────────────────────────────────

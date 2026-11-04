@@ -237,7 +237,7 @@ function Router() {
         <Route path="/discover" component={DiscoverNearby} />
         <Route path="/settings/discovery" component={MerchantGeoSettings} />
         {/* === W27 storefront-i18n === */}
-        <Route path="/shop/:slug" component={Shop} />
+        <Route path="/shop/:slug/*?" component={Shop} />
         <Route path="/settings/storefront" component={StorefrontSettings} />
         <Route path="/catalog-ai-drafts" component={CatalogAIDrafts} />
         <Route path="/credit" component={CreditDashboard} />

@@ -36,7 +36,7 @@ export const journey: Journey = {
     assertIncludes(outcome.summaryText, "₦8,000.00", "NGN total shown");
     assertIncludes(outcome.summaryText, "(~$", "dual display shown");
     assertIncludes(outcome.summaryText, "charged in NGN", "honest footer");
-    assertIncludes(outcome.summaryText, "https://checkout.paystack.com/sim/", "NGN payment link present");
+    assert(String(outcome.paymentUrl ?? "").startsWith("https://checkout.paystack.com/sim/"), "NGN payment link present (on the Pay now button)");
 
     // The order itself: NGN, 8000 major units — no conversion.
     const [order] = await world.db.select().from(schema.orders)

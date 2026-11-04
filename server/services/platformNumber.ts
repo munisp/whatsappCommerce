@@ -104,6 +104,16 @@ export function normalizeShopRef(text: string | null | undefined): string {
   return (text ?? "").trim().toLowerCase();
 }
 
+/**
+ * A link from a shop's web store opens the shared number with its first line naming the shop, so the customer
+ * lands with that shop even if they were last chatting with another one, and their message isn't mistaken for
+ * a search across every shop. Returns the shop reference and what the customer actually wants to say.
+ */
+export function parseShopDirective(text: string | null | undefined): { ref: string; rest: string } | null {
+  const match = /^\s*shop:\s*([a-z0-9][a-z0-9-]{0,78})[ \t]*(?:\r?\n([\s\S]*))?$/i.exec(text ?? "");
+  return match ? { ref: match[1]!.toLowerCase(), rest: (match[2] ?? "").trim() } : null;
+}
+
 export interface ResolvedShop {
   tenantId: string;
   slug: string;
@@ -153,7 +163,9 @@ export async function resolveShopRef(text: string | null | undefined): Promise<R
 
 const ACTIVE_TTL_SECONDS = 1800;
 const PENDING_TTL_SECONDS = 600;
-const LOC_TTL_SECONDS = 3600;
+// A customer's shared location is kept 30 days so a returning buyer isn't asked
+// again every visit; "forget my location" removes it (clearCustomerLocation).
+const LOC_TTL_SECONDS = 30 * 24 * 3600;
 const kvMemory = new Map<string, { v: string; exp: number }>();
 function digits(phone: string): string {
   return (phone ?? "").replace(/\D/g, "");
@@ -200,6 +212,25 @@ export const setTelegramOnboardingPhone = (chatId: string, phone: string): Promi
   kvSet(`onbtg:phone:${chatId}`, phone, TG_ONBOARDING_PHONE_TTL_SECONDS);
 export const clearTelegramOnboardingPhone = (chatId: string): Promise<void> => kvDel(`onbtg:phone:${chatId}`);
 
+// A business owner setting up a shop on the shared number: while set, their
+// messages go to the onboarding assistant instead of the shop directory.
+const SELLING_TTL_SECONDS = 3 * 24 * 3600;
+export const getSelling = (phone: string): Promise<string | null> => kvGet(`plat:sell:${digits(phone)}`);
+export const setSelling = (phone: string): Promise<void> => kvSet(`plat:sell:${digits(phone)}`, "1", SELLING_TTL_SECONDS);
+export const clearSelling = (phone: string): Promise<void> => kvDel(`plat:sell:${digits(phone)}`);
+
+/**
+ * "I want to sell here": SELL, "create a shop", "open my store", "how do I
+ * register my business", "become a vendor" — a business owner, not a buyer.
+ */
+export function isSellIntent(text: string | null | undefined): boolean {
+  const t = (text ?? "").trim().toLowerCase();
+  if (!t || t.length > 160) return false;
+  if (/^(sell|seller|vendor|merchant|sell on oak|start selling)[.!?]*$/.test(t)) return true;
+  if (/\b(i (want|wan|wanna|would like|'d like|need) to sell|start selling|become an? (seller|vendor|merchant)|sell (my|our) (goods|products|items|things)|sell on (here|this|oak|whatsapp))\b/.test(t)) return true;
+  return /\b(create|open|start|register|set ?up|setup|make|build|launch|list|add)\b[^.?!]{0,24}\b(shop|store|business|stall|boutique)\b/.test(t);
+}
+
 export const getActiveShop = (phone: string): Promise<string | null> => kvGet(`plat:active:${digits(phone)}`);
 export const setActiveShop = (phone: string, tenantId: string): Promise<void> => kvSet(`plat:active:${digits(phone)}`, tenantId, ACTIVE_TTL_SECONDS);
 export const clearActiveShop = (phone: string): Promise<void> => kvDel(`plat:active:${digits(phone)}`);
@@ -237,6 +268,7 @@ export async function getCustomerLocation(phone: string): Promise<LatLng | null>
   return null;
 }
 export const setCustomerLocation = (phone: string, loc: LatLng): Promise<void> => kvSet(`plat:loc:${digits(phone)}`, JSON.stringify(loc), LOC_TTL_SECONDS);
+export const clearCustomerLocation = (phone: string): Promise<void> => kvDel(`plat:loc:${digits(phone)}`);
 
 /** Test-only: reset all in-memory directory state. */
 export function __clearActiveShopMemory(): void {

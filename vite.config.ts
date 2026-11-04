@@ -178,8 +178,10 @@ const pwaPlugin = VitePWA({
     navigateFallback: "/index.html",
     // The two other apps have their own pages under these paths. Without this the
     // shop app answers for them, and an admin gets the shop menu at /platform-admin/.
-    navigateFallbackDenylist: [/^\/api\//, /^\/__manus__\//, /^\/platform-admin(\/|$)/, /^\/tenant-portal(\/|$)/],
+    navigateFallbackDenylist: [/^\/api\//, /^\/__manus__\//, /^\/shop(\/|$)/, /^\/store-preview(\/|$)/, /^\/platform-admin(\/|$)/, /^\/tenant-portal(\/|$)/],
     globPatterns: ["**/*.{js,css,html,png,svg,woff2}"],
+    // Store fonts are for the shops that choose them, not worth every visitor's data up front.
+    globIgnores: ["fonts/store/**"],
     // Self-hosted woff2 fonts + hashed assets are immutable: cache-first.
     runtimeCaching: [
       {

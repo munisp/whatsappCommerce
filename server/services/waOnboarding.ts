@@ -110,6 +110,16 @@ export function setOnboardingCopilot(api: OnboardingCopilotApi | null): void {
   copilotOverride = api;
 }
 
+/** Is a shop setup open for this phone? (false once it went live, failed or was handed off.) */
+export async function hasOpenOnboarding(phone: string): Promise<boolean> {
+  try {
+    const copilot = await loadCopilot();
+    return !!(await copilot.findActiveSessionByPhone(normalizeWaPhone(phone) || phone));
+  } catch {
+    return false;
+  }
+}
+
 async function loadCopilot(): Promise<OnboardingCopilotApi> {
   if (copilotOverride) return copilotOverride;
   try {

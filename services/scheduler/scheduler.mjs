@@ -229,11 +229,19 @@ async function main() {
     process.exit(status >= 200 && status < 300 ? 0 : 1);
   }
   // Daemon mode
-  console.log(`[scheduler] starting; ${SCHEDULE.length} routes, tick=${TICK_MS}ms, target=${PLATFORM_URL}`);
+  // ONLY_ROUTES (comma-separated paths or route names) runs just those jobs —
+  // for switching jobs on deliberately, a few at a time. Unset = every route.
+  const only = (process.env.ONLY_ROUTES ?? "").split(",").map((x) => x.trim()).filter(Boolean)
+    .map((x) => (x.startsWith("/") ? x : `/api/scheduled/${x}`));
+  const unknown = only.filter((x) => !SCHEDULE.some((r) => r.path === x));
+  if (unknown.length) { console.error(`[scheduler] ONLY_ROUTES names unknown routes: ${unknown.join(", ")}`); process.exit(1); }
+  const active = only.length ? SCHEDULE.filter((r) => only.includes(r.path)) : SCHEDULE;
+  console.log(`[scheduler] starting; ${active.length} of ${SCHEDULE.length} routes, tick=${TICK_MS}ms, target=${PLATFORM_URL}`);
+  for (const r of active) console.log(`[scheduler]   every ${r.intervalMin} min  ${r.path}`);
   const lastRun = new Map();
   const tick = async () => {
     const now = Date.now();
-    for (const r of SCHEDULE) {
+    for (const r of active) {
       const due = now - (lastRun.get(r.path) ?? 0) >= r.intervalMin * 60_000;
       if (!due) continue;
       lastRun.set(r.path, now);

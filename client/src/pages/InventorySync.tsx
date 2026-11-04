@@ -37,17 +37,18 @@ function SyncStatusBadge({ status }: { status: string }) {
 }
 
 export function InventorySyncContent() {
-  const { activeTenantId: DEMO_TENANT } = useActiveTenant();
-  const [tenantId] = useState(DEMO_TENANT);
+  // Follow the live active shop: it resolves after the user loads and changes
+  // when an admin switches shops, so it must not be frozen in useState.
+  const { activeTenantId: tenantId } = useActiveTenant();
   const { has: hasCapability } = useCapability();
   const canEditCatalog = hasCapability("catalog");
 
   const { data: stockLevels = [], isLoading: loadingStock, refetch: refetchStock } =
-    trpc.inventory.getStockLevels.useQuery({ tenantId });
+    trpc.inventory.getStockLevels.useQuery({ tenantId }, { enabled: !!tenantId });
   const { data: alerts, isLoading: loadingAlerts, refetch: refetchAlerts } =
-    trpc.inventory.getStockAlerts.useQuery({ tenantId });
+    trpc.inventory.getStockAlerts.useQuery({ tenantId }, { enabled: !!tenantId });
   const { data: syncHistory = [], refetch: refetchHistory } =
-    trpc.inventory.getSyncHistory.useQuery({ tenantId, limit: 10 });
+    trpc.inventory.getSyncHistory.useQuery({ tenantId, limit: 10 }, { enabled: !!tenantId });
 
   // QA follow-up: there was no way to manually correct a stock count at all
   // — getStockLevels/syncFromOdoo (read + Odoo pull) existed, nothing wrote

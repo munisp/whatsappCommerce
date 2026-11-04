@@ -69,7 +69,7 @@ export function hasSessionCookie(req: Request): boolean {
   if (!header) return false;
   return SESSION_COOKIE_NAMES.some(
     (name) => new RegExp(`(?:^|;)\\s*${name}=`).test(header),
-  );
+  ) || /(?:^|;)\s*wa_store_[0-9a-f]+=/.test(header); // storefront customer sessions
 }
 
 /** True when the request presents a non-cookie credential. */

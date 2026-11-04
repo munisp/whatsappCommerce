@@ -106,6 +106,7 @@ import { webhookDlqRouter } from "./routers/webhookDlq";
 import { provisioningRouter } from "./routers/provisioning";
 import { fineTuneRouter } from "./routers/fineTune";
 import { tenantAnalyticsRouter } from "./routers/tenantAnalytics";
+import { platformOverviewRouter } from "./routers/platformOverview";
 import { deliveryReceiptsRouter } from "./routers/deliveryReceipts";
 import { hermesRouter } from "./routers/hermes";
 import { aiRouter } from "./routers/ai";
@@ -305,6 +306,7 @@ export const appRouter = router({
   productImages: productImagesRouter,
   fineTune: fineTuneRouter,
   tenantAnalytics: tenantAnalyticsRouter,
+  platformOverview: platformOverviewRouter,
   deliveryReceipts: deliveryReceiptsRouter,
   hermes: hermesRouter,
   infra: infraRouter,

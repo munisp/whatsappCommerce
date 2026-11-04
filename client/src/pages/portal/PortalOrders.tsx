@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatMoney, formatMoneyShort } from "@/lib/money";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-600/20 text-yellow-400 border-yellow-600/30",
@@ -77,7 +78,7 @@ export default function PortalOrders() {
                     </td>
                     <td className="p-4 font-mono text-foreground">{order.orderNumber}</td>
                     <td className="p-4 text-slate-400">{new Date(order.createdAt).toLocaleDateString()}</td>
-                    <td className="p-4 text-emerald-400 font-semibold">${Number(order.totalAmount).toFixed(2)}</td>
+                    <td className="p-4 text-emerald-400 font-semibold">{formatMoney(order.totalAmount, (order as any).currency)}</td>
                     <td className="p-4">
                       <Badge variant="outline" className="text-xs border-border text-foreground">{order.paymentStatus}</Badge>
                     </td>
@@ -121,7 +122,7 @@ export default function PortalOrders() {
                                     <div key={i} className="flex items-center justify-between text-xs bg-muted/40 rounded px-3 py-2">
                                       <span className="text-foreground">{item.productName ?? item.productId}</span>
                                       <span className="text-slate-400">x{item.quantity}</span>
-                                      <span className="text-emerald-400">${Number(item.unitPrice ?? 0).toFixed(2)}</span>
+                                      <span className="text-emerald-400">{formatMoney(item.unitPrice ?? 0, (order as any).currency)}</span>
                                     </div>
                                   ))}
                                 </div>

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,6 +51,35 @@ interface AnalysisResult {
   imageUrl: string;
 }
 
+/** Phone photos are several MB; the model reads at about 1000px anyway, so send a small JPEG instead. */
+async function shrinkImage(source: Blob | HTMLCanvasElement, maxSide = 1280): Promise<string> {
+  const bitmap = source instanceof HTMLCanvasElement ? source : await createImageBitmap(source);
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.85);
+}
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+interface ApplyRow { detectedLabel: string; confirmedCount: number; include: boolean; target: string; newName: string; newPrice: string }
+
+/** The product whose name shares the most words with what the scan saw. */
+function bestMatch<T extends { id: string; name: string }>(label: string, list: T[]): T | undefined {
+  const words = (s: string) => new Set(s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w.length > 2).map((w) => w.replace(/e?s$/, "")));
+  const want = words(label);
+  let best: T | undefined; let score = 0;
+  for (const p of list) {
+    const have = words(p.name);
+    const hits = Array.from(want).filter((w) => have.has(w)).length;
+    const s = hits / Math.max(want.size, 1);
+    if (s > score) { score = s; best = p; }
+  }
+  return score >= 0.5 ? best : undefined;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function confidenceColor(c: number): string {
   if (c >= 0.8) return "text-emerald-600";
@@ -90,9 +119,23 @@ export function VisualInventoryContent() {
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const [applyDialogOpen, setApplyDialogOpen] = useState(false);
-  const [applyAdjustments, setApplyAdjustments] = useState<Array<{ detectedLabel: string; confirmedCount: number }>>([]);
+  const [applyAdjustments, setApplyAdjustments] = useState<ApplyRow[]>([]);
+  const { data: catalog } = trpc.visualInventory.catalog.useQuery();
+  const { data: mappings } = trpc.visualInventory.getMappings.useQuery();
+  /** Opens the review step for a scan: each item matched to a product where possible, otherwise offered as new. */
+  const openApply = (sessionId: string, items: DetectedItem[]) => {
+    setApplyAdjustments(items.map((i) => {
+      const mapped = mappings?.find((m) => m.detectedLabel === i.label)?.productId;
+      const match = mapped && catalog?.some((p) => p.id === mapped) ? mapped : bestMatch(i.label, catalog ?? [])?.id;
+      return { detectedLabel: i.label, confirmedCount: i.count, include: true, target: match ?? "new", newName: i.label, newPrice: "" };
+    }));
+    setSelectedSession(sessionId);
+    setApplyDialogOpen(true);
+  };
 
   const analyseMutation = trpc.visualInventory.analyseImage.useMutation();
+  const utils = trpc.useUtils();
+  const nativeCameraRef = useRef<HTMLInputElement>(null);
   const { data: sessions, refetch: refetchSessions } = trpc.visualInventory.listSessions.useQuery({ limit: 20 });
   const { data: modelsData } = trpc.visualInventory.getOllamaModels.useQuery();
   // FMCG taxonomy autocomplete
@@ -110,7 +153,9 @@ export function VisualInventoryContent() {
   });
   const applyMutation = trpc.visualInventory.applyToInventory.useMutation({
     onSuccess: (result) => {
-      toast.success(`Applied to inventory: ${result.applied} product(s) updated`);
+      const made = result.created?.length ?? 0;
+      toast.success(made ? `Added ${made} new product(s) and updated stock for ${result.applied} in total` : `Stock updated for ${result.applied} product(s)`);
+      void utils.visualInventory.catalog.invalidate();
       setApplyDialogOpen(false);
       refetchSessions();
     },
@@ -120,16 +165,23 @@ export function VisualInventoryContent() {
   // ── Camera ────────────────────────────────────────────────────────────────
   const startCamera = useCallback(async () => {
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        // Some phone browsers have no live camera here; their own camera app still works.
+        nativeCameraRef.current?.click();
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
       });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-        setCameraActive(true);
-      }
+      // The video element is always on the page, so the stream has somewhere to go.
+      if (!videoRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play().catch(() => undefined);
+      setCameraActive(true);
     } catch (err) {
-      toast.error("Camera access denied. Please allow camera permissions.");
+      const name = (err as { name?: string })?.name;
+      if (name === "NotAllowedError") toast.error("Camera blocked. Allow camera access for this site in your browser settings, or use Take photo.");
+      else nativeCameraRef.current?.click();
     }
   }, []);
 
@@ -152,23 +204,24 @@ export function VisualInventoryContent() {
     if (!ctx) return;
     ctx.drawImage(video, 0, 0);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
-    setCapturedImage(dataUrl);
+    void shrinkImage(canvas).then(setCapturedImage);
+    void dataUrl;
     setCapturedMime("image/jpeg");
     stopCamera();
     toast.success("Photo captured!");
   }, [stopCamera]);
 
   // ── File Upload ───────────────────────────────────────────────────────────
-  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const result = ev.target?.result as string;
-      setCapturedImage(result);
-      setCapturedMime(file.type as "image/jpeg" | "image/png" | "image/webp");
-    };
-    reader.readAsDataURL(file);
+    try {
+      setCapturedImage(await shrinkImage(file));
+      setCapturedMime("image/jpeg");
+    } catch {
+      toast.error("That image couldn't be opened. Try a JPG or PNG.");
+    }
   }, []);
 
   // ── Analysis ──────────────────────────────────────────────────────────────
@@ -198,7 +251,7 @@ export function VisualInventoryContent() {
         .map((h) => h.trim())
         .filter(Boolean);
 
-      const result = await analyseMutation.mutateAsync({
+      const started = await analyseMutation.mutateAsync({
         imageBase64: base64,
         mimeType: capturedMime,
         locationName: locationName.trim(),
@@ -207,19 +260,40 @@ export function VisualInventoryContent() {
         productHints: hints,
         vlmModel: vlmModel || undefined,
       });
+      // The analysis runs on the server for a minute or two; check back until it's done.
+      const deadline = Date.now() + 9 * 60_000;
+      let session = await utils.visualInventory.getSession.fetch({ sessionId: started.sessionId });
+      while (session.status === "processing" && Date.now() < deadline) {
+        await wait(4000);
+        session = await utils.visualInventory.getSession.fetch({ sessionId: started.sessionId });
+      }
+      if (session.status !== "completed") throw new Error(session.errorMessage || "The analysis didn't finish. Please try again.");
+      const items = (session.detectedItems ?? []) as DetectedItem[];
+      const totalCount = items.reduce((n, i) => n + i.count, 0);
+      const result: AnalysisResult = {
+        sessionId: session.id,
+        itemsDetected: items.length,
+        totalCount,
+        confidenceScore: totalCount ? items.reduce((n, i) => n + i.confidence * i.count, 0) / totalCount : 0,
+        items,
+        sceneDescription: session.vlmAnalysis ?? "",
+        vlmModelUsed: session.modelUsed ?? "",
+        processingMs: session.processingMs ?? 0,
+        imageUrl: session.imageUrl,
+      };
 
       setProgress(100);
-      setAnalysisResult(result as AnalysisResult);
+      setAnalysisResult(result);
       refetchSessions();
       toast.success(`Analysis complete! Detected ${result.itemsDetected} product types.`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Analysis failed";
-      toast.error(msg.includes("orchestrator") ? "AI service unavailable — start the visual inventory stack." : msg);
+      toast.error(/fetch failed|unable to transform|Failed to fetch/i.test(msg) ? "Shelf analysis couldn't be reached. Please try again in a minute." : msg);
     } finally {
       clearInterval(progressInterval);
       setIsAnalysing(false);
     }
-  }, [capturedImage, capturedMime, locationName, productHints, vlmModel, analyseMutation, refetchSessions]);
+  }, [capturedImage, capturedMime, locationName, productHints, vlmModel, analyseMutation, refetchSessions, utils, scanLocationInput]);
 
   const reset = () => {
     setCapturedImage(null);
@@ -241,7 +315,7 @@ export function VisualInventoryContent() {
               Visual Count
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              AI-powered inventory counting using Ollama VLM + YOLO11 object detection
+              Take a photo of a shelf and get a count of what's on it
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -285,9 +359,8 @@ export function VisualInventoryContent() {
                 <CardContent className="space-y-3">
                   {/* Camera preview */}
                   <div className="relative bg-muted rounded-lg overflow-hidden aspect-video flex items-center justify-center">
-                    {cameraActive ? (
-                      <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
-                    ) : capturedImage ? (
+                    <video ref={videoRef} className={`w-full h-full object-cover ${cameraActive ? "" : "hidden"}`} muted playsInline autoPlay />
+                    {cameraActive ? null : capturedImage ? (
                       <img src={capturedImage} alt="Captured" loading="lazy" decoding="async" className="w-full h-full object-contain" />
                     ) : (
                       <div className="text-center text-muted-foreground">
@@ -320,6 +393,11 @@ export function VisualInventoryContent() {
                     >
                       <Upload className="w-4 h-4" /> Upload
                     </Button>
+                    <Button variant="outline" size="sm" onClick={() => nativeCameraRef.current?.click()} className="flex-1 gap-1 sm:hidden">
+                      <Camera className="w-4 h-4" /> Take photo
+                    </Button>
+                    {/* The phone's own camera app: works where a live camera in the browser doesn't. */}
+                    <input ref={nativeCameraRef} type="file" accept="image/*" capture="environment" className="hidden" aria-label="Take a photo" onChange={handleFileUpload} />
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -436,7 +514,7 @@ export function VisualInventoryContent() {
                     <div className="space-y-1">
                       <Progress value={progress} className="h-2" />
                       <p className="text-xs text-muted-foreground text-center">
-                        Running YOLO detection + Ollama VLM analysis…
+                        Counting what's in the photo. This usually takes one to two minutes…
                       </p>
                     </div>
                   )}
@@ -486,6 +564,11 @@ export function VisualInventoryContent() {
                       <CardTitle className="text-base flex items-center gap-2">
                         <Package className="w-4 h-4" /> Detected Items
                       </CardTitle>
+                      {analysisResult.items.length > 0 && (
+                        <Button size="sm" className="mt-2 w-full gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => openApply(analysisResult.sessionId, analysisResult.items)}>
+                          <ClipboardCheck className="w-4 h-4" /> Add to products &amp; inventory
+                        </Button>
+                      )}
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
@@ -530,7 +613,7 @@ export function VisualInventoryContent() {
                     <Layers className="w-12 h-12 mx-auto mb-3 opacity-30" />
                     <p className="text-sm">Analysis results will appear here</p>
                     <p className="text-xs mt-1">
-                      Powered by YOLO11 + Ollama ({modelsData?.models?.[0] ?? "Qwen2.5-VL / MiniCPM-V / Gemma3"})
+                      Counted by {modelsData?.models?.[0] ?? "the image model"}
                     </p>
                   </CardContent>
                 </Card>
@@ -629,11 +712,10 @@ export function VisualInventoryContent() {
                             {!s.appliedToInventory && s.status === "completed" && items.length > 0 && (
                               <Button size="sm" className="h-6 text-xs gap-1 px-2 bg-emerald-600 hover:bg-emerald-700"
                                 onClick={() => {
-                                  setApplyAdjustments(items.map(i => ({ detectedLabel: i.label, confirmedCount: i.count })));
-                                  setSelectedSession(s.id);
+                                  openApply(s.id, items);
                                   setApplyDialogOpen(true);
                                 }}>
-                                <ClipboardCheck className="w-3 h-3" /> Apply to Inventory
+                                <ClipboardCheck className="w-3 h-3" /> Add to products &amp; inventory
                               </Button>
                             )}
                             {s.appliedToInventory && updates.length > 0 && (
@@ -725,67 +807,73 @@ export function VisualInventoryContent() {
             )}
           </div>
         )}
-        {/* Apply to Inventory Dialog */}
+        {/* Add to products and inventory */}
         <Dialog open={applyDialogOpen} onOpenChange={setApplyDialogOpen}>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-lg">
             <DialogHeader>
-              <DialogTitle>Apply Counts to Inventory</DialogTitle>
+              <DialogTitle>Add to products and inventory</DialogTitle>
             </DialogHeader>
-            <p className="text-sm text-muted-foreground">Review and adjust the detected counts before applying to your product inventory.</p>
-            <ScrollArea className="max-h-64">
-              <div className="space-y-2 pr-2">
-                {applyAdjustments.map((adj, idx) => (
-                  <div key={idx} className="flex items-center gap-3">
-                    <span className="flex-1 text-sm font-medium truncate">{adj.detectedLabel}</span>
-                    <div className="flex items-center gap-1">
-                      <Button variant="outline" size="sm" className="h-7 w-7 p-0"
-                        onClick={() => setApplyAdjustments(prev => prev.map((a, i) => i === idx ? { ...a, confirmedCount: Math.max(0, a.confirmedCount - 1) } : a))}>
-                        −
-                      </Button>
-                      <span className="w-10 text-center text-sm font-mono">{adj.confirmedCount}</span>
-                      <Button variant="outline" size="sm" className="h-7 w-7 p-0"
-                        onClick={() => setApplyAdjustments(prev => prev.map((a, i) => i === idx ? { ...a, confirmedCount: a.confirmedCount + 1 } : a))}>
-                        +
-                      </Button>
+            <p className="text-sm text-muted-foreground">Check each count. Match items to products you already sell, or add them as new products. Stock is set to the number you confirm.</p>
+            <ScrollArea className="max-h-[55vh]">
+              <div className="space-y-3 pr-2">
+                {applyAdjustments.map((adj, idx) => {
+                  const set = (patch: Partial<ApplyRow>) => setApplyAdjustments((prev) => prev.map((a, i) => (i === idx ? { ...a, ...patch } : a)));
+                  return (
+                    <div key={idx} className={`space-y-2 rounded border border-border p-2.5 ${adj.include ? "" : "opacity-50"}`}>
+                      <div className="flex items-center gap-2">
+                        <input type="checkbox" checked={adj.include} onChange={(e) => set({ include: e.target.checked })} aria-label={`Include ${adj.detectedLabel}`} />
+                        <span className="flex-1 truncate text-sm font-medium">{adj.detectedLabel}</span>
+                        <Button variant="outline" size="sm" className="h-7 w-7 p-0" aria-label="Fewer" onClick={() => set({ confirmedCount: Math.max(0, adj.confirmedCount - 1) })}>−</Button>
+                        <Input type="number" min={0} inputMode="numeric" value={adj.confirmedCount} onChange={(e) => set({ confirmedCount: Math.max(0, parseInt(e.target.value) || 0) })} className="h-7 w-14 text-center font-mono" aria-label={`Count of ${adj.detectedLabel}`} />
+                        <Button variant="outline" size="sm" className="h-7 w-7 p-0" aria-label="More" onClick={() => set({ confirmedCount: adj.confirmedCount + 1 })}>+</Button>
+                      </div>
+                      {adj.include && (
+                        <>
+                          <select className="w-full rounded border border-input bg-background px-2 py-1.5 text-sm" value={adj.target} onChange={(e) => set({ target: e.target.value })} aria-label={`Product for ${adj.detectedLabel}`}>
+                            <option value="new">+ Add as a new product</option>
+                            {(catalog ?? []).map((p) => <option key={p.id} value={p.id}>Update: {p.name} (now {p.stockQuantity})</option>)}
+                          </select>
+                          {adj.target === "new" && (
+                            <div className="grid grid-cols-[1fr_7rem] gap-2">
+                              <Input value={adj.newName} onChange={(e) => set({ newName: e.target.value })} placeholder="Product name" aria-label="New product name" />
+                              <Input value={adj.newPrice} inputMode="decimal" onChange={(e) => set({ newPrice: e.target.value.replace(/[^\d.]/g, "") })} placeholder="Price (₦)" aria-label="New product price" />
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </ScrollArea>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setApplyDialogOpen(false)}>Cancel</Button>
-              <Button
-                className="bg-emerald-600 hover:bg-emerald-700"
-                disabled={applyMutation.isPending || !selectedSession}
-                onClick={() => {
-                  if (!selectedSession) return;
-                  applyMutation.mutate({ sessionId: selectedSession, adjustments: applyAdjustments });
-                }}
-              >
-                {applyMutation.isPending ? "Applying…" : "Apply to Inventory"}
-              </Button>
-            </DialogFooter>
+            {(() => {
+              const chosen = applyAdjustments.filter((a) => a.include);
+              const missing = chosen.filter((a) => a.target === "new" && (!a.newName.trim() || !/^\d+(\.\d{1,2})?$/.test(a.newPrice)));
+              return (
+                <DialogFooter className="items-center gap-2">
+                  {missing.length > 0 && <p className="mr-auto text-xs text-destructive" role="alert">Give each new product a name and price.</p>}
+                  <Button variant="ghost" onClick={() => setApplyDialogOpen(false)}>Cancel</Button>
+                  <Button
+                    className="bg-emerald-600 hover:bg-emerald-700"
+                    disabled={applyMutation.isPending || !selectedSession || chosen.length === 0 || missing.length > 0}
+                    onClick={() => {
+                      if (!selectedSession) return;
+                      applyMutation.mutate({
+                        sessionId: selectedSession,
+                        adjustments: chosen.map((a) => a.target === "new"
+                          ? { detectedLabel: a.detectedLabel, confirmedCount: a.confirmedCount, create: { name: a.newName.trim(), price: a.newPrice } }
+                          : { detectedLabel: a.detectedLabel, confirmedCount: a.confirmedCount, productId: a.target }),
+                      });
+                    }}
+                  >
+                    {applyMutation.isPending ? "Saving…" : `Save ${chosen.length} item${chosen.length === 1 ? "" : "s"}`}
+                  </Button>
+                </DialogFooter>
+              );
+            })()}
           </DialogContent>
         </Dialog>
 
-        {/* Architecture info */}
-        <Card className="bg-muted/30 border-dashed">
-          <CardContent className="pt-4">
-            <p className="text-xs text-muted-foreground font-medium mb-2">AI Stack Architecture</p>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { lang: "Go", role: "Image preprocessing + rate limiting", color: "bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200" },
-                { lang: "Python", role: "YOLO11 detection + Ollama VLM", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" },
-                { lang: "Rust", role: "BBox NMS + confidence scoring", color: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200" },
-                { lang: "TypeScript", role: "tRPC API + DB + frontend", color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" },
-              ].map((s) => (
-                <span key={s.lang} className={`text-xs px-2 py-1 rounded-full font-medium ${s.color}`}>
-                  {s.lang}: {s.role}
-                </span>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
       </div>
   );
 }

@@ -8,7 +8,7 @@
  * metadata.subtotal/deliveryFee/promo.discount + totalAmount) — never
  * recomputed loosely.
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { getDb } from "../db";
 import { customers, logisticsShipments, orders, tenants } from "../../drizzle/schema";
 import { sendWhatsAppText } from "./waSender";
@@ -72,6 +72,32 @@ export function buildReceiptMessage(r: ReceiptData): string {
 /** Parse the order's items jsonb into receipt lines (handles both the
  * chat-flow {name, qty, price} and orderCrud {productName, quantity,
  * unitPrice} shapes). */
+const escapeHtml = (v: string) => v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+
+/** The emailed receipt: plain, printable, the shop's name on top. */
+export function buildReceiptEmailHtml(r: {
+  businessName: string; orderNumber: string; items: ReceiptOrderItem[];
+  subtotal: number | null; deliveryFee: number | null; discount: number | null;
+  total: number; currency: string; paymentRef: string; orderUrl: string;
+}): string {
+  const row = (label: string, value: string, strong = false) =>
+    `<tr><td style="padding:6px 0;color:#444">${strong ? "<strong>" : ""}${escapeHtml(label)}${strong ? "</strong>" : ""}</td><td style="padding:6px 0;text-align:right">${strong ? "<strong>" : ""}${escapeHtml(value)}${strong ? "</strong>" : ""}</td></tr>`;
+  const lines = r.items.map((i) => row(`${i.qty} × ${i.name}`, fmtMoney(i.unitPrice * i.qty, r.currency))).join("");
+  return `<div style="max-width:480px;margin:0 auto;font-family:Arial,Helvetica,sans-serif;color:#111">
+<h1 style="font-size:20px;margin:0 0 4px">${escapeHtml(r.businessName)}</h1>
+<p style="margin:0 0 16px;color:#555">Receipt for order <strong>${escapeHtml(r.orderNumber)}</strong> · Paid</p>
+<table style="width:100%;border-collapse:collapse;border-top:1px solid #ddd;border-bottom:1px solid #ddd">${lines}</table>
+<table style="width:100%;border-collapse:collapse;margin-top:8px">
+${r.subtotal != null ? row("Subtotal", fmtMoney(r.subtotal, r.currency)) : ""}
+${r.deliveryFee ? row("Delivery", fmtMoney(r.deliveryFee, r.currency)) : ""}
+${r.discount ? row("Discount", `-${fmtMoney(r.discount, r.currency)}`) : ""}
+${row("Total paid", fmtMoney(r.total, r.currency), true)}
+</table>
+<p style="margin:16px 0 4px;color:#555;font-size:13px">Payment reference: ${escapeHtml(r.paymentRef)}</p>
+<p style="margin:16px 0"><a href="${escapeHtml(r.orderUrl)}" style="background:#111;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;display:inline-block">Track your order</a></p>
+</div>`;
+}
+
 export function parseReceiptItems(raw: unknown): ReceiptOrderItem[] {
   if (!Array.isArray(raw)) return [];
   const out: ReceiptOrderItem[] = [];
@@ -206,6 +232,42 @@ export async function sendOrderReceipt(
     deliveryPin: freshPin ?? (shipment?.deliveryPin && !shipment.deliveryPin.startsWith("pinv1:") ? shipment.deliveryPin : null),
     trackingUrl: trackingUrlFor(order.id),
   });
+
+  // Web-store orders that gave an email get the receipt by email too — a web
+  // shopper who never chatted can't receive WhatsApp free-form messages
+  // (24-hour window). Recorded on the order so the order page only says
+  // "emailed" when it really was. Fail-open: never blocks the WhatsApp send.
+  const contactEmail = typeof meta?.contactEmail === "string" ? meta.contactEmail : null;
+  if (contactEmail && !meta?.receiptEmailedAt) {
+    try {
+      const { sendEmail } = await import("./email/resend");
+      const emailed = await sendEmail({
+        to: contactEmail,
+        subject: `Your receipt from ${businessName} — order ${order.orderNumber}`,
+        html: buildReceiptEmailHtml({
+          businessName,
+          orderNumber: order.orderNumber,
+          items: parseReceiptItems(order.items),
+          subtotal: metadataNumber(meta, "subtotal"),
+          deliveryFee: metadataNumber(meta, "deliveryFee"),
+          discount: promoDiscount > 0 ? promoDiscount : null,
+          total: Number(order.totalAmount),
+          currency: order.currency,
+          paymentRef,
+          orderUrl: trackingUrlFor(order.id),
+        }),
+        text: message,
+      });
+      if (emailed) {
+        // jsonb merge, so a concurrent metadata write isn't overwritten.
+        await db.update(orders)
+          .set({ metadata: sql`coalesce(${orders.metadata}, '{}'::jsonb) || jsonb_build_object('receiptEmailedAt', ${new Date().toISOString()}::text)` })
+          .where(eq(orders.id, order.id));
+      }
+    } catch (e: any) {
+      console.warn("[receipts] email receipt failed (fail-open):", e?.message);
+    }
+  }
 
   // === W37 telegram ===
   // Payment-receipt parity: telegram-linked buyers receive the identical

@@ -8,7 +8,7 @@
 import { eq } from "drizzle-orm";
 import { TENANT_ID, assert, assertIncludes, bodyText, type World } from "../world";
 import type { Journey } from "../runner";
-import { nlpAddToCart, nlpConfirm } from "./helpers";
+import { lastReply, nlpAddToCart, nlpConfirm, replyCount } from "./helpers";
 
 export const journey: Journey = {
   id: "J305",
@@ -43,7 +43,7 @@ export const journey: Journey = {
       { product: "Grilled Chicken", quantity: 1 },
     ]);
     await nlpConfirm(world, phone, "confirm my order j305");
-    const summary = bodyText(world.outbound.lastOfType("text", phone));
+    const summary = bodyText(lastReply(world, phone));
     assertIncludes(summary, "₦8,000.00", "NGN subtotal still shown");
     assertIncludes(summary, "(~$", "dual display shown");
     assertIncludes(summary, "$5.28", "converted amount correct");

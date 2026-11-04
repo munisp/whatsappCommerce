@@ -56,6 +56,9 @@ function WhatsAppStep({ tenantId, onNext }: { tenantId: string; onNext: () => vo
   const [phoneNumberId, setPhoneNumberId] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [wabaId, setWabaId] = useState("");
+  // Most shops sell on the shared OAK number (nothing to set up); their own
+  // WhatsApp Business number is the advanced option.
+  const [ownNumber, setOwnNumber] = useState(false);
   const updateStep = trpc.onboarding.updateStep.useMutation();
 
   const handleSave = async () => {
@@ -83,11 +86,25 @@ function WhatsAppStep({ tenantId, onNext }: { tenantId: string; onNext: () => vo
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold mb-1">Connect your WhatsApp Business number</h2>
+        <h2 className="text-xl font-semibold mb-1">How customers reach you on WhatsApp</h2>
         <p className="text-sm text-muted-foreground">
-          Customers will send orders to this number. You need a WhatsApp Business API (Cloud API) account.
+          Your shop gets the shared OAK WhatsApp number straight away: customers message it, pick your shop, and order.
+          You can connect your own WhatsApp Business number instead, now or later.
         </p>
       </div>
+      {!ownNumber ? (
+        <div className="space-y-3">
+          <Button onClick={onNext} className="w-full">
+            Use the shared OAK number (recommended) <ChevronRight className="h-4 w-4 ml-1" />
+          </Button>
+          <Button variant="outline" className="w-full" onClick={() => setOwnNumber(true)}>
+            Use my own WhatsApp Business number
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Your own number needs a WhatsApp Business (Cloud API) account with Meta.
+          </p>
+        </div>
+      ) : (<>
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex gap-3">
         <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
         <div className="text-sm text-amber-800">
@@ -136,10 +153,11 @@ function WhatsAppStep({ tenantId, onNext }: { tenantId: string; onNext: () => vo
         </Button>
       </div>
       {!updateStep.isPending && (
-        <Button variant="ghost" className="text-sm text-muted-foreground" onClick={onNext}>
-          Skip for now — I'll set this up later
+        <Button variant="ghost" className="text-sm text-muted-foreground" onClick={() => setOwnNumber(false)}>
+          Back — use the shared OAK number instead
         </Button>
       )}
+      </>)}
     </div>
   );
 }

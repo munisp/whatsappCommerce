@@ -786,7 +786,7 @@ export default function AdminPortal() {
         </div>
 
         <Tabs defaultValue="integrations">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="flex w-full justify-start overflow-x-auto sm:grid sm:grid-cols-4">
             <TabsTrigger value="integrations">Integrations</TabsTrigger>
             <TabsTrigger value="users">Users & Tenants</TabsTrigger>
             <TabsTrigger value="finance">Finance</TabsTrigger>

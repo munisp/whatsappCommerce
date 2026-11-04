@@ -6,7 +6,7 @@
 import { eq } from "drizzle-orm";
 import { assert, assertIncludes, bodyText, type World } from "../world";
 import type { Journey } from "../runner";
-import { nlpAddToCart, nlpConfirm } from "./helpers";
+import { lastReply, nlpAddToCart, nlpConfirm } from "./helpers";
 
 export const journey: Journey = {
   id: "J05",
@@ -32,11 +32,14 @@ export const journey: Journey = {
     // Buyer shares their location natively.
     await world.location(phone, 6.4281, 3.4219, "Home", "12 Adeola Odeku Street, Victoria Island, Lagos");
 
-    const orderMsg = bodyText(world.outbound.lastOfType("text", phone));
+    await world.settle();
+    const payMsg = lastReply(world, phone);
+    const orderMsg = bodyText(payMsg);
     assertIncludes(orderMsg, "Delivery fee", "delivery fee line shown");
     assertIncludes(orderMsg, "1,500.00", "same-city fee is ₦1,500");
     assertIncludes(orderMsg, "₦4,000.00", "total includes the fee (2500 + 1500)");
-    assertIncludes(orderMsg, "https://checkout.paystack.com/sim/", "payment link on the fee-inclusive total");
+    assert(payMsg?.body?.interactive?.type === "cta_url", "location checkout ends with a Pay button");
+    assertIncludes(JSON.stringify(payMsg?.body), "https://checkout.paystack.com/sim/", "payment link on the fee-inclusive total");
 
     const schema = await import("../../drizzle/schema");
     const [order] = await world.db.select().from(schema.orders)

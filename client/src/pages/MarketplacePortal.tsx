@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Store, DollarSign, Users, TrendingUp, Plus } from "lucide-react";
+import { Store, Banknote, Users, TrendingUp, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useActiveTenant } from "@/contexts/TenantContext";
 
@@ -42,7 +42,7 @@ export function MarketplacePortalContent() {
               { label: "Total Sellers", value: stats.totalSellers, icon: Store, color: "text-blue-600" },
               { label: "Active Sellers", value: stats.activeSellers, icon: Users, color: "text-green-600" },
               { label: "Commission Earned", value: `₦${parseFloat(stats.totalCommissionEarned).toLocaleString()}`, icon: TrendingUp, color: "text-purple-600" },
-              { label: "Pending Commission", value: `₦${parseFloat(stats.pendingCommission).toLocaleString()}`, icon: DollarSign, color: "text-orange-600" },
+              { label: "Pending Commission", value: `₦${parseFloat(stats.pendingCommission).toLocaleString()}`, icon: Banknote, color: "text-orange-600" },
             ].map(({ label, value, icon: Icon, color }) => (
               <Card key={label}><CardContent className="pt-4"><div className="flex items-center gap-3"><Icon className={`w-8 h-8 ${color}`} /><div><p className="text-2xl font-bold">{value}</p><p className="text-xs text-gray-500">{label}</p></div></div></CardContent></Card>
             ))}

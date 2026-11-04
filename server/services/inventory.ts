@@ -295,6 +295,12 @@ export async function releaseReservations(
     // === END W46 inventory-depth ===
     released++;
   }
+  // Web orders hold size/colour stock separately. A no-op for every other order.
+  if (released > 0) {
+    const { releaseVariantStock } = await import("./storefront/checkout");
+    await releaseVariantStock(db as Parameters<typeof releaseVariantStock>[0], orderId).catch((e: unknown) =>
+      console.error("[inventory] variant stock release failed:", (e as Error)?.message));
+  }
   return released;
 }
 
@@ -371,6 +377,12 @@ export async function releaseCommittedReservations(
     // === END W46 inventory-depth ===
     scheduleLowStockCheck(row.tenantId, row.productId);
     released++;
+  }
+  // Web orders hold size/colour stock separately. A no-op for every other order.
+  if (released > 0) {
+    const { releaseVariantStock } = await import("./storefront/checkout");
+    await releaseVariantStock(db as Parameters<typeof releaseVariantStock>[0], orderId).catch((e: unknown) =>
+      console.error("[inventory] variant stock release failed:", (e as Error)?.message));
   }
   return released;
 }

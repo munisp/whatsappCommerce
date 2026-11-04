@@ -8,19 +8,21 @@ import { trpc } from "@/lib/trpc";
 import { Activity, AlertTriangle, Bot, Clock, Cpu, Zap } from "lucide-react";
 
 
-const INTENT_TYPES = [
-  { label: "Browse / Search", value: 38, color: "bg-primary" },
-  { label: "Add to Cart", value: 22, color: "bg-blue-500" },
-  { label: "Checkout", value: 18, color: "bg-green-500" },
-  { label: "Order Status", value: 12, color: "bg-yellow-500" },
-  { label: "Support", value: 7, color: "bg-orange-500" },
-  { label: "Handoff", value: 3, color: "bg-red-500" },
-];
+const INTENT_COLORS = ["bg-primary", "bg-blue-500", "bg-green-500", "bg-yellow-500", "bg-orange-500", "bg-red-500"];
+const INTENT_LABEL: Record<string, string> = {
+  browse: "Browse / search", add_to_cart: "Add to cart", confirm_order: "Checkout", checkout: "Checkout step", greeting: "Greeting",
+  product_detail: "Product question", view_cart: "View cart", remove_from_cart: "Remove from cart", support: "Support",
+  dispute: "Complaint", unknown: "Not understood", faq: "FAQ answer", checkout_fulfillment: "Pickup / delivery choice",
+};
 
 function AgentConsoleInner() {
-  const { activeTenantId: DEMO_TENANT } = useActiveTenant();
-  const { data: stats } = trpc.agent.stats.useQuery({ tenantId: DEMO_TENANT });
-  const { data: health } = trpc.agent.health.useQuery();
+  const { data: agent } = trpc.platformOverview.agent.useQuery({ days: 30 }, { refetchInterval: 60_000 });
+  const stats = agent ? { total: agent.totals.interactions, escalated: agent.totals.escalated, avgLatency: agent.totals.avgLatencyMs } : undefined;
+  const health = agent?.services.map((s) => ({ serviceName: s.name, status: s.status, latencyMs: s.latencyMs, detail: s.detail }));
+  const intents = (agent?.intents ?? []).map((i, n) => ({
+    label: INTENT_LABEL[i.intent] ?? i.intent.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()),
+    value: Math.round(i.share * 100), count: i.count, color: INTENT_COLORS[n % INTENT_COLORS.length],
+  }));
 
   const escalationRate = stats && stats.total > 0
     ? ((stats.escalated / stats.total) * 100).toFixed(1)
@@ -31,7 +33,7 @@ function AgentConsoleInner() {
       <div className="p-6 space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">AI Agent Console</h1>
-          <p className="text-muted-foreground mt-1">LangGraph orchestrator performance, intent distribution, and guardrail events</p>
+          <p className="text-muted-foreground mt-1">The shopping assistant across every shop, last 30 days{agent ? ` · ${agent.totals.shops} shops` : ""}. Services are checked live.</p>
         </div>
 
         {/* KPI Cards */}
@@ -66,11 +68,12 @@ function AgentConsoleInner() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {INTENT_TYPES.map((intent) => (
+              {intents.length === 0 && <p className="text-sm text-muted-foreground">No assistant activity in the last 30 days.</p>}
+              {intents.map((intent) => (
                 <div key={intent.label} className="space-y-1">
                   <div className="flex justify-between text-sm">
                     <span className="text-foreground">{intent.label}</span>
-                    <span className="text-muted-foreground font-mono">{intent.value}%</span>
+                    <span className="text-muted-foreground font-mono">{intent.value}% · {intent.count}</span>
                   </div>
                   <div className="w-full bg-muted rounded-full h-1.5">
                     <div className={`${intent.color} h-1.5 rounded-full transition-all duration-700`} style={{ width: `${intent.value}%` }} />
@@ -97,7 +100,10 @@ function AgentConsoleInner() {
                       svc.status === "degraded" ? "bg-yellow-400" :
                       svc.status === "down" ? "bg-red-400" : "bg-gray-400"
                     }`} />
-                    <span className="text-sm font-medium">{svc.serviceName}</span>
+                    <div>
+                      <span className="text-sm font-medium">{svc.serviceName}</span>
+                      {svc.detail && <p className="text-xs text-red-500">{svc.detail}</p>}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     {svc.latencyMs && <span className="text-xs text-muted-foreground font-mono">{svc.latencyMs}ms</span>}
@@ -111,8 +117,7 @@ function AgentConsoleInner() {
               )) : (
                 <div className="text-center text-muted-foreground py-8">
                   <Cpu className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                  <p className="text-sm">No health data yet</p>
-                  <p className="text-xs mt-1">Services will appear once health checks run</p>
+                  <p className="text-sm">Checking services…</p>
                 </div>
               )}
             </CardContent>

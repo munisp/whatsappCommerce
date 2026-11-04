@@ -2,7 +2,7 @@ import { z } from "zod";
 import { router, adminProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { paymentTransactions, tenants, paymentGatewayConfigs } from "../../drizzle/schema";
-import { eq, gte, lt, and, sql, desc, count } from "drizzle-orm";
+import { eq, gte, lt, and, sql, desc, count, inArray } from "drizzle-orm";
 
 // Revenue share rates (profit-sharing model)
 const PLATFORM_REVENUE_SHARE = 0.05;   // 5% of tenant net profit
@@ -40,7 +40,7 @@ export const revenueRouter = router({
       .from(paymentTransactions)
       .where(
         and(
-          eq(paymentTransactions.status, "success"),
+          inArray(paymentTransactions.status, ["success", "completed"]),
           gte(paymentTransactions.createdAt, thisMonthStart)
         )
       );
@@ -51,7 +51,7 @@ export const revenueRouter = router({
       .from(paymentTransactions)
       .where(
         and(
-          eq(paymentTransactions.status, "success"),
+          inArray(paymentTransactions.status, ["success", "completed"]),
           gte(paymentTransactions.createdAt, lastMonthStart),
           lt(paymentTransactions.createdAt, thisMonthStart)
         )
@@ -59,7 +59,7 @@ export const revenueRouter = router({
 
     // Transaction counts
     const [txnRow] = await db
-      .select({ total: count(), success: sql<string>`COUNT(*) FILTER (WHERE status = 'success')` })
+      .select({ total: count(), success: sql<string>`COUNT(*) FILTER (WHERE status IN ('success', 'completed'))` })
       .from(paymentTransactions)
       .where(gte(paymentTransactions.createdAt, last30));
 
@@ -115,8 +115,8 @@ export const revenueRouter = router({
       const rows = await db
         .select({
           month: sql<string>`TO_CHAR(DATE_TRUNC('month', "createdAt"), 'YYYY-MM')`,
-          gmv: sql<string>`COALESCE(SUM(amount) FILTER (WHERE status = 'success'), 0)`,
-          txnCount: sql<string>`COUNT(*) FILTER (WHERE status = 'success')`,
+          gmv: sql<string>`COALESCE(SUM(amount) FILTER (WHERE status IN ('success', 'completed')), 0)`,
+          txnCount: sql<string>`COUNT(*) FILTER (WHERE status IN ('success', 'completed'))`,
           failedCount: sql<string>`COUNT(*) FILTER (WHERE status = 'failed')`,
         })
         .from(paymentTransactions)
@@ -151,15 +151,15 @@ export const revenueRouter = router({
       const rows = await db
         .select({
           tenantId: paymentTransactions.tenantId,
-          gmv: sql<string>`COALESCE(SUM(amount) FILTER (WHERE ${paymentTransactions.status} = 'success'), 0)`,
-          txnCount: sql<string>`COUNT(*) FILTER (WHERE ${paymentTransactions.status} = 'success')`,
+          gmv: sql<string>`COALESCE(SUM(amount) FILTER (WHERE ${paymentTransactions.status} IN ('success', 'completed')), 0)`,
+          txnCount: sql<string>`COUNT(*) FILTER (WHERE ${paymentTransactions.status} IN ('success', 'completed'))`,
           businessName: tenants.name,
         })
         .from(paymentTransactions)
         .leftJoin(tenants, eq(paymentTransactions.tenantId, tenants.id))
         .where(gte(paymentTransactions.createdAt, since))
         .groupBy(paymentTransactions.tenantId, tenants.name)
-        .orderBy(desc(sql`SUM(amount) FILTER (WHERE ${paymentTransactions.status} = 'success')`))
+        .orderBy(desc(sql`SUM(amount) FILTER (WHERE ${paymentTransactions.status} IN ('success', 'completed'))`))
         .limit(input.limit);
 
       return rows.map((r) => {
@@ -190,7 +190,7 @@ export const revenueRouter = router({
       const rows = await db
         .select({
           month: sql<string>`TO_CHAR(DATE_TRUNC('month', "createdAt"), 'YYYY-MM')`,
-          gmv: sql<string>`COALESCE(SUM(amount) FILTER (WHERE status = 'success'), 0)`,
+          gmv: sql<string>`COALESCE(SUM(amount) FILTER (WHERE status IN ('success', 'completed')), 0)`,
         })
         .from(paymentTransactions)
         .where(gte(paymentTransactions.createdAt, since))
@@ -255,8 +255,8 @@ export const revenueRouter = router({
           tenantId: paymentTransactions.tenantId,
           // Qualify status: this query joins `tenants`, which ALSO has a `status`
           // column, so a bare `status` is ambiguous ("column reference is ambiguous").
-          gmv: sql<string>`COALESCE(SUM(amount) FILTER (WHERE ${paymentTransactions.status} = 'success'), 0)`,
-          txnCount: sql<string>`COUNT(*) FILTER (WHERE ${paymentTransactions.status} = 'success')`,
+          gmv: sql<string>`COALESCE(SUM(amount) FILTER (WHERE ${paymentTransactions.status} IN ('success', 'completed')), 0)`,
+          txnCount: sql<string>`COUNT(*) FILTER (WHERE ${paymentTransactions.status} IN ('success', 'completed'))`,
           businessName: tenants.name,
           cogsRate: tenants.cogsRate,
         })
@@ -264,14 +264,14 @@ export const revenueRouter = router({
         .leftJoin(tenants, eq(paymentTransactions.tenantId, tenants.id))
         .where(gte(paymentTransactions.createdAt, thisMonthStart))
         .groupBy(paymentTransactions.tenantId, tenants.name, tenants.cogsRate)
-        .orderBy(desc(sql`SUM(amount) FILTER (WHERE ${paymentTransactions.status} = 'success')`))
+        .orderBy(desc(sql`SUM(amount) FILTER (WHERE ${paymentTransactions.status} IN ('success', 'completed'))`))
         .limit(input.limit);
 
       // Last month GMV per tenant (for MoM growth)
       const lastMonth = await db
         .select({
           tenantId: paymentTransactions.tenantId,
-          gmv: sql<string>`COALESCE(SUM(amount) FILTER (WHERE status = 'success'), 0)`,
+          gmv: sql<string>`COALESCE(SUM(amount) FILTER (WHERE status IN ('success', 'completed')), 0)`,
         })
         .from(paymentTransactions)
         .where(

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 // === W46 kyc === TEN-9: catalog mutations require the "catalog" capability
@@ -8,7 +8,8 @@ import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { assertCapabilityAccess } from "../services/capabilities";
 import * as db from "../db";
 import { getDb } from "../db";
-import { products } from "../../drizzle/schema";
+import { orders, productVariants, products } from "../../drizzle/schema";
+import { MAX_PRODUCT_PHOTOS } from "../../shared/productOptions";
 import { syncLocalChange } from "../services/integrations/outbox";
 import { triggerRestockNotification } from "../services/waitlist";
 import { notifyMetaCatalogProductChanged } from "../services/metaCatalog";
@@ -31,7 +32,62 @@ async function enqueueProductSync(tenantId: string, productId: string, action: s
   // === END W48 ===
 }
 
+const photosSchema = z.array(z.string().max(1000)).max(MAX_PRODUCT_PHOTOS);
+
+/** The first photo is the cover (imageUrl); the rest live in metadata.images, which the storefront reads. */
+function splitPhotos(photos: string[]) {
+  const clean = photos.map((p) => p.trim()).filter(Boolean);
+  return { imageUrl: clean[0] ?? null, more: clean.slice(1) };
+}
+
 export const productRouter = router({
+  /** Product photos go in the public catalogue namespace so shoppers and chat apps can load them. */
+  uploadImage: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      base64: z.string().min(1).max(12_000_000),
+      mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      await assertCapabilityAccess(ctx.user, input.tenantId, "catalog");
+      const buffer = Buffer.from(input.base64.replace(/^data:[^;]+;base64,/, ""), "base64");
+      if (buffer.length > 8 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST", message: "Photos must be 8MB or smaller" });
+      const { storagePut } = await import("../storage");
+      const ext = input.mimeType === "image/png" ? "png" : input.mimeType === "image/webp" ? "webp" : "jpg";
+      const { url } = await storagePut(`product-images/${input.tenantId}/${nanoid()}.${ext}`, buffer, input.mimeType);
+      return { url };
+    }),
+
+  /**
+   * Removes a product. One that appears in past orders is archived and taken off every list instead, so order
+   * history, refunds and reports still find it; its SKU is freed for reuse.
+   */
+  delete: protectedProcedure
+    .input(z.object({ tenantId: z.string(), id: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      await assertCapabilityAccess(ctx.user, input.tenantId, "catalog");
+      const conn = await getDb();
+      if (!conn) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [row] = await conn.select().from(products).where(and(eq(products.id, input.id), eq(products.tenantId, input.tenantId))).limit(1);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
+      const [used] = await conn.select({ id: orders.id }).from(orders)
+        .where(and(eq(orders.tenantId, input.tenantId), sql`${orders.items} @> ${JSON.stringify([{ productId: input.id }])}::jsonb`)).limit(1);
+      if (used) {
+        await conn.update(products).set({
+          status: "archived",
+          sku: `${row.sku}~deleted-${Date.now().toString(36)}`.slice(0, 100),
+          metadata: { ...((row.metadata ?? {}) as Record<string, unknown>), deletedAt: new Date().toISOString() },
+          updatedAt: new Date(),
+        }).where(and(eq(products.id, input.id), eq(products.tenantId, input.tenantId)));
+        return { removed: "archived" as const };
+      }
+      await conn.delete(productVariants).where(and(eq(productVariants.productId, input.id), eq(productVariants.tenantId, input.tenantId)));
+      await conn.delete(products).where(and(eq(products.id, input.id), eq(products.tenantId, input.tenantId)));
+      return { removed: "deleted" as const };
+    }),
+
   list: protectedProcedure
     .input(z.object({
       tenantId: z.string(),
@@ -65,6 +121,10 @@ export const productRouter = router({
       // through this app rather than exposing MinIO directly), which a
       // strict URL check rejects. importCsv accepts the same loose shape.
       imageUrl: z.string().optional(),
+      /** All photos, cover first. Takes precedence over imageUrl. */
+      photos: photosSchema.optional(),
+      /** The "was" price. Above the price, the store shows this product as on sale. */
+      compareAtPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).nullish(),
       stockQuantity: z.number().int().min(0).default(0),
       lowStockThreshold: z.number().int().min(0).default(10),
     }))
@@ -74,9 +134,13 @@ export const productRouter = router({
       const id = nanoid();
       try {
         // === W50 IMAGES === provenance: a merchant-supplied URL is an upload.
+        const { compareAtPrice, photos, ...fields } = input;
+        const split = photos ? splitPhotos(photos) : null;
+        if (split) fields.imageUrl = split.imageUrl ?? undefined;
+        const metadata = { ...(fields.imageUrl ? { imageSource: "upload" } : {}), ...(compareAtPrice ? { compareAtPrice } : {}), ...(split?.more.length ? { images: split.more } : {}) };
         await db.createProduct({
-          id, ...input, status: "active",
-          metadata: input.imageUrl ? { imageSource: "upload" } : undefined,
+          id, ...fields, status: "active",
+          metadata: Object.keys(metadata).length ? metadata : undefined,
         });
         // === END W50 IMAGES ===
       } catch (e: unknown) {
@@ -146,11 +210,30 @@ export const productRouter = router({
       currency: z.string().length(3).optional(),
       stockQuantity: z.number().int().min(0).optional(),
       status: z.enum(["active", "inactive", "archived"]).optional(),
+      /** All photos, cover first. An empty list removes them. */
+      photos: photosSchema.optional(),
+      /** The "was" price. Null or empty clears it. */
+      compareAtPrice: z.string().regex(/^(\d+(\.\d{1,2})?)?$/).nullish(),
     }))
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
       await assertCapabilityAccess(ctx.user, input.tenantId, "catalog"); // W46 kyc (TEN-9)
-      const { id, tenantId, ...data } = input;
+      const { id, tenantId, compareAtPrice, photos, ...data } = input;
+      if (compareAtPrice !== undefined || photos !== undefined) {
+        const conn = await getDb();
+        const [current] = conn
+          ? await conn.select({ metadata: products.metadata }).from(products).where(and(eq(products.id, id), eq(products.tenantId, tenantId))).limit(1)
+          : [];
+        const meta = { ...((current?.metadata ?? {}) as Record<string, unknown>) };
+        if (compareAtPrice !== undefined) { delete meta.compareAtPrice; if (compareAtPrice) meta.compareAtPrice = compareAtPrice; }
+        if (photos !== undefined) {
+          const split = splitPhotos(photos);
+          delete meta.images;
+          if (split.more.length) meta.images = split.more;
+          (data as Record<string, unknown>).imageUrl = split.imageUrl;
+        }
+        (data as Record<string, unknown>).metadata = meta;
+      }
       // Back-in-stock waitlist hook: capture previous stock so a 0→>0
       // transition can fan out alerts (fire-and-forget, never blocks).
       let prevStock: number | null = null;

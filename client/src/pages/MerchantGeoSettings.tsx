@@ -57,8 +57,8 @@ function MerchantGeoSettingsInner() {
   }, [location.data]);
 
   const setLocation = trpc.geo.merchant.setLocation.useMutation({
-    onSuccess: () => {
-      toast.success("Shop location saved");
+    onSuccess: (res: any) => {
+      toast.success(res?.discoverable ? "Location saved — customers nearby can now find your shop on WhatsApp" : "Shop location saved");
       utils.geo.merchant.getLocation.invalidate();
     },
     onError: (e) => toast.error(e.message),
@@ -183,11 +183,11 @@ function MerchantGeoSettingsInner() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="lat">Latitude</Label>
-                <Input id="lat" placeholder="6.5244" value={lat} onChange={(e) => setLat(e.target.value)} />
+                <Input id="lat" placeholder="e.g. 6.5244" value={lat} onChange={(e) => setLat(e.target.value)} />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="lng">Longitude</Label>
-                <Input id="lng" placeholder="3.3792" value={lng} onChange={(e) => setLng(e.target.value)} />
+                <Input id="lng" placeholder="e.g. 3.3792" value={lng} onChange={(e) => setLng(e.target.value)} />
               </div>
             </div>
             <Button variant="outline" onClick={useMyLocation} disabled={gpsBusy}>
@@ -197,16 +197,16 @@ function MerchantGeoSettingsInner() {
             <div className="grid gap-3">
               <div className="space-y-1">
                 <Label htmlFor="addr">Address</Label>
-                <Input id="addr" placeholder="12 Market Street" value={addressLine} onChange={(e) => setAddressLine(e.target.value)} />
+                <Input id="addr" placeholder="e.g. 12 Market Street, Ikeja" value={addressLine} onChange={(e) => setAddressLine(e.target.value)} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="city">City</Label>
-                  <Input id="city" value={city} onChange={(e) => setCity(e.target.value)} />
+                  <Input id="city" placeholder="e.g. Lagos" value={city} onChange={(e) => setCity(e.target.value)} />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="country">Country</Label>
-                  <Input id="country" value={country} onChange={(e) => setCountry(e.target.value)} />
+                  <Input id="country" placeholder="e.g. Nigeria" value={country} onChange={(e) => setCountry(e.target.value)} />
                 </div>
               </div>
             </div>

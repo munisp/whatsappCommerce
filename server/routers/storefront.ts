@@ -27,6 +27,8 @@ import {
   validateSlug,
 } from "../services/storefront";
 import { isLocale, LOCALE_NAMES, SUPPORTED_LOCALES } from "../services/i18n";
+import { storefrontShopRouter } from "./storefrontShop";
+import { storefrontDesignRouter } from "./storefrontDesign";
 
 async function requireDb() {
   const db = await getDb();
@@ -56,6 +58,10 @@ const settingsInputSchema = z.object({
 });
 
 export const storefrontRouter = router({
+  /** The customer-facing store: catalogue, checkout, accounts and orders. */
+  shop: storefrontShopRouter,
+  /** Merchant design workflow: templates, draft, publish. */
+  design: storefrontDesignRouter,
   /**
    * Public storefront by slug. authz:exempt — public shareable surface;
    * returns only the PII-scrubbed StorefrontPublicView; hidden storefronts
