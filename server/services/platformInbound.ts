@@ -31,6 +31,7 @@ import {
   isGreeting,
   isHomeCommand,
   type LatLng,
+  parseShopDirective,
   resolvePlatformWaCredentialsFull,
   resolveShopRef,
   setActiveShop,
@@ -110,7 +111,18 @@ async function loadReachableShop(tenantId: string): Promise<any | null> {
 export async function platformActiveShop(opts: {
   customerPhone: string;
   text: string;
-}): Promise<{ shopRow: any } | null> {
+}): Promise<{ shopRow: any; text?: string } | null> {
+  // A web store link names its shop, which takes priority over wherever the customer last was.
+  const directive = parseShopDirective(opts.text);
+  if (directive) {
+    const shop = await resolveShopRef(directive.ref);
+    const shopRow = shop ? await loadReachableShop(shop.tenantId) : null;
+    if (shop && shopRow) {
+      await setActiveShop(opts.customerPhone, shop.tenantId);
+      return { shopRow, text: directive.rest || "Hi" };
+    }
+    return null; // unknown or closed shop: handlePlatformDirectory shows the directory
+  }
   if (isHomeCommand(opts.text)) return null;
   const activeId = await getActiveShop(opts.customerPhone);
   if (!activeId) return null;
@@ -301,6 +313,11 @@ export async function handlePlatformDirectory(opts: {
     return;
   }
 
+  // A store link for a shop we can't enter must not turn into a product search.
+  if (parseShopDirective(text)) {
+    await sendPlatformText(customerPhone, directoryPrompt());
+    return;
+  }
   const shop = await resolveShopRef(text);
   if (shop) {
     await setActiveShop(customerPhone, shop.tenantId);

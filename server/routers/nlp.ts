@@ -53,6 +53,7 @@ import {
 import { normalizeExtractedItems, addExtractedItemsToCart, removeItemsFromCart, matchCatalogItem } from "../services/nlpCart";
 import { quoteDeliveryFee } from "../services/deliveryQuote";
 import { trackingUrlFor } from "../services/trackingToken";
+import { quoteDeliveryForCart } from "../services/deliveryQuoteForCart";
 import {
   checkAvailability,
   reserveStock,
@@ -334,6 +335,15 @@ export async function createChatOrder(
     ageAttestedAge?: number | null;
     /** W47 (ONB-TOCTOU-2): evidence wamid for the attestation row. */
     ageProofWamid?: string | null;
+    /** Web storefront checkout. Absent for every chat path, which keeps its behaviour. */
+    web?: {
+      source: "web_storefront";
+      email?: string | null;
+      /** Where the payment provider returns the buyer after paying. */
+      callbackUrl: string;
+      shippingAddress?: Record<string, unknown> | null;
+      metadata?: Record<string, unknown>;
+    };
   },
 ): Promise<ChatOrderResult> {
   const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, opts.cartSessionId));
@@ -420,58 +430,16 @@ export async function createChatOrder(
     }
   }
   // === END W46 uc-ux ===
-  // ── W27: aggregated courier quote — cheapest of the tenant's enabled
-  // courier adapters (distance-priced local dispatch when coordinates are
-  // known), falling back to the honest zone rate. Non-blocking. ────────────
-  let aggQuote: import("../services/delivery/service").AggregatedQuote | null = null;
-  if (opts.fulfillment === "delivery") {
-    try {
-      const { quoteOrderDelivery } = await import("../services/delivery/service");
-      const dc = opts.deliveryCoords ?? null;
-      aggQuote = await quoteOrderDelivery(db, {
+  // The same quote the web storefront shows before checkout (services/deliveryQuoteForCart.ts).
+  const { aggQuote, quote } = opts.fulfillment === "delivery"
+    ? await quoteDeliveryForCart(db, {
         tenantId: opts.tenantId,
-        dropoffAddress: opts.address,
-        ...(dc ? { dropoffLat: dc.latitude, dropoffLng: dc.longitude } : {}),
-        orderValueCents: toMinorUnitsExact(subtotal),
-      });
-    } catch (e: unknown) {
-      console.error("[nlp] aggregated delivery quote failed (non-blocking):", (e as Error)?.message);
-    }
-  }
-  // === W45 orders-p0 (ORD-9): weight-aware, tenant-zone quoting ===
-  // Sum the order weight (qty × products.weightKg; unknown-weight lines use
-  // the 1kg floor) and load the tenant's configured delivery zones
-  // (merchant_locations.deliveryZones — geo.ts) so the fallback quote prices
-  // the ACTUAL parcel and the merchant's real zones instead of Lagos hints.
-  let orderWeightKg = 0;
-  let tenantDeliveryZones: { name: string }[] | null = null;
-  if (opts.fulfillment === "delivery") {
-    try {
-      const weightRows = await db.select({ id: products.id, weightKg: products.weightKg })
-        .from(products)
-        .where(inArray(products.id, items.map((i) => i.productId)));
-      const weightById = new Map(weightRows.map((r) => [r.id, Number(r.weightKg ?? 0)]));
-      orderWeightKg = items.reduce((s, i) => {
-        const w = weightById.get(i.productId);
-        return s + i.quantity * (w && w > 0 ? w : 1);
-      }, 0);
-      const { merchantLocations } = await import("../../drizzle/schema");
-      const [loc] = await db.select({ deliveryZones: merchantLocations.deliveryZones })
-        .from(merchantLocations)
-        .where(eq(merchantLocations.tenantId, opts.tenantId))
-        .orderBy(desc(merchantLocations.createdAt))
-        .limit(1);
-      tenantDeliveryZones = (loc?.deliveryZones as { name: string }[] | null) ?? null;
-    } catch (e: unknown) {
-      console.warn("[nlp] weight/zone quote inputs failed (non-blocking):", (e as Error)?.message);
-    }
-  }
-  // === END W45 orders-p0 ===
-  const quote = aggQuote
-    ? { fee: aggQuote.feeMajor, zone: aggQuote.zone ?? "same_city", carrier: aggQuote.label }
-    : (opts.fulfillment === "delivery"
-        ? quoteDeliveryFee({ address: opts.address, weightKg: orderWeightKg || undefined, deliveryZones: tenantDeliveryZones })
-        : null);
+        address: opts.address,
+        coords: opts.deliveryCoords ?? null,
+        items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+        subtotal,
+      })
+    : { aggQuote: null, quote: null };
   const deliveryFee = quote?.fee ?? 0;
 
   // ── Promo code (optional) ─────────────────────────────────────────────
@@ -624,7 +592,7 @@ export async function createChatOrder(
         giftRecipientPhone: opts.gift?.recipientPhone ?? null,
         giftWrapFeeCents,
         // === END W46 uc-ux ===
-        shippingAddress: opts.address ? { raw: opts.address } : null,
+        shippingAddress: opts.web?.shippingAddress ?? (opts.address ? { raw: opts.address } : null),
         // === W46 orders-p2 (ORD-25): buyer free-text note → orders.notes ===
         notes: opts.buyerNote?.trim() ? opts.buyerNote.trim().slice(0, 500) : null,
         // === END W46 orders-p2 ===
@@ -634,7 +602,8 @@ export async function createChatOrder(
           subtotal: subtotal.toFixed(2),
           deliveryFee: deliveryFee.toFixed(2),
           deliveryZone: quote?.zone ?? null,
-          source: "whatsapp_chat",
+          source: opts.web?.source ?? "whatsapp_chat",
+          ...(opts.web?.metadata ?? {}),
           paymentMethod: opts.paymentMethod === "cod" ? "cod" : "online",
           ...(promoMeta ? { promo: promoMeta } : {}),
           // === W46 uc-ux (Coder E): UC-24 gift metadata (wrap fee line) ===
@@ -869,13 +838,13 @@ export async function createChatOrder(
         : null;
     if (provider) {
       const txId = installmentDownRef ?? crypto.randomUUID();
-      const callbackUrl = `https://wa.me/${opts.waPhoneNumber}`;
+      const callbackUrl = opts.web?.callbackUrl ?? `https://wa.me/${opts.waPhoneNumber}`;
       // Paystack rejects /transaction/initialize outright without an email —
       // WhatsApp customers never type one, so synthesize one from their phone
       // number against a real, resolvable domain (Paystack validates the
       // address format; a non-resolving placeholder domain like the old
       // "@wa.commerce" gets rejected with "Invalid Email Address Passed").
-      const customerEmail = `${opts.waPhoneNumber.replace(/\D/g, "") || "customer"}@wa-app.newfire.app`;
+      const customerEmail = opts.web?.email?.trim() || `${opts.waPhoneNumber.replace(/\D/g, "") || "customer"}@wa-app.newfire.app`;
       // === W48 integrations (PERF-INT-11/13): bounded PSP initialize ===
       // These raw fetches had NO timeout — during a PSP brownout the buyer
       // waited 30s+ in-chat for a payment link. Now routed through the shared

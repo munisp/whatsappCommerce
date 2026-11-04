@@ -1,4 +1,9 @@
 import { useActiveTenant } from "@/contexts/TenantContext";
+import { Trash2 } from "lucide-react";
+import { CategoryPicker } from "@/components/products/CategoryPicker";
+import { CurrencySelect } from "@/components/products/CurrencySelect";
+import { ProductPhotos } from "@/components/products/ProductPhotos";
+import { DEFAULT_PRODUCT_CURRENCY } from "@shared/productOptions";
 import { useCapability } from "@/hooks/useCapability";
 import DashboardLayout from "@/components/DashboardLayout";
 import { CapabilityGuard } from "@/components/CapabilityGuard";
@@ -31,7 +36,7 @@ function ProductsInner() {
   // QA follow-up: this form used to omit currency entirely, so every product silently got the server's Zod
   // default (USD) regardless of the merchant's actual country — the "Price (NGN)" label below was a promise the
   // form never kept. Now explicit and editable, defaulting to NGN (this platform's primary market).
-  const [form, setForm] = useState({ sku: "", name: "", description: "", category: "", price: "", currency: "NGN", stockQuantity: 0, imageUrl: "" });
+  const [form, setForm] = useState({ sku: "", name: "", description: "", category: "", price: "", compareAtPrice: "", currency: DEFAULT_PRODUCT_CURRENCY, stockQuantity: 0, photos: [] as string[] });
   // Found live 2026-09-26 (user: "everything should be naira"): the "NGN" default above was a hardcoded
   // literal, not actually derived from the tenant's own configured currency (Settings → Commerce →
   // Currency, now wired to tenants.defaultCurrency — see tenantConfig.ts's setCommerceConfig). Once a
@@ -39,41 +44,12 @@ function ProductsInner() {
   // happens to hardcode.
   const { data: myTenant } = trpc.tenant.myTenant.useQuery();
   useEffect(() => {
-    if (open && myTenant?.currency) {
+    // USD is only the database's built-in default, never a choice a shop made here, so it means "not set": naira.
+    if (open && myTenant?.currency && myTenant.currency !== "USD") {
       setForm((f) => ({ ...f, currency: myTenant.currency }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, myTenant?.currency]);
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const imageInputRef = useRef<HTMLInputElement>(null);
-  const uploadImageMutation = trpc.medusaOnboarding.uploadImage.useMutation();
-
-  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    setUploadingImage(true);
-    try {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (ev) => resolve(ev.target?.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      const result = await uploadImageMutation.mutateAsync({
-        base64,
-        mimeType: file.type as "image/jpeg" | "image/png" | "image/webp",
-        filename: file.name,
-      });
-      setForm((f) => ({ ...f, imageUrl: result.url }));
-      toast.success("Photo uploaded");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Photo upload failed");
-    } finally {
-      setUploadingImage(false);
-    }
-  };
-
   // CSV import state
   const [csvOpen, setCsvOpen] = useState(false);
   const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
@@ -88,13 +64,17 @@ function ProductsInner() {
   // Real category taxonomy (product_taxonomy, seeded Nigerian FMCG data) —
   // QA follow-up: category used to be free text, no consistency at all.
   const { data: taxonomyCategories } = trpc.taxonomy.categories.useQuery();
-  const categoryOptions = (taxonomyCategories ?? []).map((c) => c.category);
+  const categoryOptions = Array.from(new Set([...(taxonomyCategories ?? []).map((c) => c.category), ...(productList ?? []).map((p) => p.category ?? "").filter(Boolean)]));
 
   // QA follow-up: there was no way to edit an existing product at all —
   // product.update existed server-side, nothing on this page ever called it.
   const [editingProduct, setEditingProduct] = useState<{
-    id: string; name: string; category: string; price: string; currency: string; stockQuantity: number; status: "active" | "inactive" | "archived";
+    id: string; compareAtPrice: string; photos: string[]; name: string; category: string; price: string; currency: string; stockQuantity: number; status: "active" | "inactive" | "archived";
   } | null>(null);
+  const deleteMutation = trpc.product.delete.useMutation({
+    onSuccess: (r) => { toast.success(r.removed === "archived" ? "Product removed. It's kept in past orders' history." : "Product deleted"); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
   const updateMutation = trpc.product.update.useMutation({
     onSuccess: () => { toast.success("Product updated"); setEditingProduct(null); refetch(); },
     onError: (e) => toast.error(e.message),
@@ -301,64 +281,35 @@ function ProductsInner() {
                       <Input value={(form as any)[f.key]} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} placeholder={f.placeholder} className="bg-input border-border" />
                     </div>
                   ))}
-                  <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <div className="space-y-1">
+                    <Label>Was price (optional)</Label>
+                    <Input value={form.compareAtPrice} onChange={(e) => setForm({ ...form, compareAtPrice: e.target.value })} placeholder="Shows this product as on sale" className="bg-input border-border" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
                       <Label>Price</Label>
                       <Input value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="1500.00" className="bg-input border-border" />
                     </div>
                     <div className="space-y-1">
                       <Label>Currency</Label>
-                      <Input
-                        value={form.currency}
-                        onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase().slice(0, 3) })}
-                        placeholder="NGN"
-                        maxLength={3}
-                        className={`w-20 font-mono uppercase bg-input border-border ${/^[A-Z]{3}$/.test(form.currency) ? "" : "border-destructive"}`}
-                      />
+                      <CurrencySelect value={form.currency} onChange={(currency) => setForm({ ...form, currency })} />
                     </div>
                   </div>
                   <div className="space-y-1">
                     <Label>Category</Label>
-                    <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
-                      <SelectTrigger className="bg-input border-border"><SelectValue placeholder="Select a category" /></SelectTrigger>
-                      <SelectContent>
-                        {categoryOptions.map((c) => (
-                          <SelectItem key={c} value={c}>{c}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <CategoryPicker value={form.category} extra={categoryOptions} onChange={(category) => setForm({ ...form, category })} />
                   </div>
                   <div className="space-y-1">
                     <Label>Stock Quantity</Label>
                     <Input type="number" value={form.stockQuantity} onChange={(e) => setForm({ ...form, stockQuantity: parseInt(e.target.value) || 0 })} className="bg-input border-border" />
                   </div>
                   <div className="space-y-1">
-                    <Label>Photo</Label>
-                    {form.imageUrl ? (
-                      <div className="flex items-center gap-2 p-2 border border-border rounded-lg bg-muted/50">
-                        <img src={form.imageUrl} alt="Product preview" width={40} height={40} loading="lazy" decoding="async" className="w-10 h-10 object-contain rounded" />
-                        <span className="text-xs text-muted-foreground truncate flex-1">Photo set</span>
-                        <button type="button" onClick={() => setForm({ ...form, imageUrl: "" })} className="text-muted-foreground hover:text-destructive">
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="w-full gap-2 border-border bg-transparent"
-                        disabled={uploadingImage}
-                        onClick={() => imageInputRef.current?.click()}
-                      >
-                        {uploadingImage ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
-                        {uploadingImage ? "Uploading..." : "Upload Photo"}
-                      </Button>
-                    )}
-                    <input ref={imageInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleImageFileChange} />
+                    <Label>Photos</Label>
+                    <ProductPhotos tenantId={DEMO_TENANT} value={form.photos} onChange={(photos) => setForm({ ...form, photos })} />
                   </div>
                   <Button
                     className="w-full bg-primary text-primary-foreground"
-                    onClick={() => createMutation.mutate({ tenantId: DEMO_TENANT, ...form, imageUrl: form.imageUrl || undefined })}
+                    onClick={() => createMutation.mutate({ tenantId: DEMO_TENANT, ...form, compareAtPrice: form.compareAtPrice || null })}
                     disabled={createMutation.isPending || !/^[A-Z]{3}$/.test(form.currency)}
                   >
                     {createMutation.isPending ? "Creating..." : "Create Product"}
@@ -441,10 +392,20 @@ function ProductsInner() {
                         disabled={!canEditCatalog}
                         title={canEditCatalog ? "Edit product" : "Your role doesn't have the catalog capability"}
                         onClick={() => setEditingProduct({
-                          id: p.id, name: p.name, category: p.category ?? "", price: String(p.price), currency: p.currency, stockQuantity: p.stockQuantity, status: p.status,
+                          id: p.id, name: p.name, category: p.category ?? "", price: String(p.price), compareAtPrice: String(((p.metadata ?? {}) as { compareAtPrice?: unknown }).compareAtPrice ?? ""), photos: [p.imageUrl, ...((((p.metadata ?? {}) as { images?: unknown }).images as string[] | undefined) ?? [])].filter((x): x is string => typeof x === "string" && !!x), currency: p.currency, stockQuantity: p.stockQuantity, status: p.status,
                         })}
                       >
                         <Pencil className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!canEditCatalog || deleteMutation.isPending}
+                        aria-label={`Delete ${p.name}`}
+                        title={canEditCatalog ? "Delete product" : "Your role doesn't have the catalog capability"}
+                        onClick={() => { if (window.confirm(`Delete ${p.name}? Customers will no longer see it. Past orders keep their record of it.`)) deleteMutation.mutate({ tenantId: DEMO_TENANT, id: p.id }); }}
+                      >
+                        <Trash2 className="w-4 h-4 text-muted-foreground hover:text-destructive" />
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -472,16 +433,22 @@ function ProductsInner() {
               </div>
               <div className="space-y-1">
                 <Label>Category</Label>
-                <Select value={editingProduct.category} onValueChange={(v) => setEditingProduct({ ...editingProduct, category: v })}>
-                  <SelectTrigger className="bg-input border-border"><SelectValue placeholder="Select a category" /></SelectTrigger>
-                  <SelectContent>
-                    {categoryOptions.map((c) => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <CategoryPicker key={editingProduct.id} value={editingProduct.category} extra={categoryOptions} onChange={(category) => setEditingProduct({ ...editingProduct, category })} />
               </div>
-              <div className="grid grid-cols-[1fr_auto] gap-2">
+              <div className="space-y-1">
+                <Label>Photos</Label>
+                <ProductPhotos tenantId={DEMO_TENANT} value={editingProduct.photos} onChange={(photos) => setEditingProduct({ ...editingProduct, photos })} />
+              </div>
+              <div className="space-y-1">
+                <Label>Was price (optional)</Label>
+                <Input
+                  value={editingProduct.compareAtPrice}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, compareAtPrice: e.target.value })}
+                  placeholder="Shows this product as on sale"
+                  className="bg-input border-border"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <Label>Price</Label>
                   <Input
@@ -492,12 +459,7 @@ function ProductsInner() {
                 </div>
                 <div className="space-y-1">
                   <Label>Currency</Label>
-                  <Input
-                    value={editingProduct.currency}
-                    onChange={(e) => setEditingProduct({ ...editingProduct, currency: e.target.value.toUpperCase().slice(0, 3) })}
-                    maxLength={3}
-                    className={`w-20 font-mono uppercase bg-input border-border ${/^[A-Z]{3}$/.test(editingProduct.currency) ? "" : "border-destructive"}`}
-                  />
+                  <CurrencySelect value={editingProduct.currency} onChange={(currency) => setEditingProduct({ ...editingProduct, currency })} />
                 </div>
               </div>
               <div className="space-y-1">

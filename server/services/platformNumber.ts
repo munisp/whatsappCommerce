@@ -104,6 +104,16 @@ export function normalizeShopRef(text: string | null | undefined): string {
   return (text ?? "").trim().toLowerCase();
 }
 
+/**
+ * A link from a shop's web store opens the shared number with its first line naming the shop, so the customer
+ * lands with that shop even if they were last chatting with another one, and their message isn't mistaken for
+ * a search across every shop. Returns the shop reference and what the customer actually wants to say.
+ */
+export function parseShopDirective(text: string | null | undefined): { ref: string; rest: string } | null {
+  const match = /^\s*shop:\s*([a-z0-9][a-z0-9-]{0,78})[ \t]*(?:\r?\n([\s\S]*))?$/i.exec(text ?? "");
+  return match ? { ref: match[1]!.toLowerCase(), rest: (match[2] ?? "").trim() } : null;
+}
+
 export interface ResolvedShop {
   tenantId: string;
   slug: string;

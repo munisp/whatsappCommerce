@@ -265,8 +265,11 @@ async function processWaWebhookValue(
             const { platformActiveShop } = await import("../services/platformInbound");
             const pText = typeof msg?.text?.body === "string" ? msg.text.body : "";
             const active = await platformActiveShop({ customerPhone: waPhoneNumber, text: pText });
-            if (active) tenant = active.shopRow;
-            else platformDirectory = true;
+            if (active) {
+              tenant = active.shopRow;
+              // Only what the customer wrote reaches the shop's assistant, not the store link's first line.
+              if (active.text !== undefined && msg?.text) msg.text.body = active.text;
+            } else platformDirectory = true;
           } catch (e: any) {
             console.error("[whatsapp-webhook] platform active-shop resolve failed:", e?.message);
             platformDirectory = true; // fail safe: show the directory, never mis-dispatch
@@ -3121,7 +3124,16 @@ async function startServer() {
       if (appSecret) {
         const sig = ((req.headers["x-hub-signature-256"] as string) ?? "").replace(/^sha256=/, "");
         if (!verifyHmacSignature(rawBody, appSecret, sig, "sha256")) {
-          console.warn("[whatsapp-webhook] Invalid HMAC signature — request rejected");
+          // Name the sender (public WABA / phone-number ids only) so a second
+          // Meta app subscribed to this URL can be identified and fixed.
+          let senders = "unparseable";
+          try {
+            const unverified = JSON.parse(rawBody.toString());
+            senders = (unverified?.entry ?? [])
+              .map((e: any) => `waba=${String(e?.id ?? "?")} phone=${(e?.changes ?? []).map((c: any) => String(c?.value?.metadata?.phone_number_id ?? "?")).join("|")}`)
+              .join(", ") || "none";
+          } catch { /* keep "unparseable" */ }
+          console.warn(`[whatsapp-webhook] Invalid HMAC signature — request rejected (${senders.slice(0, 300)})`);
           return res.status(401).json({ error: "invalid-signature" });
         }
       }

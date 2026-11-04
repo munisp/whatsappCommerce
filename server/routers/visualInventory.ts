@@ -14,9 +14,12 @@ import {
   visualInventoryMappings,
   visualInventoryCorrections,
   merchantNotifications,
+  products,
   tenants,
 } from "../../drizzle/schema";
-import { eq, desc, and, gte } from "drizzle-orm";
+import { eq, desc, and, gte, sql } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import { assertCapabilityAccess } from "../services/capabilities";
 import { storagePut } from "../storage";
 import {
   applyVisualCounts,
@@ -30,9 +33,48 @@ const GO_ORCHESTRATOR_URL =
 const PYTHON_VLM_URL =
   process.env.VISUAL_INVENTORY_VLM_URL ?? "http://localhost:8081";
 
+// LLM_BASE_URL is the OpenAI-style address (ending /v1) used elsewhere; Ollama's own API sits at the root.
+const OLLAMA_URL = (process.env.LLM_BASE_URL ?? "http://ollama.ollama.svc.cluster.local:11434").replace(/\/+$/, "").replace(/\/v1$/, "");
+const OLLAMA_VISION_MODEL = process.env.VISUAL_INVENTORY_OLLAMA_MODEL ?? "qwen2.5vl:7b";
+/** The separate vision stack is optional. Without it, the cluster's Ollama vision model does the counting. */
+const useOrchestrator = () => !!process.env.VISUAL_INVENTORY_ORCHESTRATOR_URL;
+
+/** A shelf photo analysed by an Ollama vision model, in the same shape the orchestrator returns. */
+async function analyseWithOllama(imageBuffer: Buffer, productHints: string[], model?: string): Promise<Record<string, unknown>> {
+  const started = Date.now();
+  const hintLine = productHints.length ? ` Products this shop stocks include: ${productHints.slice(0, 50).join(", ")}. Use those names where they match.` : "";
+  const resp = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    signal: AbortSignal.timeout(300_000),
+    body: JSON.stringify({
+      model: model || OLLAMA_VISION_MODEL, stream: false, format: "json", options: { temperature: 0 },
+      messages: [{
+        role: "user",
+        content: `Count the products visible in this shop shelf photo.${hintLine} Reply only with JSON: {"scene": one short sentence, "items": [{"label": product name, "count": integer number of units you can see, "confidence": number from 0 to 1}]}`,
+        images: [imageBuffer.toString("base64")],
+      }],
+    }),
+  });
+  if (!resp.ok) throw new Error(`The image model returned ${resp.status}`);
+  const body = (await resp.json()) as { message?: { content?: string } };
+  let parsed: { scene?: unknown; items?: unknown } = {};
+  try { parsed = JSON.parse(body.message?.content ?? "{}"); } catch { throw new Error("The image model's answer couldn't be read"); }
+  const items = (Array.isArray(parsed.items) ? parsed.items : []).flatMap((raw) => {
+    const i = raw as { label?: unknown; count?: unknown; confidence?: unknown };
+    const label = typeof i.label === "string" ? i.label.trim().slice(0, 120) : "";
+    const count = Math.max(0, Math.round(Number(i.count)));
+    if (!label || !Number.isFinite(count) || count === 0) return [];
+    const confidence = Math.min(1, Math.max(0, Number(i.confidence) || 0.5));
+    return [{ label, count, confidence }];
+  });
+  return { items, scene_description: typeof parsed.scene === "string" ? parsed.scene : "", vlm_model_used: model || OLLAMA_VISION_MODEL, processing_ms: Date.now() - started };
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function getTenantId(userId: number): string {
-  return String(userId);
+/** The shop the scan belongs to. Older scans were filed under the user's id, so that remains the fallback. */
+function getTenantId(user: { id: number | string; tenantId?: string | null }): string {
+  return user.tenantId || String(user.id);
 }
 
 async function callGoOrchestrator(
@@ -88,7 +130,7 @@ export const visualInventoryRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const db = (await getDb())!;
-      const tenantId = getTenantId(ctx.user.id);
+      const tenantId = getTenantId(ctx.user);
       const sessionId = crypto.randomUUID();
 
       // Decode base64 image
@@ -116,63 +158,31 @@ export const visualInventoryRouter = router({
         scanLocation: input.scanLocation ?? input.locationName ?? null,
       });
 
-      // Call Go orchestrator → Python VLM → Rust BBox
-      let analysisResult: Record<string, unknown>;
-      try {
-        analysisResult = await callGoOrchestrator(
-          imageBuffer,
-          sessionId,
-          input.productHints ?? [],
-          tenantId,
-          input.vlmModel,
-        );
-      } catch (err) {
-        await db
-          .update(visualInventorySessions)
-          .set({ status: "failed", errorMessage: String(err) })
-          .where(eq(visualInventorySessions.id, sessionId));
-        throw err;
-      }
+      // Analysis takes over a minute on CPU, longer than a web request may stay open behind Cloudflare, so it
+      // runs in the background and the page checks the session until it's done.
+      const hints = input.productHints ?? [];
+      void (async () => {
+        try {
+          const analysisResult = useOrchestrator()
+            ? await callGoOrchestrator(imageBuffer, sessionId, hints, tenantId, input.vlmModel)
+            : await analyseWithOllama(imageBuffer, hints, input.vlmModel);
+          const items = (analysisResult.items as Array<{ label: string; count: number; confidence: number; location?: string; notes?: string }>) ?? [];
+          await db.update(visualInventorySessions).set({
+            status: "completed",
+            detectedItems: items,
+            totalItemsDetected: items.reduce((s, i) => s + i.count, 0),
+            vlmAnalysis: String(analysisResult.scene_description ?? ""),
+            modelUsed: String(analysisResult.vlm_model_used ?? ""),
+            processingMs: Number(analysisResult.processing_ms ?? 0),
+          }).where(eq(visualInventorySessions.id, sessionId));
+        } catch (err) {
+          console.error(`[visual-inventory] analysis ${sessionId} failed:`, (err as Error)?.message);
+          await db.update(visualInventorySessions).set({ status: "failed", errorMessage: (err as Error)?.message ?? String(err) })
+            .where(eq(visualInventorySessions.id, sessionId)).catch(() => undefined);
+        }
+      })();
 
-      // Parse detected items from VLM result
-      const items = (analysisResult.items as Array<{
-        label: string;
-        count: number;
-        confidence: number;
-        location?: string;
-        notes?: string;
-      }>) ?? [];
-
-      const totalItems = items.reduce((s, i) => s + i.count, 0);
-      const avgConf =
-        items.length > 0
-          ? items.reduce((s, i) => s + i.confidence * i.count, 0) / Math.max(totalItems, 1)
-          : 0;
-
-      // Update session with results
-      await db
-        .update(visualInventorySessions)
-        .set({
-          status: "completed",
-          detectedItems: items,
-          totalItemsDetected: totalItems,
-          vlmAnalysis: String(analysisResult.scene_description ?? ""),
-          modelUsed: String(analysisResult.vlm_model_used ?? ""),
-          processingMs: Number(analysisResult.processing_ms ?? 0),
-        })
-        .where(eq(visualInventorySessions.id, sessionId));
-
-      return {
-        sessionId,
-        itemsDetected: items.length,
-        totalCount: totalItems,
-        confidenceScore: Math.round(avgConf * 10000) / 10000,
-        items,
-        sceneDescription: String(analysisResult.scene_description ?? ""),
-        vlmModelUsed: String(analysisResult.vlm_model_used ?? ""),
-        processingMs: Number(analysisResult.processing_ms ?? 0),
-        imageUrl,
-      };
+      return { sessionId, status: "processing" as const, imageUrl };
     }),
 
   /**
@@ -182,7 +192,7 @@ export const visualInventoryRouter = router({
     .input(z.object({ sessionId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const db = (await getDb())!;
-      const tenantId = getTenantId(ctx.user.id);
+      const tenantId = getTenantId(ctx.user);
       const [session] = await db
         .select()
         .from(visualInventorySessions)
@@ -197,6 +207,10 @@ export const visualInventoryRouter = router({
       if (!session) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Session not found" });
       }
+      // A restart mid-analysis leaves a session "processing" forever; after 10 minutes, say so.
+      if (session.status === "processing" && Date.now() - new Date(session.createdAt).getTime() > 10 * 60_000) {
+        return { ...session, status: "failed" as const, errorMessage: "The analysis didn't finish. Please try again." };
+      }
       return session;
     }),
 
@@ -207,7 +221,7 @@ export const visualInventoryRouter = router({
     .input(z.object({ limit: z.number().int().min(1).max(100).default(20) }))
     .query(async ({ ctx, input }) => {
       const db = (await getDb())!;
-      const tenantId = getTenantId(ctx.user.id);
+      const tenantId = getTenantId(ctx.user);
       return db
         .select()
         .from(visualInventorySessions)
@@ -233,13 +247,19 @@ export const visualInventoryRouter = router({
             // whether this item may apply automatically (verified mapping +
             // confidence >= autoApply threshold) or must queue for review.
             confidence: z.number().min(0).max(1).optional(),
+            /** Not in the catalogue yet: create it, then set its stock to the counted number. */
+            create: z.object({
+              name: z.string().trim().min(1).max(255),
+              price: z.string().regex(/^\d+(\.\d{1,2})?$/, "Enter a price, like 1500"),
+              category: z.string().trim().max(100).optional(),
+            }).optional(),
           }),
         ),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const db = (await getDb())!;
-      const tenantId = getTenantId(ctx.user.id);
+      const tenantId = getTenantId(ctx.user);
 
       const [session] = await db
         .select()
@@ -279,6 +299,26 @@ export const visualInventoryRouter = router({
           { productId: r.productId, isVerified: r.isVerified === true },
         ]),
       );
+
+      // New products first, so they get the counted stock like everything else.
+      const created: Array<{ label: string; productId: string; name: string }> = [];
+      if (input.adjustments.some((a) => a.create && !a.productId)) {
+        await assertCapabilityAccess(ctx.user, tenantId, "catalog");
+        const [shop] = await db.select({ currency: tenants.defaultCurrency }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+        const currency = shop?.currency && shop.currency !== "USD" ? shop.currency : "NGN";
+        for (const adj of input.adjustments) {
+          if (!adj.create || adj.productId) continue;
+          const id = nanoid();
+          await db.insert(products).values({
+            id, tenantId, sku: `SCAN-${id.slice(0, 8).toUpperCase()}`, name: adj.create.name, price: adj.create.price, currency,
+            category: adj.create.category || null, status: "active", stockQuantity: 0,
+            metadata: { source: "shelf_scan", scanSessionId: input.sessionId },
+          });
+          adj.productId = id;
+          adj.confidence = undefined; // the merchant reviewed it, so it applies now
+          created.push({ label: adj.detectedLabel, productId: id, name: adj.create.name });
+        }
+      }
 
       const toApply: typeof input.adjustments = [];
       const reviewQueue: Array<{ detectedLabel: string; confirmedCount: number; confidence: number; reason: string }> = [];
@@ -361,6 +401,7 @@ export const visualInventoryRouter = router({
 
       return {
         applied: result.applied,
+        created,
         errors: result.errors,
         total: input.adjustments.length,
         alerts: result.alerts,
@@ -446,9 +487,18 @@ export const visualInventoryRouter = router({
       };
     }),
 
+  /** The shop's products, for matching what a scan found. */
+  catalog: protectedProcedure.query(async ({ ctx }) => {
+    const db = (await getDb())!;
+    return db.select({ id: products.id, name: products.name, stockQuantity: products.stockQuantity, category: products.category })
+      .from(products)
+      .where(and(eq(products.tenantId, getTenantId(ctx.user)), sql`${products.status} <> 'archived'`))
+      .orderBy(products.name).limit(1000);
+  }),
+
   getMappings: protectedProcedure.query(async ({ ctx }) => {
       const db = (await getDb())!;
-    const tenantId = getTenantId(ctx.user.id);
+    const tenantId = getTenantId(ctx.user);
     return db
       .select()
       .from(visualInventoryMappings)
@@ -465,6 +515,14 @@ export const visualInventoryRouter = router({
     try {
       const controller = new AbortController();
       const t = setTimeout(() => controller.abort(), 10_000);
+      if (!useOrchestrator()) {
+        // Only models that can see images are worth offering here.
+        const tags = await fetch(`${OLLAMA_URL}/api/tags`, { signal: controller.signal }).finally(() => clearTimeout(t));
+        if (!tags.ok) return { models: [], available: false };
+        const data = (await tags.json()) as { models?: Array<{ name: string; details?: { families?: string[] } }> };
+        const vision = (data.models ?? []).filter((m) => /vl|vision|llava|moondream|minicpm-v|gemma3/i.test(`${m.name} ${(m.details?.families ?? []).join(" ")}`));
+        return { models: vision.map((m) => m.name), available: vision.length > 0 };
+      }
       const resp = await fetch(`${PYTHON_VLM_URL}/models`, { signal: controller.signal }).finally(() => clearTimeout(t));
       if (!resp.ok) return { models: [], available: false };
       const data = (await resp.json()) as { models?: Array<{ name: string }> };

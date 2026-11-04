@@ -305,7 +305,7 @@ export async function getTenantStats() {
 export async function getProducts(tenantId: string, limit = 50, offset = 0, search?: string) {
   const db = await getDb();
   if (!db) return [];
-  const conditions = [eq(products.tenantId, tenantId)];
+  const conditions = [eq(products.tenantId, tenantId), sql`not coalesce(${products.metadata} ? 'deletedAt', false)`];
   if (search) conditions.push(like(products.name, `%${search}%`));
   return db.select().from(products).where(and(...conditions)).orderBy(desc(products.createdAt)).limit(limit).offset(offset);
 }

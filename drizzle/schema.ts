@@ -4203,6 +4203,12 @@ export const storefronts = pgTable("storefronts", {
   isVisible:     boolean("is_visible").notNull().default(false),
   showLocation:  boolean("show_location").notNull().default(false),
   defaultLocale: varchar("default_locale", { length: 8 }).notNull().default("en"),
+  // Storefront platform (mig 0182): shoppers only ever see publishedConfig; merchants edit draftConfig.
+  templateId:      varchar("template_id", { length: 40 }),
+  draftConfig:     jsonb("draft_config"),
+  publishedConfig: jsonb("published_config"),
+  draftUpdatedAt:  timestamp("draft_updated_at"),
+  publishedAt:     timestamp("published_at"),
   createdAt:     timestamp("created_at").notNull().defaultNow(),
   updatedAt:     timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
@@ -4210,6 +4216,51 @@ export const storefronts = pgTable("storefronts", {
   uniqueIndex("storefronts_slug_uidx").on(t.slug),
 ]);
 export type Storefront = typeof storefronts.$inferSelect;
+
+// Storefront customer accounts (mig 0182). One account per store: the same email at two shops is two
+// separate accounts, and every read filters on tenantId.
+export const storeAccounts = pgTable("store_accounts", {
+  id:              varchar("id", { length: 36 }).primaryKey(),
+  tenantId:        varchar("tenant_id", { length: 36 }).notNull(),
+  email:           varchar("email", { length: 320 }).notNull(),
+  name:            varchar("name", { length: 255 }).notNull(),
+  phone:           varchar("phone", { length: 30 }),
+  passwordHash:    varchar("password_hash", { length: 255 }).notNull(),
+  marketingOptIn:  boolean("marketing_opt_in").notNull().default(false),
+  createdAt:       timestamp("created_at").notNull().defaultNow(),
+  updatedAt:       timestamp("updated_at").notNull().defaultNow(),
+});
+export type StoreAccount = typeof storeAccounts.$inferSelect;
+
+export const storeAccountAddresses = pgTable("store_account_addresses", {
+  id:         varchar("id", { length: 36 }).primaryKey(),
+  tenantId:   varchar("tenant_id", { length: 36 }).notNull(),
+  accountId:  varchar("account_id", { length: 36 }).notNull(),
+  label:      varchar("label", { length: 60 }),
+  recipient:  varchar("recipient", { length: 255 }).notNull(),
+  phone:      varchar("phone", { length: 30 }).notNull(),
+  line1:      varchar("line1", { length: 255 }).notNull(),
+  city:       varchar("city", { length: 120 }).notNull(),
+  state:      varchar("state", { length: 120 }),
+  isDefault:  boolean("is_default").notNull().default(false),
+  createdAt:  timestamp("created_at").notNull().defaultNow(),
+});
+
+export const storePasswordResets = pgTable("store_password_resets", {
+  tokenHash:  varchar("token_hash", { length: 64 }).primaryKey(),
+  tenantId:   varchar("tenant_id", { length: 36 }).notNull(),
+  accountId:  varchar("account_id", { length: 36 }).notNull(),
+  expiresAt:  timestamp("expires_at").notNull(),
+  usedAt:     timestamp("used_at"),
+  createdAt:  timestamp("created_at").notNull().defaultNow(),
+});
+
+export const storeNewsletterSubscribers = pgTable("store_newsletter_subscribers", {
+  id:         varchar("id", { length: 36 }).primaryKey(),
+  tenantId:   varchar("tenant_id", { length: 36 }).notNull(),
+  email:      varchar("email", { length: 320 }).notNull(),
+  createdAt:  timestamp("created_at").notNull().defaultNow(),
+});
 export type NewStorefront = typeof storefronts.$inferInsert;
 
 // tenant_i18n_overrides: per-tenant custom translations for W27 message

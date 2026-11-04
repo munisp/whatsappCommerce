@@ -5,6 +5,8 @@
  * default storefront language.
  */
 import { useEffect, useState } from "react";
+import { Link } from "wouter";
+import { STORE_TEMPLATES } from "@shared/storefront/templates";
 import DashboardLayout from "@/components/DashboardLayout";
 import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { trpc } from "@/lib/trpc";
@@ -52,6 +54,16 @@ function StorefrontSettingsInner() {
   return (
     <DashboardLayout>
       <div className="max-w-2xl space-y-6 p-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Design your store</CardTitle>
+            <CardDescription>Choose from {STORE_TEMPLATES.length} templates or start from a blank page, then edit and publish when you're ready. Your products, customers and orders aren't affected.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            <Button asChild><Link href="/settings/storefront/templates">Browse templates</Link></Button>
+            <Button asChild variant="outline"><Link href="/settings/storefront/builder">Open the builder</Link></Button>
+          </CardContent>
+        </Card>
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Store className="h-6 w-6" /> Online storefront
