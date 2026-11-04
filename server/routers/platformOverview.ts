@@ -9,6 +9,7 @@
  * Admin only. Read-only.
  */
 import { sql } from "drizzle-orm";
+import { z } from "zod";
 import { router, adminProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 
@@ -55,6 +56,34 @@ function toShop(r: Row) {
 }
 
 export const platformOverviewRouter = router({
+  /**
+   * Everyone who signs in through Keycloak (owners, staff, admins), with their
+   * shop. The old tenant_sso_profiles table is only written by a retired
+   * shop-portal sign-in screen, so it stayed empty.
+   */
+  signInAccounts: adminProcedure
+    .input(z.object({ search: z.string().max(100).optional() }).optional())
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { profiles: [] };
+      const q = input?.search?.trim().toLowerCase() ?? "";
+      const rows = (await db.execute(sql`
+        SELECT u.id, u.email, u.name, u.role::text AS role, u."tenantId" AS tenant_id, t.name AS tenant_name,
+               u."createdAt" AS created_at, u."lastSignedIn" AS last_signed_in
+        FROM users u LEFT JOIN tenants t ON t.id::text = u."tenantId"::text
+        WHERE u."loginMethod" = 'keycloak'
+          AND (${q} = '' OR lower(coalesce(u.email,'')) LIKE ${"%" + q + "%"} OR lower(coalesce(u.name,'')) LIKE ${"%" + q + "%"} OR lower(coalesce(t.name,'')) LIKE ${"%" + q + "%"})
+        ORDER BY u."lastSignedIn" DESC NULLS LAST LIMIT 200
+      `)) as Row[];
+      return {
+        profiles: rows.map((r) => ({
+          id: String(r.id), tenantId: r.tenant_id ?? null, tenantName: r.tenant_name ?? null,
+          ssoEmail: r.email ?? null, ssoName: r.name ?? null, ssoProvider: "keycloak", role: String(r.role ?? "user"),
+          firstSsoLoginAt: r.created_at ?? null, lastSsoLoginAt: r.last_signed_in ?? null,
+        })),
+      };
+    }),
+
   shops: adminProcedure.query(async () => {
     const db = await getDb();
     if (!db) return [];

@@ -32,8 +32,8 @@ function SsoUsersInner() {
   const listPoll = usePollInterval(30_000);
   const [search, setSearch] = useState("");
 
-  const { data, isLoading } = trpc.keycloak.listSsoProfiles.useQuery(
-    { search: search || undefined, limit: 100 },
+  const { data, isLoading } = trpc.platformOverview.signInAccounts.useQuery(
+    { search: search || undefined },
     { refetchInterval: listPoll }
   );
 
@@ -50,7 +50,7 @@ function SsoUsersInner() {
               SSO Users
             </h1>
             <p className="text-muted-foreground text-sm mt-1">
-              Tenants who have authenticated via Keycloak SSO. Profiles are provisioned automatically on first login.
+              Everyone who signs in through Keycloak single sign-on (shop owners, staff and admins), with their shop and role. An account appears here after its first sign-in.
             </p>
           </div>
           <Badge variant="secondary" className="text-base px-3 py-1">
@@ -69,9 +69,9 @@ function SsoUsersInner() {
           </Card>
           <Card>
             <CardContent className="pt-5">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Total Logins</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wide">Shop accounts</p>
               <p className="text-3xl font-bold mt-1">
-                {isLoading ? "—" : profiles.reduce((s, p) => s + (p.ssoLoginCount ?? 0), 0)}
+                {isLoading ? "—" : profiles.filter((p) => p.tenantId).length}
               </p>
             </CardContent>
           </Card>
@@ -119,9 +119,9 @@ function SsoUsersInner() {
             ) : profiles.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <Shield className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                <p className="font-medium">No SSO users yet</p>
+                <p className="font-medium">No sign-ins yet</p>
                 <p className="text-sm mt-1">
-                  Profiles appear here after a tenant completes their first Keycloak SSO login.
+                  Accounts appear here after their first sign-in.
                 </p>
               </div>
             ) : (
@@ -133,8 +133,7 @@ function SsoUsersInner() {
                       <th className="text-left py-2 pr-4 font-medium">Tenant</th>
                       <th className="text-left py-2 pr-4 font-medium">Provider</th>
                       <th className="text-right py-2 pr-4 font-medium">
-                        <LogIn className="h-3.5 w-3.5 inline mr-1" />
-                        Logins
+                        Role
                       </th>
                       <th className="text-right py-2 pr-4 font-medium">First Login</th>
                       <th className="text-right py-2 font-medium">
@@ -169,7 +168,7 @@ function SsoUsersInner() {
                           </Badge>
                         </td>
                         <td className="py-3 pr-4 text-right font-mono font-semibold">
-                          {p.ssoLoginCount ?? 0}
+                          {({ admin: "Platform admin", user: "Shop owner", operator: "Operator", analyst: "Analyst" } as Record<string, string>)[p.role] ?? p.role}
                         </td>
                         <td className="py-3 pr-4 text-right text-muted-foreground text-xs">
                           {p.firstSsoLoginAt
