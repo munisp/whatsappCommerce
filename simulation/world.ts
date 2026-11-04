@@ -562,6 +562,14 @@ export async function bootWorld(): Promise<World> {
       waitFor,
 
       async resetJourneyState() {
+        // Usage counters (messages sent this month) start fresh per journey:
+        // across 600+ journeys the shared test shop otherwise crosses its
+        // 1,000-message hard quota partway through a full run, and every later
+        // journey gets the "busy" reply instead of the behaviour under test.
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.usageCounters);
+        } catch { /* metering table not migrated yet */ }
         // === W31 ar-invoices === wipe AR invoice tables + their payment
         // intents so J193–J196 never leak reminders/payments into each other.
         try {

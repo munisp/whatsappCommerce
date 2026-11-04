@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { CheckCircle2, ChevronLeft, MessageCircle, Package, ShieldCheck, Truck } from "lucide-react";
+import { CheckCircle2, ChevronLeft, Download, MessageCircle, Package, ShieldCheck, Truck } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useStore, type StoreProduct } from "./context";
 import { Section } from "./sections";
@@ -340,10 +340,20 @@ export function OrderPage({ token, justPlaced }: { token: string; justPlaced?: b
   const headline = paid ? "Thanks, your order is confirmed" : o.paymentMethod === "cod" ? "Thanks, your order is placed" : o.status === "cancelled" ? "This order was cancelled" : "Your order is waiting for payment";
   return (
     <div className="sf-wrap sf-page sf-order">
+      <div className="sf-receipt-print-head">
+        <h1>{store.name}: receipt</h1>
+        <p>Order {o.orderNumber} · {new Date(o.createdAt).toLocaleDateString()} · {paid ? "Paid" : o.paymentMethod === "cod" ? "Pay on delivery" : "Awaiting payment"}</p>
+      </div>
       <header className="sf-order-head">
         {(paid || o.paymentMethod === "cod") && o.status !== "cancelled" && <CheckCircle2 size={36} aria-hidden="true" />}
         <h1>{headline}</h1>
         <p>Order <strong>{o.orderNumber}</strong>{justPlaced ? ". Keep this page, or find it again from the link we send you." : ""}</p>
+        {paid && (
+          <div className="sf-receipt-actions">
+            <button type="button" className="sf-btn sf-btn-accent" onClick={() => window.print()}><Download size={18} aria-hidden="true" /> Download receipt</button>
+            {o.receiptEmail && <p className="sf-muted">We've also emailed your receipt to {o.receiptEmail}.</p>}
+          </div>
+        )}
       </header>
       {!paid && o.paymentMethod === "online" && o.status !== "cancelled" && (
         <div className="sf-notice">

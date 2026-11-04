@@ -213,6 +213,10 @@ export const storefrontShopRouter = router({
       shipment: tracking.shipment ?? null,
       history: (tracking as { shipmentHistory?: { status: string; at: string | null }[] }).shipmentHistory ?? [],
       etaMinutes: (tracking as { etaMinutes?: number | null }).etaMinutes ?? null,
+      // Where the emailed receipt goes, masked ("a•••@gmail.com").
+      receiptEmail: meta.receiptEmailedAt && typeof meta.contactEmail === "string" && meta.contactEmail.includes("@")
+        ? `${meta.contactEmail.slice(0, 1)}•••${meta.contactEmail.slice(meta.contactEmail.indexOf("@"))}`
+        : null,
     };
   }),
 

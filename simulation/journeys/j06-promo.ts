@@ -5,7 +5,7 @@
 import { eq } from "drizzle-orm";
 import { assert, assertIncludes, bodyText, type World } from "../world";
 import type { Journey } from "../runner";
-import { nlpAddToCart, nlpConfirm } from "./helpers";
+import { lastReply, nlpAddToCart, nlpConfirm, replyCount } from "./helpers";
 
 export const journey: Journey = {
   id: "J06",
@@ -20,15 +20,16 @@ export const journey: Journey = {
 
     // Buyer mentions the code at the checkout step — it sticks to the session.
     await world.text(phone, "use code SIM10");
-    const promoAck = bodyText(world.outbound.lastOfType("text", phone));
+    const promoAck = bodyText(lastReply(world, phone));
     assertIncludes(promoAck, "SIM10", "promo code acknowledged at the checkout step");
 
     await world.text(phone, "1"); // pickup
-    const orderMsg = bodyText(world.outbound.lastOfType("text", phone));
+    const orderCall = lastReply(world, phone);
+    const orderMsg = bodyText(orderCall);
     assertIncludes(orderMsg, "SIM10", "discount line shows the promo code");
     assertIncludes(orderMsg, "500", "10% of ₦5,000 = ₦500 discount appears");
     assertIncludes(orderMsg, "₦4,500.00", "discounted total shown");
-    assertIncludes(orderMsg, "https://checkout.paystack.com/sim/", "payment link present");
+    assertIncludes(JSON.stringify(orderCall?.body), "https://checkout.paystack.com/sim/", "payment link present (Pay now button)");
 
     const schema = await import("../../drizzle/schema");
     const [order] = await world.db.select().from(schema.orders)

@@ -131,6 +131,24 @@ function promoRejectText(reason: string): string {
   }
 }
 
+// ── Quick-reply buttons on assistant replies ───────────────────────────────
+// A tap on a "say:<text>" button reaches processMessage as if the customer
+// had typed <text>, so every button drives the same code as typing.
+export const SAY_PREFIX = "say:";
+const BTN_CHECKOUT = { id: `${SAY_PREFIX}checkout`, title: "🧾 Checkout" };
+const BTN_VIEW_CART = { id: `${SAY_PREFIX}cart`, title: "🛒 View cart" };
+const BTN_KEEP_SHOPPING = { id: `${SAY_PREFIX}shop`, title: "🛍️ Keep shopping" };
+const BTN_PICKUP = { id: `${SAY_PREFIX}1`, title: "🏪 Pickup" };
+const BTN_DELIVERY = { id: `${SAY_PREFIX}2`, title: "🛵 Delivery" };
+export const FULFILLMENT_BUTTONS = [BTN_PICKUP, BTN_DELIVERY];
+
+/** "🛒 Cart: 3 items · ₦8,000.00" — shown with the Checkout button. */
+function cartTotalLine(items: Array<{ quantity: number; unitPrice: string | number; currency: string }>): string {
+  const count = items.reduce((n, i) => n + i.quantity, 0);
+  const subtotal = items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
+  return `🛒 Cart: ${count} item${count === 1 ? "" : "s"} · ${fmtMoney(subtotal, items[0]?.currency ?? "NGN")}`;
+}
+
 /** Step-1 checkout card: itemized cart + subtotal + fulfillment prompt. */
 function buildFulfillmentPrompt(items: CartLine[], subtotal: number, currency: string, fmt?: PriceFmt): string {
   const lines = [
@@ -1170,6 +1188,13 @@ export const nlpRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
+      // Tap buttons (WhatsApp reply buttons / Telegram inline keyboard) arrive
+      // as their ids: "say:<text>" means the customer typed <text>; product
+      // card buttons carry "cart_add:<productId>" / "buy_now:<productId>".
+      if (input.message.startsWith(SAY_PREFIX)) input.message = input.message.slice(SAY_PREFIX.length);
+      const tapMatch = /^(cart_add|buy_now):([A-Za-z0-9_-]{1,64})$/.exec(input.message.trim());
+      const tapAction = tapMatch ? { type: tapMatch[1] === "buy_now" ? "buy" as const : "add" as const, productId: tapMatch[2]! } : null;
+
       // === W27 catalog-ai (additive): merchant text fallback for AI listing
       // drafts — "PUBLISH <id8>" / "REJECT <id8>" resolves the merchant's
       // pending catalog_ai_drafts without touching the buyer NLP pipeline.
@@ -1351,7 +1376,13 @@ export const nlpRouter = router({
       // directly instead of spending an LLM call on a structured reply.
       {
         const stepCtx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
-        if (cartSession && (stepCtx.awaitingFulfillment === true || stepCtx.awaitingAddress === true)) {
+        if (tapAction) {
+          // A product tap mid-checkout changes the cart, so the pending step
+          // (pickup/delivery or address) is abandoned; checkout restarts.
+          delete stepCtx.awaitingFulfillment;
+          delete stepCtx.awaitingAddress;
+        }
+        if (!tapAction && cartSession && (stepCtx.awaitingFulfillment === true || stepCtx.awaitingAddress === true)) {
           const text = input.message.trim();
           const lower = text.toLowerCase();
           let reply: string;
@@ -1663,6 +1694,7 @@ export const nlpRouter = router({
             sessionId: session.id,
             confidence: 1,
             orderCard: stepOrderCard,
+            buttons: stepCtx.awaitingFulfillment === true ? FULFILLMENT_BUTTONS : undefined,
           };
         }
       }
@@ -3673,7 +3705,33 @@ export const nlpRouter = router({
       // conversation, "what ingredients do I need for jollof rice", indirect phrasing) a rule-based matcher has no
       // business guessing at.
       const { classifyDeterministically } = await import("../services/deterministicShop");
-      llmResult = classifyDeterministically(input.message, tenantProducts, cartItemsList, session.state);
+      if (tapAction) {
+        // The tapped product by id, scoped to this shop and still on sale.
+        const [tapped] = await db.select({
+          id: products.id, name: products.name, price: products.price,
+          currency: products.currency, stockQuantity: products.stockQuantity,
+          description: products.description, imageUrl: products.imageUrl,
+        }).from(products)
+          .where(and(eq(products.id, tapAction.productId), eq(products.tenantId, input.tenantId), eq(products.status, "active")))
+          .limit(1)
+          .catch(() => [] as any[]);
+        if (tapped) {
+          if (!tenantProducts.some((p) => p.id === tapped.id)) tenantProducts.push(tapped);
+          llmResult = {
+            reply: "", intent: "add_to_cart", nextState: "add_to_cart", confidence: 1,
+            extractedItems: [{ product: tapped.name, quantity: 1 }],
+            extractedProduct: tapped.name, extractedQuantity: 1, extractedAddress: null,
+          };
+        } else {
+          llmResult = {
+            reply: "Sorry — that item isn't available any more. Type *shop* to see what we have.",
+            intent: "tap_unavailable", nextState: session.state, confidence: 1,
+            extractedItems: [], extractedProduct: null, extractedQuantity: null, extractedAddress: null,
+          };
+        }
+      } else {
+        llmResult = classifyDeterministically(input.message, tenantProducts, cartItemsList, session.state);
+      }
       // Was the real LLM's answer actually used, or did we stay on the deterministic classification/catch-all?
       // Recorded on agent_events below — "gpt-5-mini" there used to be a flat lie regardless of which path
       // answered (found live 2026-09-26 while debugging why images never appeared: there was no way to tell
@@ -3751,6 +3809,7 @@ export const nlpRouter = router({
       // Rich follow-up annotations for the webhook delivery layer.
       let orderCard: { orderId: string; orderNumber: string; paymentUrl: string | null } | undefined;
 
+      let addedThisTurn = false;
       if (llmResult.intent === "add_to_cart") {
         // Multi-item support: the LLM returns extractedItems[] for messages like
         // "2 spicy chicken wraps and 1 sweet chilli wrap"; the legacy single
@@ -3813,6 +3872,7 @@ export const nlpRouter = router({
           });
           cartSession = result.cartSession;
           if (result.added.length > 0) {
+            addedThisTurn = true;
             // Keep the in-memory cart context in sync for this turn.
             cartItemsList = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, result.cartSession.id));
             const addedSummary = result.added
@@ -3838,6 +3898,11 @@ export const nlpRouter = router({
           }
         }
         delete ctx.lastShortageProductIds;
+      }
+
+      if (tapAction?.type === "buy" && addedThisTurn && cartSession) {
+        llmResult.intent = "confirm_order";
+        llmResult.nextState = "checkout_confirm";
       }
 
       if (llmResult.intent === "remove_from_cart") {
@@ -4310,6 +4375,18 @@ export const nlpRouter = router({
         createdAt: new Date(),
       });
 
+      // Next-step buttons, so the customer taps instead of typing commands.
+      let buttons: Array<{ id: string; title: string }> | undefined;
+      const cartHasItems = cartItemsList.length > 0;
+      if (llmResult.intent === "add_to_cart" && addedThisTurn && cartHasItems) {
+        llmResult.reply = `${llmResult.reply}\n\n${cartTotalLine(cartItemsList)}`.trim();
+        buttons = [BTN_CHECKOUT, BTN_VIEW_CART, BTN_KEEP_SHOPPING];
+      } else if ((llmResult.intent === "view_cart" || llmResult.intent === "remove_from_cart") && cartHasItems) {
+        buttons = [BTN_CHECKOUT, BTN_KEEP_SHOPPING];
+      } else if (llmResult.intent === "confirm_order" && !orderCard && ctx.awaitingFulfillment === true) {
+        buttons = FULFILLMENT_BUTTONS;
+      }
+
       return {
         reply: llmResult.reply,
         intent: llmResult.intent,
@@ -4318,6 +4395,7 @@ export const nlpRouter = router({
         sessionId: session.id,
         confidence: llmResult.confidence ?? 0,
         orderCard,
+        buttons,
         productImage,
         browseProducts, // === W49 RICHMEDIA (RICH-4/5) ===
         promoCard, // === W51 PROMOS ===

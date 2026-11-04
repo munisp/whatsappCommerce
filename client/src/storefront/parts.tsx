@@ -169,16 +169,17 @@ export const Img = ({ src, alt, ratio, priority }: { src: string | null; alt: st
   </div>
 );
 
-function QuickAdd({ product, label = "Add to cart", icon }: { product: StoreProduct; label?: string; icon?: boolean }) {
+function QuickAdd({ product, label = "Add to cart", icon, float }: { product: StoreProduct; label?: string; icon?: boolean; float?: boolean }) {
   const { cart, setDrawerOpen, go } = useStore();
   const hasOptions = (product.variants?.length ?? 0) > 0 || product.options.length > 0;
-  if (!product.inStock) return <span className="sf-soldout-note">Sold out</span>;
+  // A floating button sits on the photo, where the badge already says "Sold out".
+  if (!product.inStock) return float ? null : <span className="sf-soldout-note">Sold out</span>;
   const action = () => {
     if (hasOptions) { go(`products/${product.id}`); return; }
     cart.add(product.id, null, 1);
     setDrawerOpen(true);
   };
-  if (icon) return <button type="button" className="sf-add-icon" aria-label={`${hasOptions ? "Choose options for" : "Add to cart:"} ${product.name}`} onClick={action}><Plus size={18} /></button>;
+  if (icon) return <button type="button" className={float ? "sf-add-icon sf-add-float" : "sf-add-icon"} aria-label={`${hasOptions ? "Choose options for" : "Add to cart:"} ${product.name}`} onClick={action}><Plus size={18} /></button>;
   return <button type="button" className="sf-btn sf-btn-outline sf-add" onClick={action}>{hasOptions ? "Choose options" : label}</button>;
 }
 
@@ -213,7 +214,7 @@ export function ProductCard({ product, variant }: { product: StoreProduct; varia
   const stockNote = product.inStock && product.lowStock ? <span className="sf-low">Only a few left</span> : null;
   switch (card) {
     case "overlay":
-      return <article className="sf-card sf-card-overlay"><Link to={to} ariaLabel={product.name}>{img}<div className="sf-card-veil"><h3>{product.name}</h3><Price product={product} /></div><Badge product={product} /></Link></article>;
+      return <article className="sf-card sf-card-overlay"><Link to={to} ariaLabel={product.name}>{img}<div className="sf-card-veil"><h3>{product.name}</h3><Price product={product} /></div><Badge product={product} /></Link><QuickAdd product={product} icon float /></article>;
     case "boxed":
       return <article className="sf-card sf-card-boxed"><Link to={to} ariaLabel={product.name}>{img}<Badge product={product} /></Link><div className="sf-card-body">{product.category && <small>{product.category}</small>}<h3><Link to={to}>{product.name}</Link></h3><Price product={product} />{stockNote}<QuickAdd product={product} /></div></article>;
     case "compact":
@@ -225,9 +226,9 @@ export function ProductCard({ product, variant }: { product: StoreProduct; varia
     case "menu":
       return <article className="sf-card sf-card-menu"><div className="sf-menu-text"><h3><Link to={to}>{product.name}</Link></h3>{product.description && <p>{product.description}</p>}<div className="sf-menu-foot"><Price product={product} /><QuickAdd product={product} icon /></div></div><Link to={to} ariaLabel={product.name} className="sf-menu-img"><Img src={product.imageUrl} alt={product.name} ratio="1/1" /></Link></article>;
     case "plain":
-      return <article className="sf-card sf-card-plain"><Link to={to} ariaLabel={product.name}>{img}<Badge product={product} /><h3>{product.name}</h3><Price product={product} /></Link></article>;
+      return <article className="sf-card sf-card-plain"><Link to={to} ariaLabel={product.name}>{img}<Badge product={product} /><h3>{product.name}</h3><Price product={product} /></Link><QuickAdd product={product} icon float /></article>;
     default:
-      return <article className="sf-card sf-card-editorial"><Link to={to} ariaLabel={product.name}>{img}<Badge product={product} /><div className="sf-card-line"><h3>{product.name}</h3><Price product={product} /></div>{stockNote}</Link></article>;
+      return <article className="sf-card sf-card-editorial"><Link to={to} ariaLabel={product.name}>{img}<Badge product={product} /><div className="sf-card-line"><h3>{product.name}</h3><Price product={product} /></div>{stockNote}</Link><QuickAdd product={product} icon float /></article>;
   }
 }
 

@@ -30,6 +30,32 @@ export interface ChatOrderOutcome {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Is this outbound call the assistant's reply itself (not a follow-up card)?
+ * Plain text, the order summary with its Pay now button, or a reply carrying
+ * next-step say: buttons. Product cards, product lists and promo cards that
+ * follow a reply are not counted.
+ */
+function isAssistantReply(c: { waType?: string; body?: any }): boolean {
+  if (c.waType === "text") return true;
+  if (c.waType !== "interactive") return false;
+  const i = c.body?.interactive;
+  if (i?.type === "cta_url") return true;
+  const ids: string[] = (i?.action?.buttons ?? []).map((b: any) => String(b?.reply?.id ?? ""));
+  return i?.type === "button" && ids.length > 0 && ids.every((id) => id.startsWith("say:"));
+}
+
+/** Assistant replies to a phone so far. */
+export function replyCount(world: World, phone: string): number {
+  return world.outbound.toPhone(phone).filter(isAssistantReply).length;
+}
+
+/** The latest assistant reply to a phone. */
+export function lastReply(world: World, phone: string) {
+  const calls = world.outbound.toPhone(phone).filter(isAssistantReply);
+  return calls[calls.length - 1];
+}
+
 /** Script the LLM to add items to cart, then send the message. */
 export async function nlpAddToCart(world: World, phone: string, text: string, items: ChatItem[]): Promise<void> {
   world.llm.when(text, {
@@ -46,9 +72,9 @@ export async function nlpAddToCart(world: World, phone: string, text: string, it
   // window BEFORE the async pipeline finishes (reply is sent only after the
   // session CAS write) — under vitest load the next message then races the
   // session create and loses. Wait for the reply deterministically.
-  const before = world.outbound.ofType("text", phone).length;
+  const before = replyCount(world, phone);
   await world.text(phone, text);
-  await world.waitFor(() => world.outbound.ofType("text", phone).length > before, 15000, "add-to-cart reply");
+  await world.waitFor(() => replyCount(world, phone) > before, 15000, "add-to-cart reply");
 }
 
 /** Script a confirm_order intent and send it (promo codes ride along in text). */
@@ -63,9 +89,9 @@ export async function nlpConfirm(world: World, phone: string, text = "confirm my
     extractedAddress: null,
     confidence: 0.95,
   });
-  const before = world.outbound.ofType("text", phone).length;
+  const before = replyCount(world, phone);
   await world.text(phone, text);
-  await world.waitFor(() => world.outbound.ofType("text", phone).length > before, 15000, "confirm-order reply");
+  await world.waitFor(() => replyCount(world, phone) > before, 15000, "confirm-order reply");
 }
 
 /**
@@ -89,13 +115,13 @@ export async function createChatOrderViaNlp(
   await sleep(5); // order numbers are Date.now()-based — avoid same-ms collisions
 
   const fulfillment = opts.fulfillment ?? "pickup";
-  const beforeFulfill = world.outbound.ofType("text", phone).length;
+  const beforeFulfill = replyCount(world, phone);
   await world.text(phone, fulfillment === "pickup" ? "1" : "2");
-  await world.waitFor(() => world.outbound.ofType("text", phone).length > beforeFulfill, 15000, "fulfillment reply");
+  await world.waitFor(() => replyCount(world, phone) > beforeFulfill, 15000, "fulfillment reply");
   if (fulfillment === "delivery" && opts.address) {
-    const beforeAddr = world.outbound.ofType("text", phone).length;
+    const beforeAddr = replyCount(world, phone);
     await world.text(phone, opts.address);
-    await world.waitFor(() => world.outbound.ofType("text", phone).length > beforeAddr, 15000, "address reply");
+    await world.waitFor(() => replyCount(world, phone) > beforeAddr, 15000, "address reply");
   }
 
   const order = await latestOrderForPhone(world, phone);
@@ -108,7 +134,7 @@ export async function createChatOrderViaNlp(
     .where(eq(schema.paymentTransactions.orderId, order.id))
     .orderBy(desc(schema.paymentTransactions.createdAt))
     .limit(1);
-  const summary = bodyText(world.outbound.lastOfType("text", phone));
+  const summary = bodyText(lastReply(world, phone));
   return {
     orderId: order.id,
     orderNumber: order.orderNumber,

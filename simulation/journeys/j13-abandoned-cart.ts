@@ -4,7 +4,7 @@
  */
 import { TENANT_ID, assert, assertIncludes, bodyText, type World } from "../world";
 import type { Journey } from "../runner";
-import { nlpAddToCart } from "./helpers";
+import { lastReply, nlpAddToCart, replyCount } from "./helpers";
 
 export const journey: Journey = {
   id: "J13",
@@ -55,7 +55,7 @@ export const journey: Journey = {
       confidence: 0.9,
     });
     await world.text(phone, "yes i want to finish my order");
-    const resumed = bodyText(world.outbound.lastOfType("text", phone));
+    const resumed = bodyText(lastReply(world, phone));
     assertIncludes(resumed, "Jollof Rice", "reply after recovery resumes the cart conversation");
   },
 };

@@ -107,6 +107,27 @@ async function sendWhatsAppTextMetered(  db: NonNullable<Awaited<ReturnType<type
   return result;
 }
 
+/** One assistant turn → WhatsApp (text, quick-reply buttons, or summary + Pay). */
+async function deliverWaAssistantTurn(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  tenantId: string,
+  phone: string,
+  turn: import("../services/chatReplyDelivery").AssistantTurn,
+) {
+  const { deliverAssistantTurn } = await import("../services/chatReplyDelivery");
+  const { buildOrderActionCard } = await import("../services/useCases");
+  return deliverAssistantTurn(turn, {
+    sendText: (text) => sendWhatsAppTextMetered(db, tenantId, phone, text),
+    sendInteractive: async (message, opts) => {
+      const res = await sendWhatsAppInteractive(tenantId, phone, message, opts);
+      await recordUsage(db, tenantId, METRIC_MESSAGES_OUT);
+      await recordUsage(db, tenantId, METRIC_MESSAGES);
+      return res;
+    },
+    orderActionCard: (orderId, orderNumber) => buildOrderActionCard({ orderId, orderNumber }),
+  });
+}
+
 // === W45 webhook-core ===
 // Shared inbound-pipeline helpers for the Meta WhatsApp webhook and its DLQ
 // retry heartbeat (MSG-3/4/5/7/8/12/13/14/16/21/22). Both paths dispatch
@@ -588,6 +609,19 @@ async function processWaWebhookValue(
           }
           continue;
         }
+        // ── Shopping taps: the assistant's own buttons (say:<text>, product
+        // card cart_add:/buy_now:<id>) continue the assistant conversation, so
+        // they go to it as text — skipping the menu engine, which would read
+        // words like "shop" as menu navigation.
+        let commerceTap = false;
+        if (msg.type === "interactive") {
+          const tapId = String((msg.interactive?.button_reply ?? msg.interactive?.list_reply)?.id ?? "");
+          if (/^(?:say:.{1,60}|cart_add:[A-Za-z0-9_-]{1,64}|buy_now:[A-Za-z0-9_-]{1,64})$/.test(tapId)) {
+            msg.type = "text";
+            msg.text = { body: tapId };
+            commerceTap = true;
+          }
+        }
         // ── Interactive replies (button_reply / list_reply) ───────────────
         // Menu buttons/lists carry `menu_<n>` ids and resolve through the
         // SAME resolveMenuSelection logic as numeric text replies; order
@@ -996,7 +1030,7 @@ async function processWaWebhookValue(
           // fall through to the NLP pipeline (fallback "nlp" or an active
           // shop/NLP session).
           let handledByMenu = false;
-          try {
+          if (!commerceTap) try {
             const { handleConversationalInbound } = await import("../services/useCases");
             const menuOutcome = await handleConversationalInbound({
               db,
@@ -1059,33 +1093,13 @@ async function processWaWebhookValue(
               }
               // === END W49 RICHMEDIA ===
               if (nlpResult?.reply && nlpResult.intent !== "ussd_menu") {
-                await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, nlpResult.reply)
-                  .catch((e: any) => console.error("[whatsapp-webhook] reply send error:", e?.message));
-                // Rich follow-ups annotated by the NLP engine:
-                // order action card after a confirm_order payment summary,
-                // and a product image card on single-product queries.
-                const orderCard = (nlpResult as any)?.orderCard as { orderId?: string; orderNumber?: string } | undefined;
-                if (orderCard?.orderId && orderCard?.orderNumber) {
-                  // === W49 RICHMEDIA (RICH-7): cta_url pay button ===
-                  // Sent BEFORE the action card so the order action card
-                  // stays the LAST interactive (older journeys pin that).
-                  const payUrl = (orderCard as any).paymentUrl as string | null | undefined;
-                  if (payUrl && /^https:\/\//.test(payUrl)) {
-                    const { sendWhatsAppPaymentCta } = await import("../services/richMedia");
-                    await sendWhatsAppPaymentCta(tenantId, waPhoneNumber, {
-                      url: payUrl,
-                      orderNumber: orderCard.orderNumber ?? null,
-                    }).catch((e: any) => console.error("[whatsapp-webhook] payment cta send error:", e?.message));
-                  }
-                  // === END W49 RICHMEDIA ===
-                  const { buildOrderActionCard } = await import("../services/useCases");
-                  await sendWhatsAppInteractive(
-                    tenantId,
-                    waPhoneNumber,
-                    buildOrderActionCard({ orderId: orderCard.orderId, orderNumber: orderCard.orderNumber }),
-                    { notifType: "order_action_card", orderId: orderCard.orderId },
-                  ).catch((e: any) => console.error("[whatsapp-webhook] order action card send error:", e?.message));
-                }
+                // Reply text, quick-reply buttons and the order/payment step
+                // go out through one helper (chatReplyDelivery).
+                await deliverWaAssistantTurn(db, tenantId, waPhoneNumber, {
+                  reply: nlpResult.reply,
+                  buttons: (nlpResult as any)?.buttons,
+                  orderCard: (nlpResult as any)?.orderCard,
+                }).catch((e: any) => console.error("[whatsapp-webhook] reply send error:", e?.message));
                 // === W49 RICHMEDIA (RICH-1/RICH-3/RICH-12) ===
                 // One-message product card: image header + caption body +
                 // [Add to cart][Buy now] buttons; relative /api/storage URLs
@@ -1148,19 +1162,10 @@ async function processWaWebhookValue(
                 address: msg.location.address ?? null,
               },
             });
-            if (outcome.reply) {
-              await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, outcome.reply)
-                .catch((e: any) => console.error("[whatsapp-webhook] location reply send error:", e?.message));
-            }
-            if (outcome.orderCard?.orderId && outcome.orderCard?.orderNumber) {
-              const { buildOrderActionCard } = await import("../services/useCases");
-              await sendWhatsAppInteractive(
-                tenantId,
-                waPhoneNumber,
-                buildOrderActionCard({ orderId: outcome.orderCard.orderId, orderNumber: outcome.orderCard.orderNumber }),
-                { notifType: "order_action_card", orderId: outcome.orderCard.orderId },
-              ).catch((e: any) => console.error("[whatsapp-webhook] order action card send error:", e?.message));
-            }
+            await deliverWaAssistantTurn(db, tenantId, waPhoneNumber, {
+              reply: outcome.reply ?? "",
+              orderCard: outcome.orderCard,
+            }).catch((e: any) => console.error("[whatsapp-webhook] location reply send error:", e?.message));
           } catch (e: any) {
             console.error("[whatsapp-webhook] location message error:", e?.message);
           }

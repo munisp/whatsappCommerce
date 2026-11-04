@@ -77,10 +77,41 @@ export const journey: Journey = {
       await world.settle();
       assert(bodyText(world.outbound.lastTo(buyer)).includes("Fresh Mart"), "repeat search uses the saved location (no re-ask)");
 
+      // ── 3b. A question about what's around → the nearby stores, never a
+      //        search for the question's words (client report 2026-11-04) ──
+      await world.inbound(payloads.inbound.text(PLATFORM_PN, buyer, "Which available item is around me"));
+      await world.settle();
+      const around = bodyText(world.outbound.lastTo(buyer));
+      assert(around.includes("Stores near you") && around.includes("Fresh Mart") && around.includes("Toothpaste"),
+        `"what's around me" lists nearby stores with their products (got: ${around.slice(0, 220)})`);
+      assert(!around.includes("No store has"), "the question is not treated as a product name");
+
+      // ── 3c. A product nobody nearby sells → say so, then what IS nearby ───
+      await world.inbound(payloads.inbound.text(PLATFORM_PN, buyer, "Perfume"));
+      await world.settle();
+      const miss = bodyText(world.outbound.lastTo(buyer));
+      assert(miss.includes("No store near you has *Perfume*") && miss.includes("Fresh Mart"),
+        `a search with no results still offers the nearby stores (got: ${miss.slice(0, 220)})`);
+
+      // ── 3d. An unknown store name → says no such store, offers nearby ones ─
+      await world.inbound(payloads.inbound.text(PLATFORM_PN, buyer, "Freaks fashion hub"));
+      await world.settle();
+      const unknownShop = bodyText(world.outbound.lastTo(buyer));
+      assert(unknownShop.includes("couldn't find a store called *Freaks fashion hub*") && unknownShop.includes("Fresh Mart"),
+        `an unknown store name is answered as one (got: ${unknownShop.slice(0, 240)})`);
+
       // ── 4. Reply with the list NUMBER → enter that store ──────────────────
       await world.inbound(payloads.inbound.text(PLATFORM_PN, buyer, "1"));
       await world.settle();
       assert((await pn.getActiveShop(buyer)) === tenantId, "replying '1' entered the store from the results list");
+
+      // ── 5. Part of a store's name → that store ────────────────────────────
+      await world.inbound(payloads.inbound.text(PLATFORM_PN, buyer, "home"));
+      await world.settle();
+      assert((await pn.getActiveShop(buyer)) == null, "home left the store");
+      await world.inbound(payloads.inbound.text(PLATFORM_PN, buyer, "fresh mar"));
+      await world.settle();
+      assert((await pn.getActiveShop(buyer)) === tenantId, "part of the store's name entered it");
     } finally {
       delete process.env.WHATSAPP_PLATFORM_NUMBER_ID;
       delete process.env.WHATSAPP_PLATFORM_TOKEN;

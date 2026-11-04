@@ -176,6 +176,8 @@ html.sf-active body { background: #fff !important; background-image: none !impor
 .sf-card-compact { display: flex; flex-direction: column; gap: .15rem; font-size: .88rem; }
 .sf-card-compact h3 { font-size: .86rem; font-weight: 400 !important; }
 .sf-card-compact .sf-add-icon { position: absolute; right: .4rem; top: calc((100% - 5rem) - 2.8rem); z-index: 2; }
+/* Quick add on photo-led cards: top-right of the photo, opposite the badge. */
+.sf-add-float { position: absolute; top: .6rem; right: .6rem; z-index: 3; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
 .sf-add-icon { width: 36px; height: 36px; flex: none; border-radius: 50%; display: grid; place-items: center; }
 .sf-root .sf-add-icon { background: var(--accent); color: var(--accent-text); }
 .sf-card-tile { background: var(--surface); border-radius: var(--radius); padding: .6rem; }
@@ -436,4 +438,14 @@ html.sf-active body { background: #fff !important; background-image: none !impor
 @media (prefers-reduced-motion: reduce) {
   .sf-ticker > div, .sf-drawer { animation: none; }
   .sf-img img { transition: none; }
+}
+
+/* Receipt: printing the order page (Download receipt) shows only the receipt. */
+.sf-receipt-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1rem 0 0; }
+.sf-receipt-print-head { display: none; }
+@media print {
+  .sf-header, .sf-footer, .sf-nav, .sf-announce, .sf-drawer, .sf-wa-float, .sf-wa-inline, .sf-notice, .sf-receipt-actions, .sf-btn, .sf-history { display: none !important; }
+  .sf-receipt-print-head { display: block; margin-bottom: 1rem; }
+  .sf-order .sf-two-col { display: block; }
+  .sf-root, .sf-root body { background: #fff !important; color: #000 !important; }
 }

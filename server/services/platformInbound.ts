@@ -216,10 +216,11 @@ async function discoverAndReply(phone: string, query: string, loc: LatLng): Prom
   }
 
   if (items.length === 0) {
-    await sendPlatformText(
-      phone,
-      `😕 No store has *${query}* near you yet — try another item, or send a *store's name* if you know one.`,
-    );
+    const miss = looksLikeStoreName(query)
+      ? `😕 I couldn't find a store called *${query}* on ${platformName() || "here"} yet, and no store near you sells it. ` +
+        `Check the spelling, or ask the store for its shop link.`
+      : `😕 No store near you has *${query}* yet.`;
+    await nearbyStoresReply(phone, loc, miss);
     return;
   }
   // List each store with the matching products (name + price) it stocks.
@@ -242,6 +243,125 @@ async function discoverAndReply(phone: string, query: string, loc: LatLng): Prom
     `🛍️ *Stores near you with "${query}":*${widened}\n\n${blocks.join("\n\n")}\n\n` +
       `Reply with the *number* or the *store's name* to start shopping.`,
   );
+}
+
+// Questions about what's around rather than a product: "what's available near me",
+// "which stores are around", "show me shops", "what can I buy".
+const NEARBY_QUESTION_RE = /\b(around|near(by| me)?|close to me|available|what can i (buy|get)|what do you (have|sell)|stores?|shops?|vendors?|sellers?|everything|anything)\b/i;
+const QUESTION_START_RE = /^(what|which|where|who|show|list|any|is there|are there|do you|can i|give me|tell me)\b/i;
+export function isNearbyQuestion(text: string): boolean {
+  const t = text.trim();
+  if (/^(stores?|shops?|browse|nearby|near me|around me|list|explore)\??$/i.test(t)) return true;
+  return QUESTION_START_RE.test(t) && NEARBY_QUESTION_RE.test(t);
+}
+
+// Words that make a message read as a business name rather than a product.
+const STORE_WORD_RE = /\b(hub|store|stores|shop|shops|mart|market|supermarket|ventures|enterprises?|ltd|limited|plaza|boutique|collections?|fashion|stores|kitchen|pharmacy|place|world|global|nig|int'?l)\b/i;
+export function looksLikeStoreName(text: string): boolean {
+  return STORE_WORD_RE.test(text) && text.trim().split(/\s+/).length <= 6;
+}
+
+/** First few products of each shop, for "what's near me" listings. */
+async function sampleProductsByTenant(db: any, tenantIds: string[]): Promise<Map<string, MatchedProduct[]>> {
+  const out = new Map<string, MatchedProduct[]>();
+  if (!tenantIds.length) return out;
+  const rows = await db
+    .select({ tenantId: products.tenantId, name: products.name, price: products.price, currency: products.currency })
+    .from(products)
+    .where(and(inArray(products.tenantId, tenantIds), eq(products.status, "active"), sql`coalesce(${products.stockQuantity}, 1) > 0`))
+    .orderBy(sql`${products.updatedAt} desc`)
+    .limit(200)
+    .catch(() => [] as any[]);
+  for (const r of rows) {
+    const arr = out.get(r.tenantId) ?? [];
+    if (arr.length < 3) arr.push({ name: r.name, price: r.price, currency: r.currency });
+    out.set(r.tenantId, arr);
+  }
+  return out;
+}
+
+/**
+ * Stores near the customer (no product filter), nearest first, with a few of
+ * each one's products — the answer to "what's around me", and what a search
+ * with no results falls back to so a customer always has somewhere to go.
+ */
+async function nearbyStoresReply(phone: string, loc: LatLng, lead?: string): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    await sendPlatformText(phone, "Search is unavailable right now — please try again shortly.");
+    return;
+  }
+  const data = await loadDiscoveryData(db).catch(() => ({ merchants: [], sponsored: [] }));
+  const maxR = maxRadiusKm();
+  let radius = Math.min(defaultRadiusKm(), maxR);
+  let items: DiscoverItem[] = [];
+  for (;;) {
+    const result = discoverNearbyPure({ lat: loc.lat, lng: loc.lng, query: "", radiusKm: radius, sortBy: "distance" }, data);
+    items = await filterSharedItems(db, result.items);
+    if (items.length > 0 || radius >= maxR) break;
+    radius = Math.min(radius * 2, maxR);
+  }
+  const head = lead ? `${lead}\n\n` : "";
+  if (items.length === 0) {
+    await sendPlatformText(
+      phone,
+      `${head}There are no stores near you on ${platformName() || "here"} yet — more are joining. ` +
+        `If you know a store's name, send it and I'll take you there.`,
+    );
+    return;
+  }
+  const shown = items.slice(0, 10);
+  await setResultsList(phone, shown.map((i) => i.tenantId));
+  const sample = await sampleProductsByTenant(db, shown.map((i) => i.tenantId));
+  const blocks = shown.map((it, n) => {
+    let block = `${n + 1}. *${it.businessName}* · ${formatKm(it.distanceKm)} km`;
+    for (const p of sample.get(it.tenantId) ?? []) block += `\n   • ${p.name} — ${money(p.price, p.currency)}`;
+    return block;
+  });
+  await sendPlatformText(
+    phone,
+    `${head}🛍️ *Stores near you:*\n\n${blocks.join("\n\n")}\n\n` +
+      `Reply with the *number* or the *store's name* to start shopping, or tell me what you're looking for.`,
+  );
+}
+
+/** "What's around me": list nearby stores now, or ask for the location first. */
+async function runNearbyQuestion(phone: string): Promise<void> {
+  const loc = await getCustomerLocation(phone);
+  if (loc) {
+    await nearbyStoresReply(phone, loc);
+    return;
+  }
+  await setPendingQuery(phone, NEARBY_PENDING);
+  await sendPlatformText(
+    phone,
+    `📍 Send your *location* and I'll show you the stores around you:\n` +
+      `tap 📎 → *Location* → *Send your current location*.`,
+  );
+}
+const NEARBY_PENDING = "__nearby__";
+
+/**
+ * A shop whose name contains what was typed (or the other way round), among
+ * shops reachable here. One match → that shop; several → they're listed.
+ */
+async function partialShopMatches(text: string): Promise<Array<{ id: string; name: string }>> {
+  const q = text.trim().toLowerCase().replace(/[%_]/g, "");
+  if (q.length < 4) return [];
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ id: tenants.id, name: tenants.name })
+    .from(tenants)
+    .where(and(
+      eq(tenants.status, "active"),
+      isNull(tenants.whatsappPhoneNumberId),
+      sql`coalesce(${tenants.settings}->'onboarding'->>'status', '') = 'live'`, // open for orders
+      sql`(lower(${tenants.name}) like ${"%" + q + "%"} or ${q} like '%' || lower(${tenants.name}) || '%')`,
+    ))
+    .limit(5)
+    .catch(() => [] as any[]);
+  return rows;
 }
 
 /** A product search: discover now if we know the customer's location, else ask for it. */
@@ -280,7 +400,8 @@ export async function handlePlatformDirectory(opts: {
     const pending = await getPendingQuery(customerPhone);
     if (pending) {
       await clearPendingQuery(customerPhone);
-      await discoverAndReply(customerPhone, pending, loc);
+      if (pending === NEARBY_PENDING) await nearbyStoresReply(customerPhone, loc);
+      else await discoverAndReply(customerPhone, pending, loc);
       return;
     }
     await sendPlatformText(customerPhone, '📍 Got your location! Now tell me what you\'re looking for (e.g. *toothpaste*), or send a *store\'s name*.');
@@ -331,6 +452,31 @@ export async function handlePlatformDirectory(opts: {
   // Greeting / empty / unsupported first contact → directory prompt.
   if (!text || isGreeting(text)) {
     await sendPlatformText(customerPhone, directoryPrompt());
+    return;
+  }
+
+  // "What's around me?" → the nearby stores, not a search for those words.
+  if (isNearbyQuestion(text)) {
+    await runNearbyQuestion(customerPhone);
+    return;
+  }
+
+  // Part of a store's name ("akoka", "meridian office") → that store, or a short list.
+  const partial = await partialShopMatches(text);
+  if (partial.length === 1) {
+    await setActiveShop(customerPhone, partial[0].id);
+    await sendPlatformText(
+      customerPhone,
+      `🛍️ You're now shopping at *${partial[0].name}*. Send *hi* to see what they've got — or type *home* anytime to browse other stores.`,
+    );
+    return;
+  }
+  if (partial.length > 1) {
+    await setResultsList(customerPhone, partial.map((p) => p.id));
+    await sendPlatformText(
+      customerPhone,
+      `Which store did you mean?\n\n${partial.map((p, n) => `${n + 1}. *${p.name}*`).join("\n")}\n\nReply with the *number*.`,
+    );
     return;
   }
 
