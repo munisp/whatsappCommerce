@@ -802,6 +802,7 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j615-tap-to-buy"),
     import("./journeys/j616-shared-number-sell"),
     import("./journeys/j617-buying-debits-inventory"),
+    import("./journeys/j618-conversation-is-the-real-chat"),
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),

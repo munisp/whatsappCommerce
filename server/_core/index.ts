@@ -397,6 +397,15 @@ async function processWaWebhookValue(
             markMessageRead(tenantId, msg.id).catch(() => {});
           }
         }
+        // The customer's side of the real conversation (Conversations page):
+        // recorded once (after the dedupe claim), only for a shop's chats.
+        if (tenant && !isOnboardingIntake && !isByoOnboarding && !platformDirectory) {
+          const { describeInbound, recordConversationMessage } = await import("../services/conversationLog");
+          void recordConversationMessage({
+            tenantId, phone: waPhoneNumber, direction: "inbound", body: describeInbound(msg),
+            metadata: { wamid: msg.id ?? null, type: msg.type ?? null },
+          });
+        }
         // ── w9: platform conversational-onboarding intake number ────────────
         // Messages to the platform's own onboarding number belong to a
         // prospective tenant with no tenant row yet — hand them to the

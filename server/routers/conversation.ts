@@ -76,7 +76,13 @@ export const conversationRouter = router({
       // the timeline orders and displays sensibly. It's an honest approximation of WHEN, never fabricated
       // WHAT: role/content come straight from the real stored turn.
       const synthRows: (typeof channelMessages.$inferSelect)[] = [];
+      // Chats recorded message by message (conversationLog.ts) are shown as
+      // they happened; the session-notes reconstruction below is only for
+      // older chats that have no recorded messages.
+      const recorded = new Set(rows.map((r) => (r.direction === "inbound" ? r.fromAddress : r.toAddress) ?? ""));
       for (const s of sessions) {
+        const sessionAddress = s.waPhoneNumber.startsWith("telegram:") ? s.waPhoneNumber.slice("telegram:".length) : s.waPhoneNumber;
+        if (recorded.has(sessionAddress) || recorded.has(sessionAddress.replace(/[^\d]/g, ""))) continue;
         const history = Array.isArray(s.messageHistory) ? s.messageHistory as Array<{ role?: string; content?: string }> : [];
         const channel = s.waPhoneNumber.startsWith("telegram:") ? "telegram" : "whatsapp";
         const rawAddress = s.waPhoneNumber.startsWith("telegram:") ? s.waPhoneNumber.slice("telegram:".length) : s.waPhoneNumber;
