@@ -764,6 +764,16 @@ export async function createChatOrder(
 
   // ── COD: enter the COD flow instead of taking online payment ─────────
   if (opts.paymentMethod === "cod") {
+    // The sale stands until the rider collects, and no online payment will
+    // ever commit the reservation: commit it now, or the 15-minute expiry
+    // sweep hands the stock back while the order is still live (overselling).
+    // Cancelling the order still returns it (releaseCommittedReservations).
+    try {
+      const { commitReservations } = await import("../services/inventory");
+      await commitReservations(db, orderId);
+    } catch (e: unknown) {
+      console.error("[nlp] COD stock commit failed:", (e as Error)?.message);
+    }
     try {
       const { codEvents } = await import("../../drizzle/schema");
       await db.insert(codEvents).values({

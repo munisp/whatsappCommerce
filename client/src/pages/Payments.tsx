@@ -47,12 +47,12 @@ function PaymentsInner() {
       <div className="p-6 space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Payments</h1>
-          <p className="text-muted-foreground mt-1">Payment intents, ledger reconciliation, and provider status</p>
+          <p className="text-muted-foreground mt-1">Payments for your orders, from chat and your web store</p>
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: "Total Revenue", value: `$${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: DollarSign, color: "text-primary" },
+            { label: "Total Revenue", value: `${({ NGN: "₦", USD: "$", GHS: "GH₵", KES: "KSh ", ZAR: "R" } as Record<string, string>)[(paymentList?.[0] as any)?.currency ?? "NGN"] ?? ((paymentList?.[0] as any)?.currency ?? "") + " "}${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: DollarSign, color: "text-primary" },
             { label: "Completed", value: completed.length, icon: CreditCard, color: "text-green-400" },
             { label: "Pending", value: pending.length, icon: RefreshCw, color: "text-yellow-400" },
             { label: "Failed", value: failed.length, icon: XCircle, color: "text-red-400" },
@@ -88,7 +88,7 @@ function PaymentsInner() {
         </div>
 
         <Card className="bg-card border-border">
-          <CardHeader><CardTitle className="text-sm font-medium text-muted-foreground">Payment Intents</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-sm font-medium text-muted-foreground">Payments</CardTitle></CardHeader>
           <CardContent className="p-0">
             <Table>
               <TableHeader>
