@@ -22,6 +22,7 @@ import { chunkWhatsAppText, normalizeWaPhone } from "./waSender";
 import { redactString } from "./logRedact";
 import {
   clearActiveShop,
+  clearCustomerLocation,
   clearPendingQuery,
   clearResultsList,
   clearSelling,
@@ -246,7 +247,7 @@ async function filterSharedItems(db: any, items: DiscoverItem[]): Promise<Discov
   return items.filter((i) => sharedIds.has(i.tenantId));
 }
 
-async function discoverAndReply(phone: string, query: string, loc: LatLng): Promise<void> {
+async function discoverAndReply(phone: string, query: string, loc: LatLng, fromSaved = false): Promise<void> {
   const db = await getDb();
   if (!db) {
     await sendPlatformText(phone, "Search is unavailable right now — please try again shortly.");
@@ -274,7 +275,7 @@ async function discoverAndReply(phone: string, query: string, loc: LatLng): Prom
       ? `😕 I couldn't find a store called *${query}* on ${platformName() || "here"} yet, and no store near you sells it. ` +
         `Check the spelling, or ask the store for its shop link.`
       : `😕 No store near you has *${query}* yet.`;
-    await nearbyStoresReply(phone, loc, miss);
+    await nearbyStoresReply(phone, loc, miss, fromSaved);
     return;
   }
   // List each store with the matching products (name + price) it stocks.
@@ -283,7 +284,7 @@ async function discoverAndReply(phone: string, query: string, loc: LatLng): Prom
   await setResultsList(phone, shown.map((i) => i.tenantId));
   const prodByTenant = await matchingProductsByTenant(db, shown.map((i) => i.tenantId), query);
   const blocks = shown.map((it, n) => {
-    let block = `${n + 1}. *${it.businessName}* · ${formatKm(it.distanceKm)} km`;
+    let block = `${n + 1}. *${it.businessName}* · ${formatKm(it.distanceKm)} km away`;
     for (const p of prodByTenant.get(it.tenantId) ?? []) {
       block += `\n   • ${p.name} — ${money(p.price, p.currency)}`;
     }
@@ -295,7 +296,7 @@ async function discoverAndReply(phone: string, query: string, loc: LatLng): Prom
   await sendPlatformText(
     phone,
     `🛍️ *Stores near you with "${query}":*${widened}\n\n${blocks.join("\n\n")}\n\n` +
-      `Reply with the *number* or the *store's name* to start shopping.`,
+      `Reply with the *number* or the *store's name* to start shopping.` + savedNote(fromSaved),
   );
 }
 
@@ -339,7 +340,7 @@ async function sampleProductsByTenant(db: any, tenantIds: string[]): Promise<Map
  * each one's products — the answer to "what's around me", and what a search
  * with no results falls back to so a customer always has somewhere to go.
  */
-async function nearbyStoresReply(phone: string, loc: LatLng, lead?: string): Promise<void> {
+async function nearbyStoresReply(phone: string, loc: LatLng, lead?: string, fromSaved = false): Promise<void> {
   const db = await getDb();
   if (!db) {
     await sendPlatformText(phone, "Search is unavailable right now — please try again shortly.");
@@ -368,22 +369,27 @@ async function nearbyStoresReply(phone: string, loc: LatLng, lead?: string): Pro
   await setResultsList(phone, shown.map((i) => i.tenantId));
   const sample = await sampleProductsByTenant(db, shown.map((i) => i.tenantId));
   const blocks = shown.map((it, n) => {
-    let block = `${n + 1}. *${it.businessName}* · ${formatKm(it.distanceKm)} km`;
+    let block = `${n + 1}. *${it.businessName}* · ${formatKm(it.distanceKm)} km away`;
     for (const p of sample.get(it.tenantId) ?? []) block += `\n   • ${p.name} — ${money(p.price, p.currency)}`;
     return block;
   });
   await sendPlatformText(
     phone,
     `${head}🛍️ *Stores near you:*\n\n${blocks.join("\n\n")}\n\n` +
-      `Reply with the *number* or the *store's name* to start shopping, or tell me what you're looking for.`,
+      `Reply with the *number* or the *store's name* to start shopping, or tell me what you're looking for.` + savedNote(fromSaved),
   );
+}
+
+/** Said when a search used the location the customer shared earlier. */
+function savedNote(fromSaved: boolean): string {
+  return fromSaved ? `\n\n📍 _Using the location you shared earlier — send a new 📎 location to update it, or "forget my location"._` : "";
 }
 
 /** "What's around me": list nearby stores now, or ask for the location first. */
 async function runNearbyQuestion(phone: string): Promise<void> {
   const loc = await getCustomerLocation(phone);
   if (loc) {
-    await nearbyStoresReply(phone, loc);
+    await nearbyStoresReply(phone, loc, undefined, true);
     return;
   }
   await setPendingQuery(phone, NEARBY_PENDING);
@@ -422,7 +428,7 @@ async function partialShopMatches(text: string): Promise<Array<{ id: string; nam
 async function runPlatformDiscovery(phone: string, query: string): Promise<void> {
   const loc = await getCustomerLocation(phone);
   if (loc) {
-    await discoverAndReply(phone, query, loc);
+    await discoverAndReply(phone, query, loc, true);
     return;
   }
   await setPendingQuery(phone, query);
@@ -487,6 +493,12 @@ export async function handlePlatformDirectory(opts: {
   }
 
   const text = typeof msg?.text?.body === "string" ? msg.text.body.trim() : "";
+
+  if (/^(please\s+)?(forget|clear|delete|remove)\s+my\s+location[.!]?$/i.test(text)) {
+    await clearCustomerLocation(customerPhone);
+    await sendPlatformText(customerPhone, "Done — I've forgotten your location. I'll ask for it again next time you search for shops nearby.");
+    return;
+  }
 
   if (isHomeCommand(text)) {
     await clearActiveShop(customerPhone);

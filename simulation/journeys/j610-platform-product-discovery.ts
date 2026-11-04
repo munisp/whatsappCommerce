@@ -75,7 +75,10 @@ export const journey: Journey = {
       // ── 3. Repeat search with the saved location → immediate results ──────
       await world.inbound(payloads.inbound.text(PLATFORM_PN, buyer, "toothpaste"));
       await world.settle();
-      assert(bodyText(world.outbound.lastTo(buyer)).includes("Fresh Mart"), "repeat search uses the saved location (no re-ask)");
+      const repeat = bodyText(world.outbound.lastTo(buyer));
+      assert(repeat.includes("Fresh Mart"), "repeat search uses the saved location (no re-ask)");
+      assert(repeat.includes("km away"), "distance is worded as distance away");
+      assert(repeat.includes("Using the location you shared earlier"), "a search on the saved location says so, and how to update it");
 
       // ── 3b. A question about what's around → the nearby stores, never a
       //        search for the question's words (client report 2026-11-04) ──
@@ -104,6 +107,16 @@ export const journey: Journey = {
       await world.inbound(payloads.inbound.text(PLATFORM_PN, buyer, "1"));
       await world.settle();
       assert((await pn.getActiveShop(buyer)) === tenantId, "replying '1' entered the store from the results list");
+
+      // ── 4b. "forget my location" → the next search asks for it again ──────
+      await world.inbound(payloads.inbound.text(PLATFORM_PN, buyer, "home"));
+      await world.settle();
+      await world.inbound(payloads.inbound.text(PLATFORM_PN, buyer, "forget my location"));
+      await world.settle();
+      assert(/forgotten your location/i.test(bodyText(world.outbound.lastTo(buyer))), "forget my location is confirmed");
+      await world.inbound(payloads.inbound.text(PLATFORM_PN, buyer, "toothpaste"));
+      await world.settle();
+      assert(/send your 📎 \*location\*/i.test(bodyText(world.outbound.lastTo(buyer))), "after forgetting, a search asks for the location again");
 
       // ── 5. Part of a store's name → that store ────────────────────────────
       await world.inbound(payloads.inbound.text(PLATFORM_PN, buyer, "home"));

@@ -163,7 +163,9 @@ export async function resolveShopRef(text: string | null | undefined): Promise<R
 
 const ACTIVE_TTL_SECONDS = 1800;
 const PENDING_TTL_SECONDS = 600;
-const LOC_TTL_SECONDS = 3600;
+// A customer's shared location is kept 30 days so a returning buyer isn't asked
+// again every visit; "forget my location" removes it (clearCustomerLocation).
+const LOC_TTL_SECONDS = 30 * 24 * 3600;
 const kvMemory = new Map<string, { v: string; exp: number }>();
 function digits(phone: string): string {
   return (phone ?? "").replace(/\D/g, "");
@@ -266,6 +268,7 @@ export async function getCustomerLocation(phone: string): Promise<LatLng | null>
   return null;
 }
 export const setCustomerLocation = (phone: string, loc: LatLng): Promise<void> => kvSet(`plat:loc:${digits(phone)}`, JSON.stringify(loc), LOC_TTL_SECONDS);
+export const clearCustomerLocation = (phone: string): Promise<void> => kvDel(`plat:loc:${digits(phone)}`);
 
 /** Test-only: reset all in-memory directory state. */
 export function __clearActiveShopMemory(): void {
