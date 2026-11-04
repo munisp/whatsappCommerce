@@ -159,8 +159,14 @@ function SsoUsersInner() {
                           </div>
                         </td>
                         <td className="py-3 pr-4">
-                          <span className="font-medium">{p.tenantName ?? p.tenantId}</span>
-                          <p className="text-xs text-muted-foreground font-mono">{p.tenantId.slice(0, 8)}…</p>
+                          {p.tenantId ? (
+                            <>
+                              <span className="font-medium">{p.tenantName ?? p.tenantId}</span>
+                              <p className="text-xs text-muted-foreground font-mono">{p.tenantId.slice(0, 8)}…</p>
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">Platform (no shop)</span>
+                          )}
                         </td>
                         <td className="py-3 pr-4">
                           <Badge variant="outline" className="capitalize">
