@@ -289,7 +289,7 @@ function TenantOnboardingWizardInner() {
 
   const startMutation = trpc.onboarding.start.useMutation({
     onSuccess: (data) => {
-      toast.success(`Tenant "${provision.name}" provisioned (${data.slug})`);
+      toast.success(`${provision.name} is set up. Next, connect WhatsApp.`);
       setCreatedTenantId(data.tenantId);
       setActiveTenantId(data.tenantId);
       // users.tenantId only updates server-side for non-admin callers — refresh
@@ -408,10 +408,10 @@ function TenantOnboardingWizardInner() {
           <div>
             <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
               <Rocket className="w-6 h-6 text-primary" />
-              Tenant Onboarding
+              Set up your business
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              {status ? `Provisioning "${status.tenantId}" — configure, validate, go live.` : "Configure, validate and activate the tenant."}
+              {status ? `Setting up ${status.tenantName || "your business"}: connect WhatsApp, check everything, then go live.` : "Create your business, connect WhatsApp, then go live."}
             </p>
           </div>
           <Badge variant="outline" className={statusMeta.className}>{statusMeta.label}</Badge>
@@ -479,7 +479,7 @@ function TenantOnboardingWizardInner() {
                   <CardDescription>
                     {tenantId
                       ? "Configure, validate and activate your business."
-                      : "Create your business to get started — this becomes your tenant."}
+                      : "Create your business to get started."}
                     {user?.role === "admin" && " Platform admins can also provision a tenant on a business's behalf below."}
                   </CardDescription>
                 </CardHeader>
@@ -487,20 +487,20 @@ function TenantOnboardingWizardInner() {
                   {status && (
                     <div className="rounded-lg border p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                       <div>
-                        <p className="text-muted-foreground text-xs">Tenant</p>
-                        <p className="font-medium">{status.tenantId}</p>
+                        <p className="text-muted-foreground text-xs">Business</p>
+                        <p className="font-medium">{status.tenantName || "Your business"}</p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground text-xs">Tenant status</p>
+                        <p className="text-muted-foreground text-xs">Status</p>
                         <p className="font-medium capitalize">{status.tenantStatus}</p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground text-xs">Onboarding</p>
+                        <p className="text-muted-foreground text-xs">Set-up</p>
                         <p className="font-medium capitalize">{onboardingStatus}</p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground text-xs">WhatsApp creds</p>
-                        <p className="font-medium">{status.whatsappConfigured ? "Configured" : "Missing"}</p>
+                        <p className="text-muted-foreground text-xs">WhatsApp</p>
+                        <p className="font-medium">{status.whatsappConfigured ? "Connected" : "Not connected yet"}</p>
                       </div>
                     </div>
                   )}
@@ -614,7 +614,7 @@ function TenantOnboardingWizardInner() {
                           }
                         >
                           {startMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
-                          Provision tenant
+                          Create my business
                         </Button>
                       </div>
                     </>

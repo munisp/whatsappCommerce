@@ -265,7 +265,7 @@ export const TENANT_NAV_GROUPS: NavGroup[] = [
     icon: SlidersHorizontal,
     requiresRoles: ["owner", "operator"],
     items: [
-      { icon: Rocket,          label: "Onboarding Wizard", path: "/onboarding-wizard" },
+      { icon: Rocket,          label: "Set up your business", path: "/onboarding-wizard" },
       { icon: Rocket,          label: "Store Setup",      path: "/portal/setup" },
       { icon: Bot,             label: "Copilot",          path: "/onboarding-copilot" },
       { icon: Plug,            label: "Integration Settings", path: "/integration-settings" },
