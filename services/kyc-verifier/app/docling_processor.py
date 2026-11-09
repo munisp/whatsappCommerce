@@ -30,9 +30,14 @@ class DoclingProcessor:
         return await loop.run_in_executor(None, self._parse_sync, content, mime_type)
 
     def _parse_sync(self, content: bytes, mime_type: str) -> dict[str, Any]:
+        import os
+        if os.getenv("DOCLING_ENABLED", "true").lower() != "true":
+            return {"text": "", "tables": [], "fields": {}, "structure_type": "disabled"}
         self._init_docling()
         if self._converter is None:
-            return self._mock_result()
+            if os.getenv("VLM_MOCK_MODE", "false").lower() == "true":
+                return self._mock_result()
+            return {"text": "", "tables": [], "fields": {}, "structure_type": "unavailable"}
         try:
             import tempfile, os
             ext = ".pdf" if "pdf" in mime_type else ".jpg"
@@ -51,7 +56,10 @@ class DoclingProcessor:
             }
         except Exception as e:
             log.error("docling.parse_error", error=str(e))
-            return self._mock_result()
+            import os
+            if os.getenv("VLM_MOCK_MODE", "false").lower() == "true":
+                return self._mock_result()
+            return {"text": "", "tables": [], "fields": {}, "structure_type": "unavailable"}
 
     def _mock_result(self) -> dict[str, Any]:
         return {

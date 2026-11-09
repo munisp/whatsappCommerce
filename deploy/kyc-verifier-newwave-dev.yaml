@@ -1,0 +1,101 @@
+# kyc-verifier on newwave-dev (OAK, namespace whatsapp-commerce). Applied with kubectl: the namespace's Flux
+# kustomization is suspended and the server is released with kubectl too.
+#   kubectl --context kind-newwave-dev apply -f deploy/kyc-verifier-newwave-dev.yaml
+# then point the server at it:
+#   kubectl --context kind-newwave-dev -n whatsapp-commerce set env deploy/server KYC_SERVICE_URL=http://kyc-verifier:8001
+#
+# Real checks only: VLM_MOCK_MODE=false, and the service answers 503 (document stays "not checked yet") whenever OCR or
+# the vision model can't give a verdict. The vision model is the cluster's shared Ollama (qwen2.5vl:7b, CPU), so one
+# document takes minutes; the server sends one at a time and waits up to 15 minutes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kyc-verifier
+  namespace: whatsapp-commerce
+  labels: {app: kyc-verifier, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: kyc-verifier}
+  template:
+    metadata:
+      labels: {app: kyc-verifier, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+    spec:
+      containers:
+        - name: kyc-verifier
+          image: kyc-verifier:20261109-3
+          imagePullPolicy: IfNotPresent
+          # One worker: a single CPU vision call at a time is all the shared Ollama can take.
+          command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "1", "--timeout-keep-alive", "960"]
+          env:
+            - {name: PORT, value: "8001"}
+            - {name: VLM_MOCK_MODE, value: "false"}
+            - {name: DOCLING_ENABLED, value: "false"}
+            - {name: OLLAMA_URL, value: "http://ollama.ollama.svc.cluster.local:11434"}
+            - {name: OLLAMA_VLM_MODEL, value: "qwen2.5vl:7b"}
+            - {name: VLM_TIMEOUT_SECONDS, value: "840"}
+            - {name: HOME, value: /home/verifier}  # PaddleOCR keeps its downloaded models under ~/.paddleocr
+            # No Kafka/Redis in this namespace: events and liveness sessions are best-effort in this service and it
+            # starts without them. Document checks need neither.
+            - {name: KAFKA_BROKERS, value: "kafka-unavailable:9092"}
+            - {name: REDIS_URL, value: "redis://redis-unavailable:6379/2"}
+            - name: KYC_INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef: {name: whatsapp-server-kyc-api-key, key: KYC_SERVICE_API_KEY}
+          ports:
+            - {name: http, containerPort: 8001}
+          resources:
+            requests: {cpu: 250m, memory: 1Gi}
+            limits: {cpu: "2", memory: 4Gi}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: home, mountPath: /home/verifier}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: home, emptyDir: {sizeLimit: 2Gi}}
+        - {name: tmp, emptyDir: {sizeLimit: 2Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kyc-verifier
+  namespace: whatsapp-commerce
+  labels: {app: kyc-verifier}
+spec:
+  selector: {app: kyc-verifier}
+  ports:
+    - {name: http, port: 8001, targetPort: http}
+---
+# Merchants' identity documents go through this service: only the OAK server may call it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kyc-verifier-ingress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels: {app: kyc-verifier}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: server}
+      ports:
+        - {port: 8001, protocol: TCP}

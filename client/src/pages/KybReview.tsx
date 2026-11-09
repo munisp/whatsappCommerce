@@ -20,6 +20,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { missingScreeningFields, listInWords, isFlagged } from "@shared/kybScreening";
 import { AlertTriangle, Building2, CheckCircle2, FileText, Loader2, ShieldCheck, XCircle } from "lucide-react";
 
 const STATUS_META: Record<string, { label: string; className: string }> = {
@@ -40,6 +41,11 @@ function ApplicationDetail({ applicationId, onDecided }: { applicationId: string
   const [rejectionReason, setRejectionReason] = useState("");
   const [waive, setWaive] = useState(false);
 
+  const checkDocs = trpc.kyc.checkDocuments.useMutation({
+    onSuccess: ({ queued }) => toast.success(queued ? `Checking ${queued} document(s). This can take a few minutes; reopen to see the result.` : "Those documents are already being checked."),
+    onError: (e) => toast.error(e.message),
+  });
+
   const review = trpc.kyc.review.useMutation({
     onSuccess: () => {
       toast.success(`Application ${decision.replace("_", " ")}`);
@@ -53,7 +59,10 @@ function ApplicationDetail({ applicationId, onDecided }: { applicationId: string
     return <div className="space-y-3 py-4">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-6" />)}</div>;
   }
 
-  const pendingDocs = app.documents.filter((d) => !d.processedAt);
+  // Not verified = not checked yet, or checked and flagged. Both need the waiver to approve (the server agrees).
+  const uncheckedDocs = app.documents.filter((d) => !d.processedAt);
+  const pendingDocs = app.documents.filter((d) => !d.processedAt || isFlagged(d));
+  const missingDetails = missingScreeningFields(app);
   const statusMeta = STATUS_META[app.status] ?? STATUS_META.not_started;
 
   return (
@@ -75,6 +84,12 @@ function ApplicationDetail({ applicationId, onDecided }: { applicationId: string
       <div className="space-y-2">
         <h4 className="text-sm font-semibold">Documents</h4>
         {app.documents.length === 0 && <p className="text-sm text-muted-foreground">No documents uploaded.</p>}
+        {uncheckedDocs.length > 0 && (
+          <Button variant="outline" size="sm" disabled={checkDocs.isPending} onClick={() => checkDocs.mutate({ applicationId })}>
+            {checkDocs.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+            Check {uncheckedDocs.length === 1 ? "this document" : `${uncheckedDocs.length} documents`} now
+          </Button>
+        )}
         {app.documents.map((d) => (
           <a
             key={d.id}
@@ -85,10 +100,12 @@ function ApplicationDetail({ applicationId, onDecided }: { applicationId: string
           >
             <FileText className="w-4 h-4 shrink-0 text-muted-foreground" />
             <span className="flex-1 capitalize">{d.documentType.replace(/_/g, " ")}</span>
-            {d.processedAt ? (
-              <Badge variant="outline" className="text-[10px] bg-emerald-500/15 text-emerald-700 border-emerald-500/30">verified</Badge>
+            {!d.processedAt ? (
+              <Badge variant="outline" className="text-[10px] bg-amber-500/15 text-amber-700 border-amber-500/30">not checked yet</Badge>
+            ) : isFlagged(d) ? (
+              <Badge variant="outline" className="text-[10px] bg-red-500/15 text-red-700 border-red-500/30" title={d.verificationNotes ?? undefined}>flagged</Badge>
             ) : (
-              <Badge variant="outline" className="text-[10px] bg-amber-500/15 text-amber-700 border-amber-500/30">pending</Badge>
+              <Badge variant="outline" className="text-[10px] bg-emerald-500/15 text-emerald-700 border-emerald-500/30" title={d.verificationNotes ?? undefined}>checked</Badge>
             )}
           </a>
         ))}
@@ -123,14 +140,24 @@ function ApplicationDetail({ applicationId, onDecided }: { applicationId: string
           <Textarea id="kyb-notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
 
+        {decision === "approved" && missingDetails.length > 0 && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Can't approve yet: details missing</AlertTitle>
+            <AlertDescription>
+              This application has no {listInWords(missingDetails)}, so screening can't run. Choose "Request
+              resubmission" and ask the merchant to add {missingDetails.length > 1 ? "them" : "it"}.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {decision === "approved" && pendingDocs.length > 0 && (
           <Alert>
             <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>{pendingDocs.length} document(s) not yet verified</AlertTitle>
+            <AlertTitle>{pendingDocs.length} document(s) not verified</AlertTitle>
             <AlertDescription>
-              The OCR/VLM pipeline hasn't finished processing{" "}
-              {pendingDocs.map((d) => d.documentType.replace(/_/g, " ")).join(", ")}. Approving now requires an
-              explicit waiver.
+              {pendingDocs.map((d) => `${d.documentType.replace(/_/g, " ")} (${d.processedAt ? "flagged by the automated check" : "not checked yet"})`).join(", ")}.
+              Approving now requires an explicit waiver.
               <div className="flex items-center gap-2 mt-2">
                 <Checkbox id="kyb-waive" checked={waive} onCheckedChange={(v) => setWaive(v === true)} />
                 <Label htmlFor="kyb-waive" className="text-sm font-normal cursor-pointer">
@@ -145,7 +172,8 @@ function ApplicationDetail({ applicationId, onDecided }: { applicationId: string
           disabled={
             review.isPending ||
             (decision === "rejected" && !rejectionReason.trim()) ||
-            (decision === "approved" && pendingDocs.length > 0 && !waive)
+            (decision === "approved" && pendingDocs.length > 0 && !waive) ||
+            (decision === "approved" && missingDetails.length > 0)
           }
           onClick={() =>
             review.mutate({

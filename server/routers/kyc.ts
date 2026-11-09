@@ -11,6 +11,8 @@ import { randomUUID } from "crypto";
 import { storagePut } from "../storage";
 import { runKybChecks, type KybCheckResult } from "../services/compliance";
 import { writeAuditLog } from "./audit";
+import { missingScreeningFields, listInWords } from "../../shared/kybScreening";
+import { queueKycDocumentVerification, isFlagged } from "../services/kycDocumentVerification";
 // === W46 kyc === TEN-6 (expiry stamping at approval) + TEN-7 (appeals).
 import { kycExpiresAt, computeRiskTier, KYC_VALIDITY_DAYS } from "../services/kycExpiry";
 
@@ -67,7 +69,9 @@ function kybNote(result: KybCheckResult): string {
 }
 
 const KYC_SERVICE_URL = process.env.KYC_SERVICE_URL ?? "http://localhost:8001";
-const KYC_API_KEY = process.env.KYC_INTERNAL_API_KEY ?? "dev-kyc-key";
+// The deployment provides KYC_SERVICE_API_KEY (env.ts refuses the old insecure default); this used to read only
+// KYC_INTERNAL_API_KEY and so sent "dev-kyc-key".
+const KYC_API_KEY = process.env.KYC_SERVICE_API_KEY ?? process.env.KYC_INTERNAL_API_KEY ?? "";
 
 async function callKycService(path: string, options: RequestInit = {}) {
   const res = await fetch(`${KYC_SERVICE_URL}${path}`, {
@@ -245,6 +249,15 @@ export const kycRouter = router({
           message: "Cannot submit: KYB screening returned a reject recommendation. Contact support.",
         });
       }
+      // Screening needs these to run, and approval fails closed without screening: an application submitted
+      // without them could never be approved (it sat in the review queue answering every Approve with a 412).
+      const missing = missingScreeningFields(app);
+      if (missing.length > 0) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Add your ${listInWords(missing)} and save your details before submitting.`,
+        });
+      }
       // === W46 privacy-consent (TEN-22): stamp the review-queue SLA at
       // submit — the kyb-sla-sweep cron escalates + records breaches. ===
       const submittedAt = new Date();
@@ -306,30 +319,10 @@ export const kycRouter = router({
         fileName: input.fileName,
         createdAt: new Date(),
       });
-      // 3. Send to KYC microservice for processing (non-blocking, best-effort)
-      let serviceResult: Record<string, unknown> = { queued: true };
-      try {
-        serviceResult = await callKycService("/verify/document", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            document_id: docId,
-            application_id: input.applicationId,
-            document_type: input.documentType,
-            file_url: fileUrl,
-            mime_type: input.mimeType,
-          }),
-        });
-        // Update document with extracted fields from OCR/VLM
-        if (serviceResult.extracted_fields) {
-          await db.update(kycDocuments)
-            .set({ extractedData: serviceResult.extracted_fields as Record<string, unknown>, processedAt: new Date() })
-            .where(eq(kycDocuments.id, docId));
-        }
-      } catch {
-        // KYC service unavailable in dev — document is stored, will be processed on submit
-        serviceResult = { queued: true, note: "KYC service offline — document queued for processing on submit" };
-      }
+      // 3. Automated check (OCR + vision model) in the background: it takes minutes on CPU. The document stays
+      // pending until a verdict is stored; see services/kycDocumentVerification.ts.
+      queueKycDocumentVerification(docId);
+      const serviceResult = { queued: true };
       return { ok: true, documentId: docId, fileUrl, serviceResult };
     }),
 
@@ -346,6 +339,18 @@ export const kycRouter = router({
         .where(conditions.length ? and(...conditions) : undefined)
         .orderBy(desc(kycApplications.createdAt))
         .limit(input.limit);
+    }),
+
+  // Admin: (re)queue the automated check for an application's unchecked documents — e.g. ones uploaded while the
+  // verifier was down. Returns how many were queued; results arrive in the background.
+  checkDocuments: adminProcedure
+    .input(z.object({ applicationId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      const docs = await db.select().from(kycDocuments).where(eq(kycDocuments.applicationId, input.applicationId));
+      const queued = docs.filter((d) => !d.processedAt && !d.erasedAt && d.fileKey).filter((d) => queueKycDocumentVerification(d.id)).length;
+      return { queued };
     }),
 
   // Admin: review application
@@ -386,6 +391,16 @@ export const kycRouter = router({
             message: "Cannot approve: KYB screening recommendation is reject.",
           });
         }
+        // Screening can't run on an application without these (runKybScreenFor returns null), which used to surface
+        // as "screening unavailable" — wrong, and no help to the reviewer. Name what's missing and the way forward.
+        const missing = missingScreeningFields(app);
+        if (kybScreeningEnabled() && missing.length > 0) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `Cannot approve: the application has no ${listInWords(missing)}, so screening can't run. ` +
+              `Choose "Request resubmission" and ask the merchant to add ${missing.length > 1 ? "them" : "it"}.`,
+          });
+        }
         if (kybScreeningEnabled()) {
           let kyb: KybCheckResult | null = null;
           try {
@@ -393,6 +408,10 @@ export const kycRouter = router({
             screenedNow = kyb != null;
           } catch (err) {
             console.error("[kyc.review] KYB screening error (fail-closed):", err);
+          }
+          if (!kyb) console.error(`[kyc.review] approval of ${input.applicationId} refused: screening returned no result (fail-closed)`);
+          else if (kyb.recommendation === "reject" || kyb.sanctions.degraded) {
+            console.warn(`[kyc.review] approval of ${input.applicationId} refused: ${kyb.recommendation}${kyb.sanctions.degraded ? " (sanctions list degraded)" : ""}`);
           }
           if (!kyb || kyb.recommendation === "reject" || kyb.sanctions.degraded) {
             throw new TRPCError({
@@ -405,15 +424,19 @@ export const kycRouter = router({
         }
         const docs = await db.select().from(kycDocuments)
           .where(eq(kycDocuments.applicationId, input.applicationId));
-        const pendingDocs = docs.filter((d) => !d.processedAt);
+        // Unchecked documents, and documents the automated check flagged (not authentic, or tampered), both need
+        // the admin's explicit waiver: a flagged document is no more verified than an unchecked one.
+        const pendingDocs = docs.filter((d) => !d.processedAt || isFlagged(d));
         if (pendingDocs.length > 0) {
           if (!input.waivePendingDocuments) {
+            const flagged = pendingDocs.filter((d) => d.processedAt).length;
             throw new TRPCError({
               code: "PRECONDITION_FAILED",
               message:
-                `Cannot approve: ${pendingDocs.length} document(s) are still pending verification ` +
-                `(${pendingDocs.map((d) => d.documentType).join(", ")}). ` +
-                "Wait for the OCR/VLM pipeline to finish, or re-review with waivePendingDocuments=true.",
+                `Cannot approve: ${pendingDocs.length} document(s) not verified ` +
+                `(${pendingDocs.map((d) => d.documentType + (d.processedAt ? " — flagged" : " — not checked yet")).join(", ")}). ` +
+                (flagged ? "Look at the flagged documents yourself, then " : "Wait for the automated check, or ") +
+                "approve with the waiver.",
             });
           }
           const waiverNote =

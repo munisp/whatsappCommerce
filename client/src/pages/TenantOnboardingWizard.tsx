@@ -52,6 +52,7 @@ import {
   type WaMenuUseCase,
 } from "@shared/waMenu";
 import { INTEGRATION_PROVIDERS, type IntegrationProvider } from "@shared/tenantConfig";
+import { missingScreeningFields, listInWords } from "@shared/kybScreening";
 
 const STEPS = [
   { id: "business", label: "Business" },
@@ -248,12 +249,26 @@ function TenantOnboardingWizardInner() {
     reader.readAsDataURL(file);
   };
   const kybDocsPresent = new Set((kybApp?.documents ?? []).map((d) => d.documentType));
+  const kybMissing = missingScreeningFields(kybForm);
   const kybCanSubmit =
     !!kybAppId &&
     kybForm.applicantName.trim() !== "" &&
-    kybForm.businessName.trim() !== "" &&
+    kybMissing.length === 0 &&
     kybDocsPresent.has("business_registration") &&
     kybApp?.status !== "pending" && kybApp?.status !== "approved";
+  // Submit saves what's on screen first: the form is pre-filled locally (the business name from the shop), so
+  // submitting the id alone used to send an application with nothing saved on it.
+  // Blank fields are left out rather than sent as "" (the server rejects an empty email, and "" would wipe a value).
+  const kybDetails = () => Object.fromEntries(Object.entries(kybForm).map(([k, v]) => [k, v.trim()]).filter(([, v]) => v !== ""));
+  const submitKyb = async () => {
+    if (!kybAppId) return;
+    try {
+      await saveKybMutation.mutateAsync({ applicationId: kybAppId, ...kybDetails() });
+      await submitKybMutation.mutateAsync({ applicationId: kybAppId });
+    } catch {
+      // each mutation's onError already told the merchant what went wrong
+    }
+  };
 
   // Seed forms from the live config once loaded.
   const { data: savedMenu } = trpc.tenantConfig.getWaMenuConfig.useQuery(
@@ -1068,7 +1083,7 @@ function TenantOnboardingWizardInner() {
                       variant="outline"
                       size="sm"
                       disabled={saveKybMutation.isPending || !kybAppId}
-                      onClick={() => kybAppId && saveKybMutation.mutate({ applicationId: kybAppId, ...kybForm })}
+                      onClick={() => kybAppId && saveKybMutation.mutate({ applicationId: kybAppId, ...kybDetails() })}
                     >
                       {saveKybMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
                       Save details
@@ -1111,11 +1126,14 @@ function TenantOnboardingWizardInner() {
                     })}
                   </div>
 
+                  {kybMissing.length > 0 && kybApp?.status !== "pending" && kybApp?.status !== "approved" && (
+                    <p className="text-sm text-muted-foreground">Add your {listInWords(kybMissing)} to submit.</p>
+                  )}
                   <Button
-                    disabled={!kybCanSubmit || submitKybMutation.isPending}
-                    onClick={() => kybAppId && submitKybMutation.mutate({ applicationId: kybAppId })}
+                    disabled={!kybCanSubmit || submitKybMutation.isPending || saveKybMutation.isPending}
+                    onClick={() => void submitKyb()}
                   >
-                    {submitKybMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                    {(submitKybMutation.isPending || saveKybMutation.isPending) && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
                     Submit for review
                   </Button>
                 </CardContent>

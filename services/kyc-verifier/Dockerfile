@@ -1,4 +1,5 @@
-FROM python:3.14-slim
+# paddlepaddle 2.6.x publishes no Python 3.14 wheels; bookworm still ships libgl1-mesa-glx.
+FROM python:3.12-slim-bookworm
 
 # System deps for PaddleOCR, OpenCV, MediaPipe
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -58,6 +58,9 @@ const pendingDoc = (id: string, documentType: string) => ({
 const processedDoc = (id: string, documentType: string) => ({
   ...pendingDoc(id, documentType),
   processedAt: new Date("2025-01-01T00:00:00Z"),
+  // A clean verdict from the automated check: since 2026-11-09 "processed" alone isn't "verified".
+  isAuthentic: true,
+  isTampered: false,
 });
 
 beforeEach(() => vi.clearAllMocks());

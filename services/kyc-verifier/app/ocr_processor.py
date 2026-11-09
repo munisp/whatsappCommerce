@@ -3,10 +3,13 @@ PaddleOCR-based document text extraction.
 Returns structured text with bounding boxes and confidence scores.
 """
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import base64
 import io
 import structlog
 from typing import Any
+
+from .vlm_processor import VerificationUnavailable, mock_mode
 
 log = structlog.get_logger()
 
@@ -14,6 +17,9 @@ class OCRProcessor:
     def __init__(self):
         self._ocr = None
         self._initialized = False
+        # Paddle (oneDNN) must set up and run on ONE thread: on another pool thread the classifier fails with
+        # "could not execute a primitive". It isn't thread-safe either, so this also serialises inference.
+        self._thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="paddleocr")
 
     def _init_ocr(self):
         """Lazy-init PaddleOCR to avoid slow startup."""
@@ -30,13 +36,15 @@ class OCRProcessor:
                 self._initialized = True
                 log.info("paddleocr.initialized")
             except ImportError:
+                if not mock_mode():
+                    raise VerificationUnavailable("OCR is not installed")
                 log.warning("paddleocr.not_installed", fallback="mock_mode")
-                self._initialized = True  # Use mock mode
+                self._initialized = True  # Use mock mode (VLM_MOCK_MODE=true only)
 
     async def process(self, content: bytes, mime_type: str) -> dict[str, Any]:
         """Run OCR on document bytes. Returns text, confidence, and bounding boxes."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._process_sync, content, mime_type)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._thread, self._process_sync, content, mime_type)
 
     def _process_sync(self, content: bytes, mime_type: str) -> dict[str, Any]:
         self._init_ocr()
@@ -72,7 +80,9 @@ class OCRProcessor:
             }
         except Exception as e:
             log.error("paddleocr.error", error=str(e))
-            return self._mock_result()
+            if mock_mode():
+                return self._mock_result()
+            raise VerificationUnavailable("OCR failed") from e
 
     def _mock_result(self) -> dict[str, Any]:
         return {

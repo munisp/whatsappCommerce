@@ -12,6 +12,14 @@ from typing import Any
 
 log = structlog.get_logger()
 
+
+class VerificationUnavailable(Exception):
+    """A real check couldn't run. The caller must answer "not verified", never a made-up result."""
+
+
+def mock_mode() -> bool:
+    return os.getenv("VLM_MOCK_MODE", "false").lower() == "true"
+
 DOCUMENT_ANALYSIS_PROMPT = """You are a document verification expert. Analyze this {doc_type} document image.
 
 OCR extracted text:
@@ -47,7 +55,8 @@ class VLMProcessor:
         # processor — was a new httpx.AsyncClient (TCP+TLS handshake) per VLM
         # call, never reused.
         import httpx
-        self._client = httpx.AsyncClient(timeout=60)
+        # A 7B vision model on CPU takes minutes per page; 60s used to time out and fall back to the mock.
+        self._client = httpx.AsyncClient(timeout=float(os.getenv("VLM_TIMEOUT_SECONDS", "300")))
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -83,7 +92,8 @@ class VLMProcessor:
             except Exception as e:
                 log.error("vlm.openai_failed", error=str(e))
 
-        return self._mock_analysis(document_type)
+        # Never invent a verdict: the mock said "authentic, John Doe" for any document whenever Ollama was slow.
+        raise VerificationUnavailable("document analysis is unavailable")
 
     async def _call_ollama(self, b64_image: str, prompt: str) -> dict | None:
         resp = await self._client.post(f"{self.ollama_url}/api/generate", json={
@@ -95,7 +105,12 @@ class VLMProcessor:
         })
         resp.raise_for_status()
         raw = resp.json().get("response", "{}")
-        return json.loads(raw)
+        result = json.loads(raw)
+        # A verdict needs both booleans; anything else is not an answer.
+        if not isinstance(result.get("is_authentic"), bool) or not isinstance(result.get("is_tampered"), bool):
+            log.warning("vlm.ollama_unusable_answer", keys=sorted(result)[:12])
+            return None
+        return result
 
     async def _call_openai(self, b64_image: str, prompt: str) -> dict:
         from openai import AsyncOpenAI
