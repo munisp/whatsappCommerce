@@ -1198,6 +1198,15 @@ function TenantOnboardingWizardInner() {
 }
 
 export default function TenantOnboardingWizard() {
+  const { user, loading } = useAuth();
+  // A signed-in person with no business yet is exactly who this wizard is for: onboarding.start creates their shop
+  // (and refuses anyone who already has one). The Owner/Operator guard alone turned every new merchant away, because
+  // nobody is an owner before their shop exists. Platform admins configure tenants they manage. Decided once, when
+  // the page opens, so creating the shop mid-wizard doesn't swap in the guard and lose the wizard's progress.
+  const newMerchant = useRef<boolean | null>(null);
+  if (newMerchant.current === null && !loading && user) newMerchant.current = !user.tenantId || user.role === "admin";
+  if (loading || (user && newMerchant.current === null)) return <div className="p-8 text-center text-muted-foreground">Loading...</div>;
+  if (newMerchant.current) return <TenantOnboardingWizardInner />;
   return (
     <CapabilityGuard roles={["owner", "operator"]}>
       <TenantOnboardingWizardInner />
