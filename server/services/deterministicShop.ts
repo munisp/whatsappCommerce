@@ -34,7 +34,7 @@ export interface DeterministicResult {
   reply: string;
   intent: "add_to_cart" | "remove_from_cart" | "confirm_order" | "view_cart" | "greeting" | "product_detail" | "browse" | "dispute" | "unknown";
   nextState: string;
-  extractedItems: Array<{ product: string; quantity: number }>;
+  extractedItems: Array<{ product: string; quantity: number; productId?: string }>;
   extractedProduct: string | null;
   extractedQuantity: number | null;
   extractedAddress: string | null;
@@ -261,7 +261,7 @@ export function classifyDeterministically(
       const quantity = bareNumber[2] ? Math.max(1, parseInt(bareNumber[2], 10)) : 1;
       return {
         reply: "", intent: "add_to_cart", nextState: "add_to_cart", confidence: 0.9,
-        extractedItems: [{ product: product.name, quantity }],
+        extractedItems: [{ product: product.name, quantity, productId: product.id }],
         extractedProduct: product.name, extractedQuantity: quantity, extractedAddress: null,
       };
     }

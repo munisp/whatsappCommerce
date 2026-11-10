@@ -61,11 +61,11 @@ describe("classifyDeterministically — numbered catalog pick", () => {
   it("a bare number picks that catalog position, quantity 1", () => {
     const r = classify("2");
     expect(r.intent).toBe("add_to_cart");
-    expect(r.extractedItems).toEqual([{ product: "Grilled Chicken", quantity: 1 }]);
+    expect(r.extractedItems).toEqual([{ product: "Grilled Chicken", quantity: 1, productId: "p2" }]);
   });
   it("N x qty picks a quantity too", () => {
     const r = classify("1x3");
-    expect(r.extractedItems).toEqual([{ product: "Jollof Rice", quantity: 3 }]);
+    expect(r.extractedItems).toEqual([{ product: "Jollof Rice", quantity: 3, productId: "p1" }]);
   });
   it("out of range: says so, still shows the catalog, never silently mismatches to the wrong item", () => {
     const r = classify("9");

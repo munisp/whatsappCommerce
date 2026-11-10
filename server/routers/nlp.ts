@@ -3865,6 +3865,26 @@ export const nlpRouter = router({
             }
           }
           // === END W48 PERF-API-12 ===
+          // Numbered picks carry the exact product id; make sure that product is in the list even when it sits
+          // outside the catalog window, so it's never resolved by name instead (two products can share a name).
+          const windowIds = new Set(tenantProducts.map((p) => p.id));
+          const missingIds = Array.from(new Set(
+            itemsToAdd.map((i) => i.productId).filter((id): id is string => !!id && !windowIds.has(id)),
+          ));
+          if (missingIds.length > 0) {
+            const picked = await db.select({
+              id: products.id, name: products.name, price: products.price,
+              currency: products.currency, stockQuantity: products.stockQuantity,
+              description: products.description, imageUrl: products.imageUrl,
+            }).from(products)
+              .where(and(
+                eq(products.tenantId, input.tenantId),
+                eq(products.status, "active"),
+                inArray(products.id, missingIds),
+              ))
+              .catch(() => [] as any[]);
+            tenantProducts.push(...picked);
+          }
           // Shortage recovery: a mention of a product that was JUST reported short (buildShortageReply told the
           // buyer to "adjust your quantities") means "change my order to this amount", not "add this on top of
           // the stuck quantity that already caused the shortage" — one-shot, consumed below regardless of outcome.

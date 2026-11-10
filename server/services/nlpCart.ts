@@ -26,11 +26,13 @@ export interface CatalogProduct {
 export interface ExtractedItem {
   product: string;
   quantity: number;
+  /** Set when the buyer picked a numbered item from a list we showed: the exact product, no name matching. */
+  productId?: string;
 }
 
 /** Shape of the LLM JSON relevant to item extraction (both new + legacy fields). */
 export interface LlmExtraction {
-  extractedItems?: Array<{ product?: string | null; quantity?: number | null }> | null;
+  extractedItems?: Array<{ product?: string | null; quantity?: number | null; productId?: string | null }> | null;
   extractedProduct?: string | null;
   extractedQuantity?: number | null;
 }
@@ -47,7 +49,9 @@ export function normalizeExtractedItems(llm: LlmExtraction): ExtractedItem[] {
       const name = (raw?.product ?? "").toString().trim();
       if (!name) continue;
       const qty = Math.max(1, Math.min(999, Math.floor(Number(raw?.quantity ?? 1)) || 1));
-      out.push({ product: name, quantity: qty });
+      out.push(typeof raw?.productId === "string" && raw.productId
+        ? { product: name, quantity: qty, productId: raw.productId }
+        : { product: name, quantity: qty });
     }
   }
   if (out.length === 0 && llm.extractedProduct) {
@@ -58,6 +62,10 @@ export function normalizeExtractedItems(llm: LlmExtraction): ExtractedItem[] {
     }
   }
   return out;
+}
+
+function normalizeName(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 export type CatalogMatch =
@@ -73,15 +81,19 @@ export type CatalogMatch =
  *    asks the buyer which one they meant instead of guessing
  */
 export function matchCatalogItem(products: CatalogProduct[], mention: string): CatalogMatch {
-  const q = mention.toLowerCase().trim();
+  const q = normalizeName(mention);
   if (!q) return { status: "not_found", confidence: 0 };
 
-  const exact = products.filter(p => p.name.toLowerCase() === q);
+  // Catalog names are normalized the same way as the mention: "Hand painted jean " (trailing space) and
+  // "Hand painted jean" are the same name to a buyer, so both are exact matches and the buyer is asked which one —
+  // previously only the untrimmed-equal one matched, so the other could never be picked by name.
+  const exact = products.filter(p => normalizeName(p.name) === q);
   if (exact.length === 1) return { status: "matched", product: exact[0], confidence: 1 };
 
-  const partial = products.filter(p =>
-    p.name.toLowerCase().includes(q) || q.includes(p.name.toLowerCase()),
-  );
+  const partial = products.filter(p => {
+    const name = normalizeName(p.name);
+    return name.includes(q) || q.includes(name);
+  });
   const candidates = (exact.length > 1 ? exact : partial);
   if (candidates.length === 1) return { status: "matched", product: candidates[0], confidence: 0.8 };
   if (candidates.length > 1) return { status: "ambiguous", candidates: candidates.slice(0, 5), confidence: 0.5 };
@@ -132,7 +144,11 @@ export async function addExtractedItemsToCart(
   let cartSession = opts.cartSession;
 
   for (const item of opts.items) {
-    const match = matchCatalogItem(opts.products, item.product);
+    // A numbered pick names its product exactly; only fall back to the name when that product isn't in the list.
+    const picked = item.productId ? opts.products.find(p => p.id === item.productId) : undefined;
+    const match: CatalogMatch = picked
+      ? { status: "matched", product: picked, confidence: 1 }
+      : matchCatalogItem(opts.products, item.product);
     if (match.status === "ambiguous") {
       const names = match.candidates.map(c => c.name).join(", ");
       clarifications.push(`❓ "${item.product}" — did you mean: ${names}? Reply with the exact name.`);

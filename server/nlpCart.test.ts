@@ -147,4 +147,55 @@ describe("addExtractedItemsToCart (mock db)", () => {
     // no cartSessions insert (only the cartItems insert happened)
     expect((db.insert as any).mock.results).toHaveLength(1);
   });
+
+  // Freaks fashion hub (2026-11-10): two products differing only by a trailing space; the in-stock one was listed
+  // as #2, but picking it matched the out-of-stock one by name and the buyer was told it was out of stock.
+  const NEAR_TWINS: CatalogProduct[] = [
+    { id: "jean-old", name: "Hand painted jean", price: "45000.00", currency: "NGN", stockQuantity: 0 },
+    { id: "jean-new", name: "Hand painted jean ", price: "45000.00", currency: "NGN", stockQuantity: 3 },
+  ];
+
+  it("adds the exact product a numbered pick names, even when another product shares its name", async () => {
+    const { db, insertedCartItems } = makeDb();
+    const result = await addExtractedItemsToCart(db, {
+      tenantId: "t1",
+      waPhoneNumber: "2348012345678",
+      session: { id: "sess-1", language: "english" },
+      cartSession: null,
+      products: NEAR_TWINS,
+      items: normalizeExtractedItems({ extractedItems: [{ product: "Hand painted jean ", quantity: 1, productId: "jean-new" }] }),
+    });
+    expect(result.clarifications).toEqual([]);
+    expect(insertedCartItems).toHaveLength(1);
+    expect(insertedCartItems[0]).toMatchObject({ productId: "jean-new", quantity: 1 });
+  });
+
+  it("still refuses a numbered pick of an out-of-stock product", async () => {
+    const { db, insertedCartItems } = makeDb();
+    const result = await addExtractedItemsToCart(db, {
+      tenantId: "t1",
+      waPhoneNumber: "2348012345678",
+      session: { id: "sess-1", language: "english" },
+      cartSession: null,
+      products: NEAR_TWINS,
+      items: [{ product: "Hand painted jean", quantity: 1, productId: "jean-old" }],
+    });
+    expect(insertedCartItems).toHaveLength(0);
+    expect(result.clarifications.join("\n")).toMatch(/out of stock/);
+  });
+});
+
+describe("matchCatalogItem whitespace", () => {
+  it("treats names that differ only by whitespace as the same name, so the buyer is asked which one", () => {
+    const match = matchCatalogItem([
+      { id: "a", name: "Hand painted jean", price: "1", currency: "NGN", stockQuantity: 0 },
+      { id: "b", name: "Hand  painted jean ", price: "1", currency: "NGN", stockQuantity: 3 },
+    ], "hand painted jean");
+    expect(match.status).toBe("ambiguous");
+  });
+
+  it("matches a catalog name with stray spaces exactly", () => {
+    const match = matchCatalogItem([{ id: "b", name: " Ankara  Top ", price: "1", currency: "NGN", stockQuantity: 3 }], "ankara top");
+    expect(match).toMatchObject({ status: "matched", confidence: 1 });
+  });
 });
