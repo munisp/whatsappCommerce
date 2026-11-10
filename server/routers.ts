@@ -123,6 +123,7 @@ import { creditRepayRouter } from "./routers/creditRepay";
 import { onboardingCopilotRouter } from "./routers/onboardingCopilot";
 import { membershipRouter } from "./routers/membership";
 import { driversRouter } from "./routers/drivers"; // replaces the retired per-tenant riders.ts (2026-09-26)
+import { riderRouter } from "./routers/rider"; // per-order rider links + the handover (PIN + photo)
 // === W31 approvals (Coder C) ===
 import { approvalsRouter } from "./routers/approvals";
 // === END W31 approvals ===
@@ -189,6 +190,7 @@ export const appRouter = router({
   }),
   membership: membershipRouter,
   drivers: driversRouter,
+  rider: riderRouter,
   // === W31 approvals (Coder C) ===
   approvals: approvalsRouter,
   // === END W31 approvals ===

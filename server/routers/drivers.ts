@@ -217,7 +217,13 @@ export const driversRouter = router({
     .query(async ({ input }) => {
       const db = await requireDb();
       const driver = await requireDriver(db, input.token);
-      return db.select().from(deliveries).where(eq(deliveries.driverId, driver.id)).orderBy(deliveries.updatedAt);
+      const rows = await db.select().from(deliveries).where(eq(deliveries.driverId, driver.id)).orderBy(deliveries.updatedAt);
+      // What each handover will ask for (the customer's PIN; a photo when the shop requires one).
+      const { handoverRequirements } = await import("../services/delivery/handover");
+      return Promise.all(rows.map(async (d) => ({
+        ...d,
+        ...(d.status === "delivered" ? { needsPin: false, photoRequired: false } : await handoverRequirements(db, d.tenantId, d.orderId)),
+      })));
     }),
 
   /** Driver marks progress on an assigned delivery. Reuses the same status pipeline (+ escrow hook) the merchant dashboard path uses. */
@@ -226,6 +232,10 @@ export const driversRouter = router({
       token: z.string(),
       deliveryId: z.string().uuid(),
       status: z.enum(["picked_up", "in_transit", "delivered", "failed"]),
+      // The handover (only for "delivered"): the customer's PIN and a photo, checked like the rider link's.
+      pin: z.string().max(12).optional(),
+      photoBase64: z.string().max(12_000_000).optional(),
+      photoMimeType: z.string().max(40).optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await requireDb();
@@ -234,6 +244,13 @@ export const driversRouter = router({
       if (!delivery) throw new TRPCError({ code: "NOT_FOUND", message: "Delivery not found." });
       if (delivery.driverId !== driver.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "This delivery isn't assigned to you." });
+      }
+      if (input.status === "delivered") {
+        const { confirmHandover, decodePhoto } = await import("../services/delivery/handover");
+        await confirmHandover(db, {
+          tenantId: delivery.tenantId, orderId: delivery.orderId, pin: input.pin ?? null,
+          photo: decodePhoto(input.photoBase64, input.photoMimeType), via: "driver_app", driverId: driver.id,
+        });
       }
       const { applyDeliveryStatus } = await import("../services/delivery/service");
       const result = await applyDeliveryStatus(db, delivery.id, { status: input.status });

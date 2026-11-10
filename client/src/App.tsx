@@ -63,6 +63,7 @@ const Journeys = lazy(() => import("./pages/Journeys"));
 const Consents = lazy(() => import("./pages/Consents"));
 const InventoryHub = lazy(() => import("./pages/InventoryHub"));
 const TrackOrder = lazy(() => import("./pages/TrackOrder"));
+const RiderDelivery = lazy(() => import("./pages/RiderDelivery"));
 const DriverApp = lazy(() => import("./pages/driver/DriverApp"));
 const Invoices = lazy(() => import("./pages/Invoices"));
 const MerchantEscrow = lazy(() => import("./pages/MerchantEscrow"));
@@ -210,6 +211,7 @@ function Router() {
       {/* === END W27 === */}
       <Route path="/orders/:orderNumber" component={OrderTimeline} />
       <Route path="/track/:token" component={TrackOrder} />
+      <Route path="/deliver/:token" component={RiderDelivery} />
       <Route path="/driver" component={DriverApp} />
       <Route path="/payments" component={Payments} />
       {/* === W55 ui-c === */}
