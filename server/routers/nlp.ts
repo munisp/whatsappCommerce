@@ -184,6 +184,8 @@ function buildOrderSummary(opts: {
   paymentUrl: string | null;
   /** W17/F10: cash-on-delivery orders show a pay-on-receipt line instead. */
   paymentMethod?: "online" | "cod";
+  /** Cash on delivery only: the delivery PIN (paid orders get theirs on the receipt). */
+  deliveryPin?: string | null;
   trackingUrl: string;
   /** W46 uc-money (UC-15): optional tip prompt line (tenant opt-in). */
   tipPrompt?: string | null;
@@ -217,6 +219,7 @@ function buildOrderSummary(opts: {
   if (opts.fulfillment === "pickup") lines.push("", "🏪 We'll message you when it's ready for pickup.");
   if (opts.paymentMethod === "cod") {
     lines.push("", `💵 *Cash on ${opts.fulfillment === "delivery" ? "delivery" : "pickup"}* — please have ${fmt(opts.total, opts.currency)} ready for the rider.`);
+    if (opts.deliveryPin) lines.push(`🔐 Your delivery PIN: *${opts.deliveryPin}* — give it to the rider only when you have your order.`);
   } else if (opts.paymentUrl) {
     lines.push("", `💳 Click here to complete payment: ${opts.paymentUrl}`);
   }
@@ -231,6 +234,8 @@ function buildOrderSummary(opts: {
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
 export interface ChatOrderResult {
+  /** Cash-on-delivery delivery orders: the delivery PIN, shown once in the order message. */
+  deliveryPin?: string | null;
   created: boolean;
   fraudBlocked?: boolean;
   riskLevel?: string;
@@ -787,7 +792,17 @@ export async function createChatOrder(
     } catch (e: unknown) {
       console.error("[nlp] cod event insert failed (non-blocking):", (e as Error)?.message);
     }
+    // Paid orders get their delivery PIN on the receipt; a cash order has no receipt, so its PIN goes in the order
+    // message (delivery orders only), and the rider checks it at the door like any other.
+    let codDeliveryPin: string | null = null;
+    try {
+      const { ensureDeliveryShipment } = await import("../services/paymentConfirm");
+      codDeliveryPin = await ensureDeliveryShipment(db, orderId, opts.tenantId);
+    } catch (e: unknown) {
+      console.error("[nlp] COD delivery PIN failed (non-blocking):", (e as Error)?.message);
+    }
     return {
+      deliveryPin: codDeliveryPin,
       created: true,
       orderId,
       orderNumber,
@@ -1401,7 +1416,7 @@ export const nlpRouter = router({
           // Rich follow-up annotation: set when this turn creates an order —
           // the webhook delivers an interactive order action card after the
           // payment summary.
-          let stepOrderCard: { orderId: string; orderNumber: string; paymentUrl: string | null } | undefined;
+          let stepOrderCard: { orderId: string; orderNumber: string; paymentUrl: string | null; paymentMethod?: string | null } | undefined;
 
           // Promo code capture: "use code SAVE10" at any checkout step sticks
           // to the session and is applied when the order is created.
@@ -1537,7 +1552,7 @@ export const nlpRouter = router({
             if (order.loyalty) delete stepCtx.loyaltyRedeem; // W27: one-shot redeem flag consumed
             nextState = "payment";
             stepIntent = "confirm_order";
-            stepOrderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null };
+            stepOrderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null, paymentMethod: order.paymentMethod ?? null };
             let summary = buildOrderSummary({
               fmt: (await dualFormatterFor(db, input.tenantId)) ?? undefined,
               fulfillment,
@@ -1554,6 +1569,7 @@ export const nlpRouter = router({
               currency: order.currency!,
               paymentUrl: order.paymentUrl ?? null,
               paymentMethod: order.paymentMethod ?? "online",
+              deliveryPin: (order as any).deliveryPin ?? null,
               trackingUrl: trackingUrlFor(order.orderId!),
               // === W46 uc-money (UC-15): tip prompt (tenant opt-in) ===
               tipPrompt: order.paymentMethod === "cod" ? null
@@ -3816,7 +3832,7 @@ export const nlpRouter = router({
       // 6. Act on intent
       const ctx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
       // Rich follow-up annotations for the webhook delivery layer.
-      let orderCard: { orderId: string; orderNumber: string; paymentUrl: string | null } | undefined;
+      let orderCard: { orderId: string; orderNumber: string; paymentUrl: string | null; paymentMethod?: string | null } | undefined;
 
       let addedThisTurn = false;
       if (llmResult.intent === "add_to_cart") {
@@ -4194,7 +4210,7 @@ export const nlpRouter = router({
               ctx.lastOrderId = order.orderId;
               ctx.lastOrderNumber = order.orderNumber;
               if (order.loyalty) delete ctx.loyaltyRedeem; // W27: one-shot redeem flag consumed
-              orderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null };
+              orderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null, paymentMethod: order.paymentMethod ?? null };
               llmResult.reply = buildOrderSummary({
                 fmt: (await dualFormatterFor(db, input.tenantId)) ?? undefined,
                 fulfillment,
@@ -4211,6 +4227,7 @@ export const nlpRouter = router({
                 currency: order.currency!,
                 paymentUrl: order.paymentUrl ?? null,
                 paymentMethod: order.paymentMethod ?? "online",
+                deliveryPin: (order as any).deliveryPin ?? null,
                 trackingUrl: trackingUrlFor(order.orderId!),
                 // === W46 uc-money (UC-15): tip prompt (tenant opt-in) ===
                 tipPrompt: order.paymentMethod === "cod" ? null

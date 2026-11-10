@@ -18,6 +18,7 @@ export default function RiderDelivery() {
   const view = trpc.rider.view.useQuery({ token }, { enabled: token.length > 10, retry: false });
   const confirm = trpc.rider.confirm.useMutation();
   const [pin, setPin] = useState("");
+  const [cash, setCash] = useState<string | null>(null);
   const [photo, setPhoto] = useState<{ dataUrl: string; type: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -49,7 +50,9 @@ export default function RiderDelivery() {
     </CardContent></Card>);
   }
 
-  const canSubmit = (!d.needsPin || pin.trim().length >= 4) && (!d.photoRequired || !!photo) && !confirm.isPending;
+  const cashValue = cash ?? (d.cashDue != null ? String(d.cashDue) : "");
+  const cashOk = d.cashDue == null || Number(cashValue) > 0;
+  const canSubmit = (!d.needsPin || pin.trim().length >= 4) && (!d.photoRequired || !!photo) && cashOk && !confirm.isPending;
   return shell(<>
     <div className="pt-4">
       <div className="text-xs uppercase tracking-wide text-muted-foreground">{d.shop} · delivery</div>
@@ -62,6 +65,12 @@ export default function RiderDelivery() {
     </CardContent></Card>
 
     <Card><CardContent className="p-4 space-y-4">
+      {d.cashDue != null && <div className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-3">
+        <div className="text-sm font-semibold">Collect ₦{d.cashDue.toLocaleString()} in cash</div>
+        <label htmlFor="rider-cash" className="text-xs text-muted-foreground">Cash you collected (₦)</label>
+        <Input id="rider-cash" inputMode="decimal" value={cashValue} onChange={(e) => setCash(e.target.value.replace(/[^\d.]/g, ""))} />
+        <p className="text-xs text-muted-foreground">If you got less, enter what you got. The shop is told about any difference.</p>
+      </div>}
       {d.needsPin && <div className="space-y-1">
         <label htmlFor="rider-pin" className="text-sm font-medium">Customer's delivery PIN</label>
         <Input id="rider-pin" inputMode="numeric" autoComplete="one-time-code" maxLength={8} value={pin}
@@ -85,7 +94,7 @@ export default function RiderDelivery() {
 
       {confirm.error && <p role="alert" className="text-sm text-destructive">{confirm.error.message}</p>}
       <Button className="w-full" size="lg" disabled={!canSubmit}
-        onClick={() => confirm.mutate({ token, pin: pin || undefined, photoBase64: photo?.dataUrl, photoMimeType: photo?.type })}>
+        onClick={() => confirm.mutate({ token, pin: pin || undefined, photoBase64: photo?.dataUrl, photoMimeType: photo?.type, cashCollected: d.cashDue != null ? Number(cashValue) : undefined })}>
         {confirm.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
         Mark delivered
       </Button>

@@ -222,7 +222,7 @@ export const driversRouter = router({
       const { handoverRequirements } = await import("../services/delivery/handover");
       return Promise.all(rows.map(async (d) => ({
         ...d,
-        ...(d.status === "delivered" ? { needsPin: false, photoRequired: false } : await handoverRequirements(db, d.tenantId, d.orderId)),
+        ...(d.status === "delivered" ? { needsPin: false, photoRequired: false, cashDue: null } : await handoverRequirements(db, d.tenantId, d.orderId)),
       })));
     }),
 
@@ -236,6 +236,7 @@ export const driversRouter = router({
       pin: z.string().max(12).optional(),
       photoBase64: z.string().max(12_000_000).optional(),
       photoMimeType: z.string().max(40).optional(),
+      cashCollected: z.number().positive().max(100_000_000).optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await requireDb();
@@ -250,6 +251,7 @@ export const driversRouter = router({
         await confirmHandover(db, {
           tenantId: delivery.tenantId, orderId: delivery.orderId, pin: input.pin ?? null,
           photo: decodePhoto(input.photoBase64, input.photoMimeType), via: "driver_app", driverId: driver.id,
+          cashCollected: input.cashCollected ?? null,
         });
       }
       const { applyDeliveryStatus } = await import("../services/delivery/service");

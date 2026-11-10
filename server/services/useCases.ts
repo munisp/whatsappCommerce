@@ -1196,7 +1196,7 @@ export function parseOrderActionReplyId(id: string): { action: OrderCardAction; 
  * The interactive button card sent right after a confirm_order payment
  * summary: [Track Order] [Pay Now] [Cancel Order].
  */
-export function buildOrderActionCard(opts: { orderId: string; orderNumber: string }): SendInteractiveInput {
+export function buildOrderActionCard(opts: { orderId: string; orderNumber: string; cod?: boolean }): SendInteractiveInput {
   return {
     bodyText: `Order ${opts.orderNumber} — manage it here:`,
     footerText: "Or just reply with what you need.",
@@ -1205,7 +1205,8 @@ export function buildOrderActionCard(opts: { orderId: string; orderNumber: strin
       buttons: [
         // === W49 RICHMEDIA (RICH-10): emoji icons on card buttons ===
         { id: orderActionReplyId("track", opts.orderId), title: "📦 Track Order" },
-        { id: orderActionReplyId("pay", opts.orderId), title: "💳 Pay Now" },
+        // Cash on delivery has nothing to pay online: "Pay Now" there answered "I couldn't find a payment link".
+        ...(opts.cod ? [] : [{ id: orderActionReplyId("pay", opts.orderId), title: "💳 Pay Now" }]),
         { id: orderActionReplyId("cancel", opts.orderId), title: "❌ Cancel" },
       ],
     },

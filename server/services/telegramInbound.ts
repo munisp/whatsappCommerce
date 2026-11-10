@@ -772,7 +772,7 @@ export async function deliverTelegramRichAnnotations(
         { id: orderActionReplyId("track", card.orderId), title: "📦 Track Order" },
         ...(card.paymentUrl
           ? [{ id: card.paymentUrl, title: "💳 Pay Now", url: card.paymentUrl }]
-          : [{ id: orderActionReplyId("pay", card.orderId), title: "💳 Pay Now" }]),
+          : (card as any).paymentMethod === "cod" ? [] : [{ id: orderActionReplyId("pay", card.orderId), title: "💳 Pay Now" }]),
         { id: orderActionReplyId("cancel", card.orderId), title: "❌ Cancel Order" },
       ];
       await sendTelegramKeyboard(

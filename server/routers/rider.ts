@@ -52,12 +52,13 @@ export const riderRouter = router({
     pin: z.string().max(12).optional(),
     photoBase64: z.string().max(12_000_000).optional(),
     photoMimeType: z.string().max(40).optional(),
+    cashCollected: z.number().positive().max(100_000_000).optional(),
   })).mutation(async ({ input }) => {
     const db = await requireDb();
     const order = await orderForToken(db, input.token);
     return confirmHandover(db, {
       tenantId: order.tenantId, orderId: order.id, pin: input.pin ?? null,
-      photo: decodePhoto(input.photoBase64, input.photoMimeType), via: "rider_link",
+      photo: decodePhoto(input.photoBase64, input.photoMimeType), via: "rider_link", cashCollected: input.cashCollected ?? null,
     });
   }),
 

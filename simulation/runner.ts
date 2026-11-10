@@ -806,6 +806,7 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j619-numbered-pick-near-twin-names"),
     import("./journeys/j620-pickup-ready-message"),
     import("./journeys/j621-rider-handover"),
+    import("./journeys/j622-cod-rider-handover"),
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),

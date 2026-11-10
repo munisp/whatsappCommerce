@@ -16,14 +16,14 @@ export interface ReplyButton { id: string; title: string }
 export interface AssistantTurn {
   reply: string;
   buttons?: ReplyButton[] | null;
-  orderCard?: { orderId?: string; orderNumber?: string; paymentUrl?: string | null } | null;
+  orderCard?: { orderId?: string; orderNumber?: string; paymentUrl?: string | null; paymentMethod?: string | null } | null;
 }
 
 export interface DeliveryDeps {
   sendText: (text: string) => Promise<unknown>;
   sendInteractive: (msg: SendInteractiveInput, opts?: { notifType?: string; orderId?: string }) => Promise<unknown>;
   /** The legacy order-management card (Track / Pay / Cancel). */
-  orderActionCard: (orderId: string, orderNumber: string) => SendInteractiveInput;
+  orderActionCard: (orderId: string, orderNumber: string, cod?: boolean) => SendInteractiveInput;
 }
 
 /** The summary line that carries the raw payment URL — the Pay button replaces it. */
@@ -69,7 +69,7 @@ export async function deliverAssistantTurn(turn: AssistantTurn, deps: DeliveryDe
 
   // Orders without an online link (cash on delivery) keep the management card.
   if (card?.orderId && card.orderNumber && !payUrl) {
-    await deps.sendInteractive(deps.orderActionCard(card.orderId, card.orderNumber), { notifType: "order_action_card", orderId: card.orderId })
+    await deps.sendInteractive(deps.orderActionCard(card.orderId, card.orderNumber, card.paymentMethod === "cod"), { notifType: "order_action_card", orderId: card.orderId })
       .catch(() => undefined);
   }
   return sent;

@@ -124,7 +124,7 @@ async function deliverWaAssistantTurn(
       await recordUsage(db, tenantId, METRIC_MESSAGES);
       return res;
     },
-    orderActionCard: (orderId, orderNumber) => buildOrderActionCard({ orderId, orderNumber }),
+    orderActionCard: (orderId, orderNumber, cod) => buildOrderActionCard({ orderId, orderNumber, cod }),
   });
 }
 
