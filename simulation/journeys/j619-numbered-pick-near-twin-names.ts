@@ -24,12 +24,20 @@ export const journey: Journey = {
   async run(world: World) {
     const { llm } = await import("../metaMock");
     const schema = await import("../../drizzle/schema");
-    const base = { tenantId: TENANT_ID, category: "sim", price: "45000.00", currency: "NGN", status: "active", lowStockThreshold: 1 };
+    // The menu lists products oldest-first, at most 20: place the twins right after the seed catalog (positions
+    // 7–8, clear of the main menu's 1–5) however many products earlier journeys added to the shared sim shop.
+    const seeds = await world.db.select({ at: schema.products.createdAt }).from(schema.products).where(eq(schema.products.tenantId, TENANT_ID));
+    const newestSeed = Math.max(...seeds.filter((r: any) => r.at).map((r: any) => new Date(r.at).getTime()).sort((x: number, y: number) => x - y).slice(0, 6));
+    const twinsAt = new Date(newestSeed + 1000);
+    const base = { tenantId: TENANT_ID, category: "sim", price: "45000.00", currency: "NGN", status: "active", lowStockThreshold: 1, createdAt: twinsAt };
     await world.db.insert(schema.products).values([
       { ...base, id: TWIN_OOS, sku: "SIM-TWIN-OOS", name: "Hand painted jean", description: "twin (sold out)", stockQuantity: 0 },
       { ...base, id: TWIN_OK, sku: "SIM-TWIN-OK", name: "Hand painted jean ", description: "twin (in stock)", stockQuantity: 5 },
     ]).onConflictDoNothing();
 
+    // The menu is cached per shop; drop it so the twins are seen.
+    const { cacheDelKeys, cacheKeys } = await import("../../server/services/readThroughCache");
+    await cacheDelKeys([cacheKeys.catalogContext(TENANT_ID)]);
     llm.forceNetworkError = true;
     try {
       const phone = world.newPhone("j619");
@@ -68,6 +76,7 @@ export const journey: Journey = {
       llm.forceNetworkError = false;
       await world.db.delete(schema.cartItems).where(inArray(schema.cartItems.productId, [TWIN_OOS, TWIN_OK]));
       await world.db.delete(schema.products).where(inArray(schema.products.id, [TWIN_OOS, TWIN_OK]));
+      await cacheDelKeys([cacheKeys.catalogContext(TENANT_ID)]);
     }
   },
 };
