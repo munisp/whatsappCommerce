@@ -39,6 +39,8 @@ export const journey: Journey = {
       // Application with PEP declared → high tier → 180-day validity.
       const app = await caller.kyc.getOrCreateApplication({ tenantId, type: "kyb" });
       await caller.kyc.updateApplication({ applicationId: app.id, businessName: "J387 Ltd", pepDeclared: true });
+      // Submit needs the business details saved first (2026-11-09 KYB fix: empty applications reached review).
+      await caller.kyc.updateApplication({ applicationId: app.id, businessName: "J387 Test Traders Ltd", businessRegistrationNumber: "RC-J387-001", businessCountry: "NG" });
       await caller.kyc.submit({ applicationId: app.id });
       const admin = await adminCaller();
       const before = Date.now();

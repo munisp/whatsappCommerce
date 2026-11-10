@@ -40,6 +40,8 @@ export const journey: Journey = {
     // ── 2. KYB verification ───────────────────────────────────────────────
     const merchant = await tenantCaller(tenantId, { userId: 1020 });
     const kyb = await merchant.kyc.getOrCreateApplication({ tenantId, type: "kyb" });
+    // Submit needs the business details saved first (2026-11-09 KYB fix: empty applications reached review).
+    await merchant.kyc.updateApplication({ applicationId: kyb.id, businessName: "J102 Test Traders Ltd", businessRegistrationNumber: "RC-J102-001", businessCountry: "NG" });
     await merchant.kyc.submit({ applicationId: kyb.id });
     const review = await admin.kyc.review({ applicationId: kyb.id, decision: "approved", notes: "sim: CAC docs verified" });
     assert(review.ok, "admin approved the merchant KYB");

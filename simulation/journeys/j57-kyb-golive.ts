@@ -53,6 +53,8 @@ export const journey: Journey = {
 
     // A pending (not approved) KYB application does NOT pass the gate.
     const app = await tenantUser.kyc.getOrCreateApplication({ tenantId, type: "kyb" });
+    // Submit needs the business details saved first (2026-11-09 KYB fix: empty applications reached review).
+    await tenantUser.kyc.updateApplication({ applicationId: app.id, businessName: "J57 Test Traders Ltd", businessRegistrationNumber: "RC-J57-001", businessCountry: "NG" });
     await tenantUser.kyc.submit({ applicationId: app.id });
     await expectTrpcError(
       tenantUser.onboarding.activate({ tenantId }),

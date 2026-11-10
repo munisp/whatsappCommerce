@@ -14,6 +14,7 @@
  * render APPROVED templates without a live Graph call.
  */
 
+import { decryptSecret } from "./crypto/secrets";
 import { eq, sql } from "drizzle-orm";
 import type { getDb } from "../db";
 import { tenants } from "../../drizzle/schema";
@@ -59,7 +60,9 @@ export async function resolveWabaCredentials(db: Db, tenantId: string): Promise<
     (t?.wabaId && String(t.wabaId)) ||
     (typeof wa.wabaId === "string" && wa.wabaId ? wa.wabaId : "");
   const accessToken =
-    (typeof wa.accessToken === "string" && wa.accessToken) ||
+    // Stored encrypted (v1:) since w10, like everywhere else that reads it; this was the one place that sent the
+    // ciphertext to Meta as the bearer token, so template management failed for embedded-signup tenants.
+    (typeof wa.accessToken === "string" && wa.accessToken && decryptSecret(wa.accessToken)) ||
     process.env.WAC_WHATSAPP_TOKEN ||
     process.env.WHATSAPP_TOKEN ||
     "";

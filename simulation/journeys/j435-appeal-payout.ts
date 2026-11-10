@@ -35,6 +35,8 @@ export const journey: Journey = {
 
     // ── M-13: rejected application must be APPEALED, not restarted ───────
     const app = await merchant.kyc.getOrCreateApplication({ tenantId, type: "kyb" });
+    // Submit needs the business details saved first (2026-11-09 KYB fix: empty applications reached review).
+    await merchant.kyc.updateApplication({ applicationId: app.id, businessName: "J435 Test Traders Ltd", businessRegistrationNumber: "RC-J435-001", businessCountry: "NG" });
     await merchant.kyc.submit({ applicationId: app.id });
     // Two admins with the SAME display name — the 4-eyes rule must key on ids.
     const adminA = await adminCallerAs(4351, "Admin");
