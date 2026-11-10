@@ -92,6 +92,7 @@ function parseQuantityAndMention(part: string): { mention: string; quantity: num
 
 /** A numbered catalog listing — the reference point for every reply this module writes when nothing else applies. */
 export function renderCatalog(products: DeterministicProduct[]): string {
+  if (products.length === 0) return "Nothing on the menu just yet. Please check back soon, or reply *3* to talk to the shop.";
   const lines = products.slice(0, 20).map((p, i) => {
     const stock = p.stockQuantity > 0 ? "" : " (out of stock)";
     return `${i + 1}. ${p.name} — ${p.currency} ${p.price}${stock}`;

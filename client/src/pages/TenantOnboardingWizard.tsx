@@ -1184,7 +1184,7 @@ function TenantOnboardingWizardInner() {
                       disabled={!canActivate || busy}
                     >
                       {activateMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
-                      Activate tenant
+                      Go live
                     </Button>
                   )}
                 </CardContent>

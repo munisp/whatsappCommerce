@@ -57,7 +57,8 @@ function ProductsInner() {
   const [importResult, setImportResult] = useState<{ inserted: number; skipped: number; errors: string[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: stats } = trpc.product.stats.useQuery({ tenantId: DEMO_TENANT });
+  // The totals refresh with the list after every change (they stayed at 0 after a CSV import).
+  const { data: stats, refetch: refetchStats } = trpc.product.stats.useQuery({ tenantId: DEMO_TENANT });
   // Fetch unfiltered list — the server-side filter uses case-sensitive SQL `like`
   // on name only, so searching is done client-side (case-insensitive) instead.
   const { data: productList, refetch } = trpc.product.list.useQuery({ tenantId: DEMO_TENANT });
@@ -72,11 +73,11 @@ function ProductsInner() {
     id: string; compareAtPrice: string; photos: string[]; name: string; category: string; price: string; currency: string; stockQuantity: number; status: "active" | "inactive" | "archived";
   } | null>(null);
   const deleteMutation = trpc.product.delete.useMutation({
-    onSuccess: (r) => { toast.success(r.removed === "archived" ? "Product removed. It's kept in past orders' history." : "Product deleted"); refetch(); },
+    onSuccess: (r) => { toast.success(r.removed === "archived" ? "Product removed. It's kept in past orders' history." : "Product deleted"); refetch(); refetchStats(); },
     onError: (e) => toast.error(e.message),
   });
   const updateMutation = trpc.product.update.useMutation({
-    onSuccess: () => { toast.success("Product updated"); setEditingProduct(null); refetch(); },
+    onSuccess: () => { toast.success("Product updated"); setEditingProduct(null); refetch(); refetchStats(); },
     onError: (e) => toast.error(e.message),
   });
   const q = search.trim().toLowerCase();
@@ -90,7 +91,7 @@ function ProductsInner() {
   // === W48 perf (PERF-FE-4): virtualized product rows ===
   const { scrollRef, virtualizer } = useTableVirtualizer(filteredProducts.length, 53);
   const createMutation = trpc.product.create.useMutation({
-    onSuccess: () => { toast.success("Product created"); setOpen(false); refetch(); },
+    onSuccess: () => { toast.success("Product created"); setOpen(false); refetch(); refetchStats(); },
     onError: (e) => toast.error(e.message),
   });
   // === W48 perf (PERF-FE-12): validation is a mutation, not a query — the
@@ -100,7 +101,7 @@ function ProductsInner() {
     onSuccess: (result) => {
       setImportResult(result);
       setCsvStep("result");
-      refetch();
+      refetch(); refetchStats();
       if (result.inserted > 0) toast.success(`Imported ${result.inserted} products`);
     },
     onError: (e) => toast.error(e.message),

@@ -219,9 +219,8 @@ function buildOrderSummary(opts: {
     lines.push("", `💵 *Cash on ${opts.fulfillment === "delivery" ? "delivery" : "pickup"}* — please have ${fmt(opts.total, opts.currency)} ready for the rider.`);
   } else if (opts.paymentUrl) {
     lines.push("", `💳 Click here to complete payment: ${opts.paymentUrl}`);
-    lines.push("📱 No data? Dial *712*amount# to pay via MTN MoMo");
   }
-  lines.push("", `🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.`);
+  lines.push("", `🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll check it and confirm your payment.`);
   lines.push(`🔎 Track your order: ${opts.trackingUrl}`);
   // W41 UC-5: honest footer whenever a converted price was shown — the
   // charge itself stays in NGN.

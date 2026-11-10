@@ -18,6 +18,9 @@ const classify = (text: string, cart: { productName: string; quantity: number }[
   classifyDeterministically(text, CATALOG, cart, "browse");
 
 describe("renderCatalog", () => {
+  it("an empty menu says so, instead of an empty list", () => {
+    expect(renderCatalog([])).toMatch(/Nothing on the menu just yet/);
+  });
   it("numbers items in order, prices and flags out-of-stock", () => {
     const out = renderCatalog(CATALOG);
     expect(out).toBe(
