@@ -2615,6 +2615,18 @@ async function startServer() {
         }
       }
       const payload = JSON.parse(body.toString());
+      // Another platform's checkout on this shared Paystack account: pass it on untouched (see pspForward.ts).
+      // A failed hand-off answers 502 so Paystack retries the delivery later.
+      {
+        const { paystackForwardTarget, forwardPaystackWebhook } = await import("../services/payments/pspForward");
+        const target = paystackForwardTarget(payload);
+        if (target) {
+          const status = await forwardPaystackWebhook(target, body, (req.headers["x-paystack-signature"] as string) ?? "");
+          const ok = status >= 200 && status < 300;
+          console.log(`[paystack-webhook] ${payload.event} ref=${payload.data?.reference ?? "?"} forwarded to ${payload.data?.metadata?.platform} → ${status || "unreachable"}`);
+          return res.status(ok ? 200 : 502).json({ received: true, forwarded: ok });
+        }
+      }
       if (payload.event === "charge.success") {
         const ref = payload.data?.reference as string | undefined;
         const amountKobo = Number(payload.data?.amount);

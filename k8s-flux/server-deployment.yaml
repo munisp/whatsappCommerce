@@ -145,6 +145,10 @@ spec:
             secretKeyRef:
               key: PAYSTACK_WEBHOOK_SECRET
               name: whatsapp-server-paystack
+        # Other platforms on this shared Paystack account tag their checkouts with metadata.platform; their
+        # webhooks arrive here (Paystack allows one URL) and are forwarded untouched (server/services/payments/pspForward.ts).
+        - name: PAYSTACK_FORWARD_TARGETS
+          value: '{"volumeos":"http://svc-collections.volumeos.svc.cluster.local/v1/collections/webhooks/paystack"}'
         - name: PAYSTACK_PUBLIC_KEY
           valueFrom:
             secretKeyRef:
