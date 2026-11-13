@@ -1,4 +1,6 @@
-go 1.23.4
+go 1.27.0
+
+toolchain go1.27.4
 
 use (
 	./services/commerce-engine
@@ -18,7 +20,8 @@ use (
 
 // === W35 otel ===
 use (
-	./shared/go/otelx
 	./services/visual-inventory/go-orchestrator
+	./shared/go/otelx
 )
+
 // === END W35 otel ===
