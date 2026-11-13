@@ -268,14 +268,16 @@ def _as_image(content: bytes, mime: str) -> bytes:
 
 
 def _compute_document_risk(ocr_result: dict, vlm_result: dict) -> float:
-    score = 1.0
+    """0 = no problems found, 1 = as risky as it gets. (It used to start at 1 and subtract per problem, so a fake,
+    tampered document scored "risk 0" — read by reviewers as safe.)"""
+    risk = 0.0
     if ocr_result.get("confidence", 0) < 0.6:
-        score -= 0.2
+        risk += 0.2
     if vlm_result.get("is_tampered"):
-        score -= 0.5
+        risk += 0.5
     if not vlm_result.get("is_authentic"):
-        score -= 0.3
+        risk += 0.3
     if vlm_result.get("missing_fields"):
-        score -= 0.1 * len(vlm_result["missing_fields"])
-    return max(0.0, round(score, 3))
+        risk += 0.1 * len(vlm_result["missing_fields"])
+    return min(1.0, round(risk, 3))
 

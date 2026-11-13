@@ -25,6 +25,9 @@ class OCRProcessor:
         """Lazy-init PaddleOCR to avoid slow startup."""
         if not self._initialized:
             try:
+                # cv2 must be loaded before paddle: `import paddleocr` first segfaults in this image (opencv /
+                # paddle shared-library clash). The service happened to import cv2 earlier; don't rely on that.
+                import cv2  # noqa: F401
                 from paddleocr import PaddleOCR
                 self._ocr = PaddleOCR(
                     use_angle_cls=True,

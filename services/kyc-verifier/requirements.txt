@@ -1,7 +1,7 @@
 # Core API
-fastapi==0.115.14
+fastapi==0.141.1
 uvicorn[standard]==0.34.3
-pydantic==2.10.6
+pydantic>=2.10.6
 python-multipart==0.0.32
 httpx==0.28.1
 
@@ -10,13 +10,12 @@ paddlepaddle==2.6.2
 # 2.x: the API ocr_processor.py uses (use_gpu, show_log, ocr(cls=True)) and the one paddlepaddle 2.6 runs.
 paddleocr==2.10.0
 # paddlepaddle imports setuptools at runtime; python:3.12-slim no longer ships it.
-setuptools==80.9.0
+setuptools>=84.1.0
 # docling (optional layout structure, not used in the verdict) is left out: its dependency tree doesn't resolve
 # against these pins and it drags in PyTorch. docling_processor.py reports structure_type "unavailable" without it.
 # docling==2.15.1
-pillow==12.3.0
+pillow>=13.0.0,<14
 pdf2image==1.17.0
-pypdf==5.1.0
 
 # VLM / AI Analysis (via Ollama or OpenAI-compatible)
 openai==1.59.9
@@ -37,13 +36,14 @@ asyncpg==0.30.0
 sqlalchemy[asyncio]==2.0.51
 
 # Utilities
-python-jose[cryptography]==3.3.0
 structlog==24.4.0
 prometheus-client==0.21.1
 
 # === W34 otel-sidecars === OpenTelemetry (fail-open; OTEL_ENABLED default false)
-opentelemetry-sdk==1.38.0
-opentelemetry-exporter-otlp-proto-http==1.38.0
-opentelemetry-instrumentation-fastapi==0.59b0
+opentelemetry-sdk>=1.45.2,<2
+opentelemetry-exporter-otlp-proto-http>=1.45.2,<2
+opentelemetry-instrumentation-fastapi>=0.59b0
 # === END W34 otel-sidecars ===
 
+# 2026-11-13 audit: starlette 0.46 had 14 advisories; pypdf and python-jose (with ecdsa, unfixable) were never imported
+starlette==1.7.0

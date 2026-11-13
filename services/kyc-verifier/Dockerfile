@@ -13,6 +13,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# PaddleOCR's models (detection, recognition, angle) are baked in: fetched at runtime they came slowly from a CDN
+# abroad, again after every restart, and a check waited on them. HOME points here at runtime too.
+ENV HOME=/opt/verifier
+RUN mkdir -p /opt/verifier && python -c "import cv2; from paddleocr import PaddleOCR; PaddleOCR(use_angle_cls=True, lang='en', use_gpu=False, show_log=False, enable_mkldnn=False)" \
+    && ls /opt/verifier/.paddleocr/whl/*/en* >/dev/null && chmod -R a+rX /opt/verifier
+
 # W30 (V3#2): the image must NOT bake in mock mode — real document vision is
 # the default. Dev/test enables the mock via an explicit compose override
 # (VLM_MOCK_MODE=true on the kyc-verifier service in docker-compose.yml).
