@@ -397,13 +397,22 @@ export async function runTenantValidation(
     ? decryptSecret(settings.whatsapp.accessToken)
     : null;
 
-  checks.push(
-    await checkWhatsAppCredentials(
-      tenant.whatsappPhoneNumberId,
-      waAccessToken,
-      fetchFn,
-    ),
-  );
+  // A shop without a number of its own sells on the shared platform number
+  // (customers reach it there, replies go out with the platform's creds), so
+  // there are no shop credentials to check. Only a half-configured own number
+  // (an id without a token, or the reverse) is still a failure.
+  const sharedNumber = (process.env.WHATSAPP_PLATFORM_NUMBER_ID ?? "").trim() !== "";
+  if (sharedNumber && !tenant.whatsappPhoneNumberId && !waAccessToken) {
+    checks.push({ check: "whatsapp", ok: true, detail: "uses the shared WhatsApp number" });
+  } else {
+    checks.push(
+      await checkWhatsAppCredentials(
+        tenant.whatsappPhoneNumberId,
+        waAccessToken,
+        fetchFn,
+      ),
+    );
+  }
 
   // Optional: when a WABA id is configured (settings.whatsapp.wabaId or the
   // tenants.whatsappBusinessAccountId column), verify the token can read it —

@@ -1782,7 +1782,7 @@ function TenantSettingsInner() {
           <TabsContent value="team" className="mt-4"><TeamSection tenantId={tenantId} /></TabsContent>
           <TabsContent value="branding" className="mt-4"><BrandingSection tenantId={tenantId} /></TabsContent>
           <TabsContent value="domains" className="mt-4"><DomainsSection tenantId={tenantId} /></TabsContent>
-          <TabsContent value="commerce" className="mt-4"><CommerceSection tenantId={tenantId} /></TabsContent>
+          <TabsContent value="commerce" className="mt-4 space-y-4"><CommerceSection tenantId={tenantId} /><DeliveryPhotoSetting tenantId={tenantId} /></TabsContent>
           <TabsContent value="support" className="mt-4"><SupportSection tenantId={tenantId} /></TabsContent>
           <TabsContent value="inventory" className="mt-4"><InventorySection tenantId={tenantId} /></TabsContent>
           <TabsContent value="crm" className="mt-4"><CrmSection tenantId={tenantId} /></TabsContent>
@@ -1800,5 +1800,29 @@ export default function TenantSettings() {
     <CapabilityGuard roles={["owner", "operator"]}>
       <TenantSettingsInner />
     </CapabilityGuard>
+  );
+}
+
+
+/** Whether a rider must take a photo before an order counts as delivered (tenants.requirePod). */
+function DeliveryPhotoSetting({ tenantId }: { tenantId: string }) {
+  const utils = trpc.useUtils();
+  const { data } = trpc.rider.photoRequirement.useQuery({ tenantId });
+  const set = trpc.rider.setPhotoRequired.useMutation({
+    onSuccess: (r) => { utils.rider.photoRequirement.invalidate({ tenantId }); toast.success(r.required ? "Riders must now take a delivery photo" : "A delivery photo is now optional"); },
+    onError: (e) => toast.error(e.message),
+  });
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-base">Delivery proof</CardTitle></CardHeader>
+      <CardContent className="flex items-start justify-between gap-4">
+        <div className="text-sm">
+          <div className="font-medium">Require a delivery photo</div>
+          <p className="text-muted-foreground">Riders take a photo at the door before an order counts as delivered. They always check the customer's delivery PIN.</p>
+        </div>
+        <Switch aria-label="Require a delivery photo" checked={data?.required ?? false} disabled={!data || set.isPending}
+          onCheckedChange={(v) => set.mutate({ tenantId, required: v })} />
+      </CardContent>
+    </Card>
   );
 }

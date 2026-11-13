@@ -1,7 +1,7 @@
 # Builder: Debian-based Go image. W45: the consumer uses segmentio/kafka-go
 # (pure Go, no CGO/librdkafka) — CGO_ENABLED=0 would work, but the glibc
 # runtime is kept to avoid churn in the base images.
-FROM golang:1.23-bookworm AS builder
+FROM golang:1.27.4-bookworm AS builder
 WORKDIR /app
 # Root build context (docker-compose.yml's W35 comment): the go.mod
 # `replace github.com/whatsapp-commerce/otelx => ../../shared/go/otelx`

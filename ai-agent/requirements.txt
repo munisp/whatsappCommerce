@@ -30,8 +30,13 @@ tiktoken>=0.7.0
 
 # === W34 otel-sidecars === OpenTelemetry (exact pins; fail-open,
 # OTEL_ENABLED default false)
-opentelemetry-sdk==1.38.0
-opentelemetry-exporter-otlp-proto-http==1.38.0
-opentelemetry-instrumentation-fastapi==0.59b0
+opentelemetry-sdk>=1.45.2,<2
+opentelemetry-exporter-otlp-proto-http>=1.45.2,<2
+opentelemetry-instrumentation-fastapi>=0.59b0
 # === END W34 otel-sidecars ===
 
+# 2026-11-13 audit: floors for advisories in transitive packages
+aiohttp>=3.14.4
+filelock>=4.2.1
+certifi>=2026.10.18
+langgraph-sdk>=0.4.6

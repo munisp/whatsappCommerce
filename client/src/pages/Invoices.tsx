@@ -2,7 +2,7 @@ import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { useActiveTenant } from "@/contexts/TenantContext";
-import { Plus, FileText, CheckCircle, Clock, AlertTriangle, DollarSign, Send, CreditCard, Loader2 } from "lucide-react";
+import { Plus, FileText, CheckCircle, Clock, AlertTriangle, Banknote, Send, CreditCard, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -65,7 +65,7 @@ function InvoicesInner() {
     { label: "Sent", value: stats?.sent_count ?? 0, icon: Send, color: "text-blue-500" },
     { label: "Paid", value: stats?.paid_count ?? 0, icon: CheckCircle, color: "text-green-500" },
     { label: "Overdue", value: stats?.overdue_count ?? 0, icon: AlertTriangle, color: "text-red-500" },
-    { label: "Collected", value: `₦${Number(stats?.total_collected ?? 0).toLocaleString()}`, icon: DollarSign, color: "text-green-600" },
+    { label: "Collected", value: `₦${Number(stats?.total_collected ?? 0).toLocaleString()}`, icon: Banknote, color: "text-green-600" },
     { label: "Outstanding", value: `₦${Number(stats?.total_outstanding ?? 0).toLocaleString()}`, icon: Clock, color: "text-orange-500" },
   ];
 

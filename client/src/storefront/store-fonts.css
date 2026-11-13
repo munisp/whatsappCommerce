@@ -1,0 +1,36 @@
+/* Store fonts, self-hosted (SIL Open Font License). A browser only downloads the ones a store uses. */
+@font-face { font-family: "Anton"; font-weight: 400; font-display: swap; src: url("/fonts/store/anton-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Archivo"; font-weight: 400; font-display: swap; src: url("/fonts/store/archivo-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Archivo"; font-weight: 800; font-display: swap; src: url("/fonts/store/archivo-latin-800-normal.woff2") format("woff2"); }
+@font-face { font-family: "Bebas Neue"; font-weight: 400; font-display: swap; src: url("/fonts/store/bebas-neue-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Bodoni Moda"; font-weight: 400; font-display: swap; src: url("/fonts/store/bodoni-moda-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Bodoni Moda"; font-weight: 700; font-display: swap; src: url("/fonts/store/bodoni-moda-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Cormorant Garamond"; font-weight: 400; font-display: swap; src: url("/fonts/store/cormorant-garamond-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Cormorant Garamond"; font-weight: 600; font-display: swap; src: url("/fonts/store/cormorant-garamond-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Sans"; font-weight: 400; font-display: swap; src: url("/fonts/store/dm-sans-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Sans"; font-weight: 700; font-display: swap; src: url("/fonts/store/dm-sans-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Serif Display"; font-weight: 400; font-display: swap; src: url("/fonts/store/dm-serif-display-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Fraunces"; font-weight: 400; font-display: swap; src: url("/fonts/store/fraunces-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Fraunces"; font-weight: 700; font-display: swap; src: url("/fonts/store/fraunces-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Instrument Serif"; font-weight: 400; font-display: swap; src: url("/fonts/store/instrument-serif-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap; src: url("/fonts/store/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 700; font-display: swap; src: url("/fonts/store/jetbrains-mono-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Karla"; font-weight: 400; font-display: swap; src: url("/fonts/store/karla-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Karla"; font-weight: 700; font-display: swap; src: url("/fonts/store/karla-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Lora"; font-weight: 400; font-display: swap; src: url("/fonts/store/lora-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Lora"; font-weight: 600; font-display: swap; src: url("/fonts/store/lora-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Manrope"; font-weight: 400; font-display: swap; src: url("/fonts/store/manrope-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Manrope"; font-weight: 700; font-display: swap; src: url("/fonts/store/manrope-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Nunito"; font-weight: 400; font-display: swap; src: url("/fonts/store/nunito-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Nunito"; font-weight: 800; font-display: swap; src: url("/fonts/store/nunito-latin-800-normal.woff2") format("woff2"); }
+@font-face { font-family: "Outfit"; font-weight: 400; font-display: swap; src: url("/fonts/store/outfit-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Outfit"; font-weight: 700; font-display: swap; src: url("/fonts/store/outfit-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Playfair Display"; font-weight: 400; font-display: swap; src: url("/fonts/store/playfair-display-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Playfair Display"; font-weight: 700; font-display: swap; src: url("/fonts/store/playfair-display-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Poppins"; font-weight: 400; font-display: swap; src: url("/fonts/store/poppins-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Poppins"; font-weight: 600; font-display: swap; src: url("/fonts/store/poppins-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-weight: 400; font-display: swap; src: url("/fonts/store/space-grotesk-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-weight: 700; font-display: swap; src: url("/fonts/store/space-grotesk-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Syne"; font-weight: 700; font-display: swap; src: url("/fonts/store/syne-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Work Sans"; font-weight: 400; font-display: swap; src: url("/fonts/store/work-sans-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Work Sans"; font-weight: 700; font-display: swap; src: url("/fonts/store/work-sans-latin-700-normal.woff2") format("woff2"); }

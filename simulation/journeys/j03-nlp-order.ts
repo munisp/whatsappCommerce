@@ -5,7 +5,7 @@
 import { and, eq } from "drizzle-orm";
 import { TENANT_ID, assert, assertIncludes, bodyText, type World } from "../world";
 import type { Journey } from "../runner";
-import { nlpAddToCart, nlpConfirm } from "./helpers";
+import { lastReply, nlpAddToCart, nlpConfirm, replyCount } from "./helpers";
 
 export const journey: Journey = {
   id: "J03",
@@ -20,32 +20,38 @@ export const journey: Journey = {
       { product: "Jollof Rice", quantity: 2 },
       { product: "Grilled Chicken", quantity: 1 },
     ]);
-    const addReply = bodyText(world.outbound.lastOfType("text", phone));
+    const addMsg = lastReply(world, phone);
+    const addReply = bodyText(addMsg);
     assertIncludes(addReply, "2 × Jollof Rice", "add-to-cart summary lists jollof x2");
     assertIncludes(addReply, "1 × Grilled Chicken", "add-to-cart summary lists chicken x1");
+    assertIncludes(addReply, "🛒 Cart: 3 items · ₦8,000.00", "cart total shown after adding");
+    assertIncludes(JSON.stringify(addMsg?.body), "say:checkout", "Checkout button offered after adding");
 
     // 2. Confirm → itemized summary + fulfillment options.
     await nlpConfirm(world, phone, "confirm my order please");
-    const summary = bodyText(world.outbound.lastOfType("text", phone));
+    const summaryMsg = lastReply(world, phone);
+    const summary = bodyText(summaryMsg);
+    assertIncludes(JSON.stringify(summaryMsg?.body), "say:2", "Delivery offered as a button");
     assertIncludes(summary, "2 × Jollof Rice", "confirm summary itemizes jollof");
     assertIncludes(summary, "1 × Grilled Chicken", "confirm summary itemizes chicken");
     assertIncludes(summary, "₦8,000.00", "confirm summary shows ₦8,000 subtotal");
     assertIncludes(summary, "Pickup", "fulfillment options offered");
 
     // 3. Pickup → order + payment link.
-    await world.text(phone, "1");
-    const orderMsg = bodyText(world.outbound.lastOfType("text", phone));
+    const beforePickup = replyCount(world, phone);
+    await world.buttonReply(phone, "say:1", "🏪 Pickup");
+    await world.waitFor(() => replyCount(world, phone) > beforePickup, 15000, "order reply");
+    await world.settle();
+
+    // 4. ONE message: the order summary with a Pay now button.
+    assert(replyCount(world, phone) === beforePickup + 1, `order step is a single message (got ${replyCount(world, phone) - beforePickup})`);
+    const payMsg = lastReply(world, phone);
+    const orderMsg = bodyText(payMsg);
     assertIncludes(orderMsg, "Order", "order confirmation message");
     assertIncludes(orderMsg, "₦8,000.00", "order total ₦8,000.00");
-    assertIncludes(orderMsg, "https://checkout.paystack.com/sim/", "paystack payment link present");
-
-    // 4. Order action card with Track/Pay/Cancel buttons.
-    const card = world.outbound.lastOfType("interactive", phone);
-    assert(card, "order action card sent as interactive message");
-    const cardStr = JSON.stringify(card.body);
-    assertIncludes(cardStr, "order_track:", "card has Track button");
-    assertIncludes(cardStr, "order_pay:", "card has Pay button");
-    assertIncludes(cardStr, "order_cancel:", "card has Cancel button");
+    assert(payMsg?.body?.interactive?.type === "cta_url", `summary carries a Pay button (got ${payMsg?.body?.interactive?.type})`);
+    assertIncludes(JSON.stringify(payMsg?.body), "https://checkout.paystack.com/sim/", "Pay button opens the paystack link");
+    assert(!orderMsg.includes("Click here to complete payment"), "raw payment link line replaced by the button");
 
     // 5. State: order row, reservations, payment transaction.
     const schema = await import("../../drizzle/schema");

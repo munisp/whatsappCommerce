@@ -227,6 +227,15 @@ async function logSend(opts: LogSendOpts, outcome: {
       nextRetryAt: retriable ? new Date(now.getTime() + retryBackoffMs(1)) : null,
       statusTimestamps: outcome.status === "sent" ? { sent: now.toISOString() } : null,
     });
+    // The shop's side of the real conversation (Conversations page).
+    if (outcome.status !== "failed") {
+      const { describeOutbound, recordConversationMessage } = await import("./conversationLog");
+      void recordConversationMessage({
+        tenantId: opts.tenantId, phone: opts.phone, direction: "outbound",
+        body: describeOutbound(opts.payload, opts.templateName),
+        metadata: { notifType: opts.notifType, wamid: outcome.wamid ?? null },
+      });
+    }
     return id;
   } catch (e: any) {
     console.warn("[waSender] notification log insert failed:", e?.message);

@@ -17,10 +17,10 @@ export default function TenantDetail() {
   const [, navigate] = useLocation();
   const { data: tenant, refetch } = trpc.tenant.get.useQuery({ id: id! });
   const { data: dash } = trpc.analytics.tenantDashboard.useQuery({ tenantId: id! });
-  const [form, setForm] = useState({ name: "", plan: "starter" as any, status: "trial" as any, aiEnabled: true, aiModel: "gpt-4o-mini", whatsappPhoneNumberId: "", chatwootAccountId: "", cogsRate: 0.40 });
+  const [form, setForm] = useState({ name: "", plan: "starter" as any, status: "trial" as any, aiEnabled: true, smsFailoverEnabled: false, aiModel: "gpt-4o-mini", whatsappPhoneNumberId: "", chatwootAccountId: "", cogsRate: 0.40 });
 
   useEffect(() => {
-    if (tenant) setForm({ name: tenant.name, plan: tenant.plan, status: tenant.status, aiEnabled: tenant.aiEnabled, aiModel: tenant.aiModel ?? "gpt-4o-mini", whatsappPhoneNumberId: tenant.whatsappPhoneNumberId ?? "", chatwootAccountId: tenant.chatwootAccountId ?? "", cogsRate: (tenant as any).cogsRate ?? 0.40 });
+    if (tenant) setForm({ name: tenant.name, plan: tenant.plan, status: tenant.status, aiEnabled: tenant.aiEnabled, smsFailoverEnabled: !!(tenant as any).smsFailoverEnabled, aiModel: tenant.aiModel ?? "gpt-4o-mini", whatsappPhoneNumberId: tenant.whatsappPhoneNumberId ?? "", chatwootAccountId: tenant.chatwootAccountId ?? "", cogsRate: (tenant as any).cogsRate ?? 0.40 });
   }, [tenant]);
 
   const updateMutation = trpc.tenant.update.useMutation({
@@ -148,6 +148,10 @@ export default function TenantDetail() {
             <div className="flex items-center gap-3 pt-2">
               <Switch checked={form.aiEnabled} onCheckedChange={(v) => setForm({ ...form, aiEnabled: v })} />
               <Label>AI Agent Enabled</Label>
+            </div>
+            <div className="flex items-center gap-3">
+              <Switch checked={form.smsFailoverEnabled} onCheckedChange={(v) => setForm({ ...form, smsFailoverEnabled: v })} />
+              <Label>SMS failover — send by SMS when a WhatsApp message can't be delivered</Label>
             </div>
             <Button className="bg-primary text-primary-foreground" onClick={() => updateMutation.mutate({ id: id!, ...form })} disabled={updateMutation.isPending}>
               {updateMutation.isPending ? "Saving..." : "Save Changes"}

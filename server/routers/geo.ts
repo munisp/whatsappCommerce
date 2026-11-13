@@ -155,8 +155,11 @@ export const geoRouter = router({
             .where(eq(merchantLocations.id, existing.id));
           return { id: existing.id, geohash, updated: true };
         }
-        const [row] = await db.insert(merchantLocations).values(values).returning();
-        return { id: row.id, geohash, updated: false };
+        // A shop's first location turns nearby search on: saving where you
+        // are is the opt-in. The owner can switch it off (setDiscoverable);
+        // later saves keep whatever they chose.
+        const [row] = await db.insert(merchantLocations).values({ ...values, discoverable: true }).returning();
+        return { id: row.id, geohash, updated: false, discoverable: true };
       }),
 
     /** Read the tenant's own merchant_locations row (null when unset). */

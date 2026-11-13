@@ -148,7 +148,7 @@ export interface RecordDeliveryProofInput {
   /** Pre-existing media reference (e.g. WA graph URL) when no buffer. */
   mediaUrl?: string | null;
   capturedByDriverId?: string | null;
-  capturedVia: "endpoint" | "whatsapp" | "telegram";
+  capturedVia: "endpoint" | "whatsapp" | "telegram" | "driver_app" | "rider_link";
   idempotencyKey?: string | null;
   fulfillmentId?: string | null;
   capturedAt?: Date;

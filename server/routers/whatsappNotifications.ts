@@ -31,7 +31,7 @@ import { customers, orders, users, whatsappNotificationLog, whatsappCustomerRepl
 import { eq, desc, and, ilike, gte, lte, or, sql, inArray } from "drizzle-orm";
 import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { z } from "zod";
-import { sendWhatsAppTemplate } from "../services/waSender";
+import { sendWhatsAppTemplate, sendWhatsAppText } from "../services/waSender";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -767,6 +767,17 @@ export async function sendOrderNotificationWithLog(
   }
 
   // Insert pending row
+  // A PICKUP order marked "shipped" is ready to collect: tell the customer that (the order summary promised it),
+  // as a chat message; only if WhatsApp refuses it (e.g. outside the 24-hour window) fall back to the template.
+  const [orderRow] = await db.select({ metadata: orders.metadata }).from(orders).where(eq(orders.id, orderId)).limit(1);
+  if (notifType === "order_shipped" && (orderRow?.metadata as any)?.fulfillment === "pickup") {
+    const body = `🏪 Your order *${orderNumber}* is ready for pickup. Show this message when you collect it.`;
+    const sent = await sendWhatsAppText(tenantId, phone, body, { notifType: "order_ready_pickup", orderId }).catch(() => null);
+    if (sent?.sent || sent?.simulated) return;
+  }
+
+  // Keep what was sent (the template and its filled-in values), so the dashboard can show it.
+  const templatePayload = orderNotifTemplate({ tenantId, phone, orderNumber, customerName, totalAmount, currency, status: notifType.replace("order_", ""), notifType } as any);
   await db.insert(whatsappNotificationLog).values({
     id: logId,
     userId: userId ?? null,
@@ -776,6 +787,7 @@ export async function sendOrderNotificationWithLog(
     notifType,
     templateName: templateMap[notifType],
     status: "pending",
+    payload: { type: "template", template: { name: templatePayload.templateName, language: { code: templatePayload.languageCode }, components: templatePayload.components } } as any,
   }).catch((e: any) => console.warn("[wa-notif-log] insert failed:", e?.message));
 
   try {

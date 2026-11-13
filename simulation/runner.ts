@@ -799,6 +799,14 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j612-telegram-web-handoff"),
     import("./journeys/j613-feature-rollout"),
     import("./journeys/j614-merchant-escrow-revenue"),
+    import("./journeys/j615-tap-to-buy"),
+    import("./journeys/j616-shared-number-sell"),
+    import("./journeys/j617-buying-debits-inventory"),
+    import("./journeys/j618-conversation-is-the-real-chat"),
+    import("./journeys/j619-numbered-pick-near-twin-names"),
+    import("./journeys/j620-pickup-ready-message"),
+    import("./journeys/j621-rider-handover"),
+    import("./journeys/j622-cod-rider-handover"),
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),

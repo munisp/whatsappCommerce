@@ -107,6 +107,27 @@ async function sendWhatsAppTextMetered(  db: NonNullable<Awaited<ReturnType<type
   return result;
 }
 
+/** One assistant turn → WhatsApp (text, quick-reply buttons, or summary + Pay). */
+async function deliverWaAssistantTurn(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  tenantId: string,
+  phone: string,
+  turn: import("../services/chatReplyDelivery").AssistantTurn,
+) {
+  const { deliverAssistantTurn } = await import("../services/chatReplyDelivery");
+  const { buildOrderActionCard } = await import("../services/useCases");
+  return deliverAssistantTurn(turn, {
+    sendText: (text) => sendWhatsAppTextMetered(db, tenantId, phone, text),
+    sendInteractive: async (message, opts) => {
+      const res = await sendWhatsAppInteractive(tenantId, phone, message, opts);
+      await recordUsage(db, tenantId, METRIC_MESSAGES_OUT);
+      await recordUsage(db, tenantId, METRIC_MESSAGES);
+      return res;
+    },
+    orderActionCard: (orderId, orderNumber, cod) => buildOrderActionCard({ orderId, orderNumber, cod }),
+  });
+}
+
 // === W45 webhook-core ===
 // Shared inbound-pipeline helpers for the Meta WhatsApp webhook and its DLQ
 // retry heartbeat (MSG-3/4/5/7/8/12/13/14/16/21/22). Both paths dispatch
@@ -265,8 +286,11 @@ async function processWaWebhookValue(
             const { platformActiveShop } = await import("../services/platformInbound");
             const pText = typeof msg?.text?.body === "string" ? msg.text.body : "";
             const active = await platformActiveShop({ customerPhone: waPhoneNumber, text: pText });
-            if (active) tenant = active.shopRow;
-            else platformDirectory = true;
+            if (active) {
+              tenant = active.shopRow;
+              // Only what the customer wrote reaches the shop's assistant, not the store link's first line.
+              if (active.text !== undefined && msg?.text) msg.text.body = active.text;
+            } else platformDirectory = true;
           } catch (e: any) {
             console.error("[whatsapp-webhook] platform active-shop resolve failed:", e?.message);
             platformDirectory = true; // fail safe: show the directory, never mis-dispatch
@@ -372,6 +396,15 @@ async function processWaWebhookValue(
           if (!isOnboardingIntake && !isByoOnboarding && !platformDirectory) {
             markMessageRead(tenantId, msg.id).catch(() => {});
           }
+        }
+        // The customer's side of the real conversation (Conversations page):
+        // recorded once (after the dedupe claim), only for a shop's chats.
+        if (tenant && !isOnboardingIntake && !isByoOnboarding && !platformDirectory) {
+          const { describeInbound, recordConversationMessage } = await import("../services/conversationLog");
+          void recordConversationMessage({
+            tenantId, phone: waPhoneNumber, direction: "inbound", body: describeInbound(msg),
+            metadata: { wamid: msg.id ?? null, type: msg.type ?? null },
+          });
         }
         // ── w9: platform conversational-onboarding intake number ────────────
         // Messages to the platform's own onboarding number belong to a
@@ -584,6 +617,19 @@ async function processWaWebhookValue(
             console.error("[whatsapp-webhook] reaction tracking error:", e?.message);
           }
           continue;
+        }
+        // ── Shopping taps: the assistant's own buttons (say:<text>, product
+        // card cart_add:/buy_now:<id>) continue the assistant conversation, so
+        // they go to it as text — skipping the menu engine, which would read
+        // words like "shop" as menu navigation.
+        let commerceTap = false;
+        if (msg.type === "interactive") {
+          const tapId = String((msg.interactive?.button_reply ?? msg.interactive?.list_reply)?.id ?? "");
+          if (/^(?:say:.{1,60}|cart_add:[A-Za-z0-9_-]{1,64}|buy_now:[A-Za-z0-9_-]{1,64})$/.test(tapId)) {
+            msg.type = "text";
+            msg.text = { body: tapId };
+            commerceTap = true;
+          }
         }
         // ── Interactive replies (button_reply / list_reply) ───────────────
         // Menu buttons/lists carry `menu_<n>` ids and resolve through the
@@ -993,7 +1039,7 @@ async function processWaWebhookValue(
           // fall through to the NLP pipeline (fallback "nlp" or an active
           // shop/NLP session).
           let handledByMenu = false;
-          try {
+          if (!commerceTap) try {
             const { handleConversationalInbound } = await import("../services/useCases");
             const menuOutcome = await handleConversationalInbound({
               db,
@@ -1056,33 +1102,13 @@ async function processWaWebhookValue(
               }
               // === END W49 RICHMEDIA ===
               if (nlpResult?.reply && nlpResult.intent !== "ussd_menu") {
-                await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, nlpResult.reply)
-                  .catch((e: any) => console.error("[whatsapp-webhook] reply send error:", e?.message));
-                // Rich follow-ups annotated by the NLP engine:
-                // order action card after a confirm_order payment summary,
-                // and a product image card on single-product queries.
-                const orderCard = (nlpResult as any)?.orderCard as { orderId?: string; orderNumber?: string } | undefined;
-                if (orderCard?.orderId && orderCard?.orderNumber) {
-                  // === W49 RICHMEDIA (RICH-7): cta_url pay button ===
-                  // Sent BEFORE the action card so the order action card
-                  // stays the LAST interactive (older journeys pin that).
-                  const payUrl = (orderCard as any).paymentUrl as string | null | undefined;
-                  if (payUrl && /^https:\/\//.test(payUrl)) {
-                    const { sendWhatsAppPaymentCta } = await import("../services/richMedia");
-                    await sendWhatsAppPaymentCta(tenantId, waPhoneNumber, {
-                      url: payUrl,
-                      orderNumber: orderCard.orderNumber ?? null,
-                    }).catch((e: any) => console.error("[whatsapp-webhook] payment cta send error:", e?.message));
-                  }
-                  // === END W49 RICHMEDIA ===
-                  const { buildOrderActionCard } = await import("../services/useCases");
-                  await sendWhatsAppInteractive(
-                    tenantId,
-                    waPhoneNumber,
-                    buildOrderActionCard({ orderId: orderCard.orderId, orderNumber: orderCard.orderNumber }),
-                    { notifType: "order_action_card", orderId: orderCard.orderId },
-                  ).catch((e: any) => console.error("[whatsapp-webhook] order action card send error:", e?.message));
-                }
+                // Reply text, quick-reply buttons and the order/payment step
+                // go out through one helper (chatReplyDelivery).
+                await deliverWaAssistantTurn(db, tenantId, waPhoneNumber, {
+                  reply: nlpResult.reply,
+                  buttons: (nlpResult as any)?.buttons,
+                  orderCard: (nlpResult as any)?.orderCard,
+                }).catch((e: any) => console.error("[whatsapp-webhook] reply send error:", e?.message));
                 // === W49 RICHMEDIA (RICH-1/RICH-3/RICH-12) ===
                 // One-message product card: image header + caption body +
                 // [Add to cart][Buy now] buttons; relative /api/storage URLs
@@ -1145,19 +1171,10 @@ async function processWaWebhookValue(
                 address: msg.location.address ?? null,
               },
             });
-            if (outcome.reply) {
-              await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, outcome.reply)
-                .catch((e: any) => console.error("[whatsapp-webhook] location reply send error:", e?.message));
-            }
-            if (outcome.orderCard?.orderId && outcome.orderCard?.orderNumber) {
-              const { buildOrderActionCard } = await import("../services/useCases");
-              await sendWhatsAppInteractive(
-                tenantId,
-                waPhoneNumber,
-                buildOrderActionCard({ orderId: outcome.orderCard.orderId, orderNumber: outcome.orderCard.orderNumber }),
-                { notifType: "order_action_card", orderId: outcome.orderCard.orderId },
-              ).catch((e: any) => console.error("[whatsapp-webhook] order action card send error:", e?.message));
-            }
+            await deliverWaAssistantTurn(db, tenantId, waPhoneNumber, {
+              reply: outcome.reply ?? "",
+              orderCard: outcome.orderCard,
+            }).catch((e: any) => console.error("[whatsapp-webhook] location reply send error:", e?.message));
           } catch (e: any) {
             console.error("[whatsapp-webhook] location message error:", e?.message);
           }
@@ -1687,8 +1704,26 @@ async function startServer() {
   server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
     if (url.pathname === "/api/ws/conversations") {
+      // Live events belong to one shop: only a signed-in user who may see
+      // that shop gets its stream (same rule as every tRPC tenant route).
+      const requested = url.searchParams.get("tenantId") ?? "";
+      void (async () => {
+        let allowed = false;
+        try {
+          const user = await sdk.authenticateRequest(req as any);
+          const { assertTenantAccess } = await import("./trpc");
+          if (user && requested) {
+            assertTenantAccess(user as any, requested);
+            allowed = true;
+          }
+        } catch { allowed = false; }
+        if (!allowed) {
+          socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+          socket.destroy();
+          return;
+        }
       wss.handleUpgrade(req, socket, head, (ws) => {
-        const tenantId = url.searchParams.get("tenantId") ?? "unknown";
+        const tenantId = requested;
         if (!tenantClients.has(tenantId)) tenantClients.set(tenantId, new Set());
         tenantClients.get(tenantId)!.add(ws);
         // Send a welcome ping
@@ -1714,6 +1749,7 @@ async function startServer() {
           if (simInterval) clearInterval(simInterval);
         });
       });
+      })();
     } else {
       socket.destroy();
     }
@@ -1859,7 +1895,19 @@ async function startServer() {
         // session-authenticated behavior; the capability-token path below is
         // untouched (already bound to the exact key).
         const { keyTenantScope, sessionMayReadScopedKey } = await import("../services/storageSecurity");
-        const scope = keyTenantScope(key);
+        let scope = keyTenantScope(key);
+        // Business-verification documents (kyc/<applicationId>/…) carry no
+        // shop segment: their shop is the application's. Only that shop and
+        // platform admins may read them — never any signed-in account.
+        if (!scope && key.startsWith("kyc/")) {
+          const appId = key.split("/")[1] ?? "";
+          const kdb = await getDb();
+          const { kycApplications } = await import("../../drizzle/schema");
+          const [kapp] = kdb && appId
+            ? await kdb.select({ tenantId: kycApplications.tenantId }).from(kycApplications).where(eq(kycApplications.id, appId)).limit(1).catch(() => [] as any[])
+            : [];
+          scope = kapp?.tenantId ?? "__no_owner__";
+        }
         if (!scope || sessionMayReadScopedKey(user as any, scope)) authorized = true;
       }
       if (!authorized) {
@@ -2567,6 +2615,18 @@ async function startServer() {
         }
       }
       const payload = JSON.parse(body.toString());
+      // Another platform's checkout on this shared Paystack account: pass it on untouched (see pspForward.ts).
+      // A failed hand-off answers 502 so Paystack retries the delivery later.
+      {
+        const { paystackForwardTarget, forwardPaystackWebhook } = await import("../services/payments/pspForward");
+        const target = paystackForwardTarget(payload);
+        if (target) {
+          const status = await forwardPaystackWebhook(target, body, (req.headers["x-paystack-signature"] as string) ?? "");
+          const ok = status >= 200 && status < 300;
+          console.log(`[paystack-webhook] ${payload.event} ref=${payload.data?.reference ?? "?"} forwarded to ${payload.data?.metadata?.platform} → ${status || "unreachable"}`);
+          return res.status(ok ? 200 : 502).json({ received: true, forwarded: ok });
+        }
+      }
       if (payload.event === "charge.success") {
         const ref = payload.data?.reference as string | undefined;
         const amountKobo = Number(payload.data?.amount);
@@ -3121,7 +3181,16 @@ async function startServer() {
       if (appSecret) {
         const sig = ((req.headers["x-hub-signature-256"] as string) ?? "").replace(/^sha256=/, "");
         if (!verifyHmacSignature(rawBody, appSecret, sig, "sha256")) {
-          console.warn("[whatsapp-webhook] Invalid HMAC signature — request rejected");
+          // Name the sender (public WABA / phone-number ids only) so a second
+          // Meta app subscribed to this URL can be identified and fixed.
+          let senders = "unparseable";
+          try {
+            const unverified = JSON.parse(rawBody.toString());
+            senders = (unverified?.entry ?? [])
+              .map((e: any) => `waba=${String(e?.id ?? "?")} phone=${(e?.changes ?? []).map((c: any) => String(c?.value?.metadata?.phone_number_id ?? "?")).join("|")}`)
+              .join(", ") || "none";
+          } catch { /* keep "unparseable" */ }
+          console.warn(`[whatsapp-webhook] Invalid HMAC signature — request rejected (${senders.slice(0, 300)})`);
           return res.status(401).json({ error: "invalid-signature" });
         }
       }

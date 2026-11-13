@@ -37,6 +37,8 @@ export const journey: Journey = {
       const admin = await adminCaller(); // name "Sim Admin" — original reviewer
 
       const app = await merchant.kyc.getOrCreateApplication({ tenantId, type: "kyb" });
+      // Submit needs the business details saved first (2026-11-09 KYB fix: empty applications reached review).
+      await merchant.kyc.updateApplication({ applicationId: app.id, businessName: "J388 Test Traders Ltd", businessRegistrationNumber: "RC-J388-001", businessCountry: "NG" });
       await merchant.kyc.submit({ applicationId: app.id });
 
       // Appeal before rejection → refused.

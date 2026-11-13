@@ -59,6 +59,7 @@ export default function Dashboard() {
   const { data: myTenant } = trpc.tenant.myTenant.useQuery(undefined, { enabled: !!DEMO_TENANT });
   const { data: overview } = trpc.analytics.platformOverview.useQuery(undefined, { enabled: isPlatformAdmin });
   const { data: tenantDash } = trpc.analytics.tenantDashboard.useQuery({ tenantId: DEMO_TENANT });
+  const shopLocation = trpc.geo.merchant.getLocation.useQuery(undefined, { enabled: !!DEMO_TENANT, retry: false });
   const { data: escalationSla } = trpc.escrowDispute.escalationSlaStats.useQuery(undefined, { enabled: isPlatformAdmin });
   const { data: stockData } = trpc.inventory.getStockLevels.useQuery(
     { tenantId: DEMO_TENANT },
@@ -160,6 +161,19 @@ export default function Dashboard() {
         }>
           <DashboardCharts revenueData={revenueData} convData={convData} />
         </Suspense>
+        )}
+
+        {/* No map location → the shop never appears when WhatsApp customers search nearby. */}
+        {shopLocation.isSuccess && !shopLocation.data && (
+          <Card className="border-amber-500/40 bg-amber-500/5">
+            <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-medium text-foreground">Customers nearby can't find your shop yet</p>
+                <p className="text-sm text-muted-foreground">Add your shop's location so it shows up when people on WhatsApp look for shops near them.</p>
+              </div>
+              <a href="/settings/discovery" className="inline-flex shrink-0 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">Add location</a>
+            </CardContent>
+          </Card>
         )}
 
         {/* Tenant Metrics */}

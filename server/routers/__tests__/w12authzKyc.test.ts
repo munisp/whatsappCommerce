@@ -103,7 +103,8 @@ describe("kyc.uploadDocument", () => {
     const { db, inserted } = makeDb([[appRow]]);
     vi.mocked(getDb).mockResolvedValue(db);
     const caller = kycRouter.createCaller(OWN);
-    const r = await caller.uploadDocument({ applicationId: "app-1", documentType: "passport", fileBase64: "AA==" });
+    // A real 1×1 PNG: uploads are content-sniffed, and "AA==" stopped being an acceptable file when that landed.
+    const r = await caller.uploadDocument({ applicationId: "app-1", documentType: "passport", fileBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" });
     expect(r.ok).toBe(true);
     expect(inserted[0].tenantId).toBe(T1);
   });

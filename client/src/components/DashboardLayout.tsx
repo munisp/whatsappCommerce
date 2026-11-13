@@ -265,7 +265,7 @@ export const TENANT_NAV_GROUPS: NavGroup[] = [
     icon: SlidersHorizontal,
     requiresRoles: ["owner", "operator"],
     items: [
-      { icon: Rocket,          label: "Onboarding Wizard", path: "/onboarding-wizard" },
+      { icon: Rocket,          label: "Set up your business", path: "/onboarding-wizard" },
       { icon: Rocket,          label: "Store Setup",      path: "/portal/setup" },
       { icon: Bot,             label: "Copilot",          path: "/onboarding-copilot" },
       { icon: Plug,            label: "Integration Settings", path: "/integration-settings" },
@@ -296,7 +296,8 @@ const PLATFORM_NAV_GROUPS: NavGroup[] = [
     label: "Overview",
     icon: LayoutDashboard,
     items: [
-      { icon: LayoutDashboard, label: "Admin Home",       path: "/" },
+      { icon: LayoutDashboard, label: "Overview",         path: "/" },
+      { icon: Plug,            label: "Integrations",     path: "/integrations" },
     ],
   },
   {
@@ -308,7 +309,6 @@ const PLATFORM_NAV_GROUPS: NavGroup[] = [
       { icon: SlidersHorizontal, label: "Feature Rollout", path: "/feature-rollout" },
       { icon: BarChart2,       label: "Tenant Analytics", path: "/tenant-analytics" },
       { icon: UserPlus,        label: "Onboard Tenant",   path: "/onboarding" },
-      { icon: Link2,           label: "Menu Assignment",  path: "/tenant-menus" },
     ],
   },
   {

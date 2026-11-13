@@ -1,4 +1,4 @@
-FROM golang:1.26-alpine AS builder
+FROM golang:1.27.4-alpine AS builder
 WORKDIR /app
 # Root build context (docker-compose.yml's W35 comment): the go.mod
 # `replace github.com/whatsapp-commerce/otelx => ../../shared/go/otelx`

@@ -53,6 +53,7 @@ import {
 import { normalizeExtractedItems, addExtractedItemsToCart, removeItemsFromCart, matchCatalogItem } from "../services/nlpCart";
 import { quoteDeliveryFee } from "../services/deliveryQuote";
 import { trackingUrlFor } from "../services/trackingToken";
+import { quoteDeliveryForCart } from "../services/deliveryQuoteForCart";
 import {
   checkAvailability,
   reserveStock,
@@ -130,6 +131,24 @@ function promoRejectText(reason: string): string {
   }
 }
 
+// ── Quick-reply buttons on assistant replies ───────────────────────────────
+// A tap on a "say:<text>" button reaches processMessage as if the customer
+// had typed <text>, so every button drives the same code as typing.
+export const SAY_PREFIX = "say:";
+const BTN_CHECKOUT = { id: `${SAY_PREFIX}checkout`, title: "🧾 Checkout" };
+const BTN_VIEW_CART = { id: `${SAY_PREFIX}cart`, title: "🛒 View cart" };
+const BTN_KEEP_SHOPPING = { id: `${SAY_PREFIX}shop`, title: "🛍️ Keep shopping" };
+const BTN_PICKUP = { id: `${SAY_PREFIX}1`, title: "🏪 Pickup" };
+const BTN_DELIVERY = { id: `${SAY_PREFIX}2`, title: "🛵 Delivery" };
+export const FULFILLMENT_BUTTONS = [BTN_PICKUP, BTN_DELIVERY];
+
+/** "🛒 Cart: 3 items · ₦8,000.00" — shown with the Checkout button. */
+function cartTotalLine(items: Array<{ quantity: number; unitPrice: string | number; currency: string }>): string {
+  const count = items.reduce((n, i) => n + i.quantity, 0);
+  const subtotal = items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
+  return `🛒 Cart: ${count} item${count === 1 ? "" : "s"} · ${fmtMoney(subtotal, items[0]?.currency ?? "NGN")}`;
+}
+
 /** Step-1 checkout card: itemized cart + subtotal + fulfillment prompt. */
 function buildFulfillmentPrompt(items: CartLine[], subtotal: number, currency: string, fmt?: PriceFmt): string {
   const lines = [
@@ -165,6 +184,8 @@ function buildOrderSummary(opts: {
   paymentUrl: string | null;
   /** W17/F10: cash-on-delivery orders show a pay-on-receipt line instead. */
   paymentMethod?: "online" | "cod";
+  /** Cash on delivery only: the delivery PIN (paid orders get theirs on the receipt). */
+  deliveryPin?: string | null;
   trackingUrl: string;
   /** W46 uc-money (UC-15): optional tip prompt line (tenant opt-in). */
   tipPrompt?: string | null;
@@ -198,11 +219,11 @@ function buildOrderSummary(opts: {
   if (opts.fulfillment === "pickup") lines.push("", "🏪 We'll message you when it's ready for pickup.");
   if (opts.paymentMethod === "cod") {
     lines.push("", `💵 *Cash on ${opts.fulfillment === "delivery" ? "delivery" : "pickup"}* — please have ${fmt(opts.total, opts.currency)} ready for the rider.`);
+    if (opts.deliveryPin) lines.push(`🔐 Your delivery PIN: *${opts.deliveryPin}* — give it to the rider only when you have your order.`);
   } else if (opts.paymentUrl) {
     lines.push("", `💳 Click here to complete payment: ${opts.paymentUrl}`);
-    lines.push("📱 No data? Dial *712*amount# to pay via MTN MoMo");
   }
-  lines.push("", `🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.`);
+  lines.push("", `🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll check it and confirm your payment.`);
   lines.push(`🔎 Track your order: ${opts.trackingUrl}`);
   // W41 UC-5: honest footer whenever a converted price was shown — the
   // charge itself stays in NGN.
@@ -213,6 +234,8 @@ function buildOrderSummary(opts: {
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
 export interface ChatOrderResult {
+  /** Cash-on-delivery delivery orders: the delivery PIN, shown once in the order message. */
+  deliveryPin?: string | null;
   created: boolean;
   fraudBlocked?: boolean;
   riskLevel?: string;
@@ -334,6 +357,15 @@ export async function createChatOrder(
     ageAttestedAge?: number | null;
     /** W47 (ONB-TOCTOU-2): evidence wamid for the attestation row. */
     ageProofWamid?: string | null;
+    /** Web storefront checkout. Absent for every chat path, which keeps its behaviour. */
+    web?: {
+      source: "web_storefront";
+      email?: string | null;
+      /** Where the payment provider returns the buyer after paying. */
+      callbackUrl: string;
+      shippingAddress?: Record<string, unknown> | null;
+      metadata?: Record<string, unknown>;
+    };
   },
 ): Promise<ChatOrderResult> {
   const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, opts.cartSessionId));
@@ -420,58 +452,16 @@ export async function createChatOrder(
     }
   }
   // === END W46 uc-ux ===
-  // ── W27: aggregated courier quote — cheapest of the tenant's enabled
-  // courier adapters (distance-priced local dispatch when coordinates are
-  // known), falling back to the honest zone rate. Non-blocking. ────────────
-  let aggQuote: import("../services/delivery/service").AggregatedQuote | null = null;
-  if (opts.fulfillment === "delivery") {
-    try {
-      const { quoteOrderDelivery } = await import("../services/delivery/service");
-      const dc = opts.deliveryCoords ?? null;
-      aggQuote = await quoteOrderDelivery(db, {
+  // The same quote the web storefront shows before checkout (services/deliveryQuoteForCart.ts).
+  const { aggQuote, quote } = opts.fulfillment === "delivery"
+    ? await quoteDeliveryForCart(db, {
         tenantId: opts.tenantId,
-        dropoffAddress: opts.address,
-        ...(dc ? { dropoffLat: dc.latitude, dropoffLng: dc.longitude } : {}),
-        orderValueCents: toMinorUnitsExact(subtotal),
-      });
-    } catch (e: unknown) {
-      console.error("[nlp] aggregated delivery quote failed (non-blocking):", (e as Error)?.message);
-    }
-  }
-  // === W45 orders-p0 (ORD-9): weight-aware, tenant-zone quoting ===
-  // Sum the order weight (qty × products.weightKg; unknown-weight lines use
-  // the 1kg floor) and load the tenant's configured delivery zones
-  // (merchant_locations.deliveryZones — geo.ts) so the fallback quote prices
-  // the ACTUAL parcel and the merchant's real zones instead of Lagos hints.
-  let orderWeightKg = 0;
-  let tenantDeliveryZones: { name: string }[] | null = null;
-  if (opts.fulfillment === "delivery") {
-    try {
-      const weightRows = await db.select({ id: products.id, weightKg: products.weightKg })
-        .from(products)
-        .where(inArray(products.id, items.map((i) => i.productId)));
-      const weightById = new Map(weightRows.map((r) => [r.id, Number(r.weightKg ?? 0)]));
-      orderWeightKg = items.reduce((s, i) => {
-        const w = weightById.get(i.productId);
-        return s + i.quantity * (w && w > 0 ? w : 1);
-      }, 0);
-      const { merchantLocations } = await import("../../drizzle/schema");
-      const [loc] = await db.select({ deliveryZones: merchantLocations.deliveryZones })
-        .from(merchantLocations)
-        .where(eq(merchantLocations.tenantId, opts.tenantId))
-        .orderBy(desc(merchantLocations.createdAt))
-        .limit(1);
-      tenantDeliveryZones = (loc?.deliveryZones as { name: string }[] | null) ?? null;
-    } catch (e: unknown) {
-      console.warn("[nlp] weight/zone quote inputs failed (non-blocking):", (e as Error)?.message);
-    }
-  }
-  // === END W45 orders-p0 ===
-  const quote = aggQuote
-    ? { fee: aggQuote.feeMajor, zone: aggQuote.zone ?? "same_city", carrier: aggQuote.label }
-    : (opts.fulfillment === "delivery"
-        ? quoteDeliveryFee({ address: opts.address, weightKg: orderWeightKg || undefined, deliveryZones: tenantDeliveryZones })
-        : null);
+        address: opts.address,
+        coords: opts.deliveryCoords ?? null,
+        items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+        subtotal,
+      })
+    : { aggQuote: null, quote: null };
   const deliveryFee = quote?.fee ?? 0;
 
   // ── Promo code (optional) ─────────────────────────────────────────────
@@ -624,7 +614,7 @@ export async function createChatOrder(
         giftRecipientPhone: opts.gift?.recipientPhone ?? null,
         giftWrapFeeCents,
         // === END W46 uc-ux ===
-        shippingAddress: opts.address ? { raw: opts.address } : null,
+        shippingAddress: opts.web?.shippingAddress ?? (opts.address ? { raw: opts.address } : null),
         // === W46 orders-p2 (ORD-25): buyer free-text note → orders.notes ===
         notes: opts.buyerNote?.trim() ? opts.buyerNote.trim().slice(0, 500) : null,
         // === END W46 orders-p2 ===
@@ -634,7 +624,8 @@ export async function createChatOrder(
           subtotal: subtotal.toFixed(2),
           deliveryFee: deliveryFee.toFixed(2),
           deliveryZone: quote?.zone ?? null,
-          source: "whatsapp_chat",
+          source: opts.web?.source ?? "whatsapp_chat",
+          ...(opts.web?.metadata ?? {}),
           paymentMethod: opts.paymentMethod === "cod" ? "cod" : "online",
           ...(promoMeta ? { promo: promoMeta } : {}),
           // === W46 uc-ux (Coder E): UC-24 gift metadata (wrap fee line) ===
@@ -777,6 +768,16 @@ export async function createChatOrder(
 
   // ── COD: enter the COD flow instead of taking online payment ─────────
   if (opts.paymentMethod === "cod") {
+    // The sale stands until the rider collects, and no online payment will
+    // ever commit the reservation: commit it now, or the 15-minute expiry
+    // sweep hands the stock back while the order is still live (overselling).
+    // Cancelling the order still returns it (releaseCommittedReservations).
+    try {
+      const { commitReservations } = await import("../services/inventory");
+      await commitReservations(db, orderId);
+    } catch (e: unknown) {
+      console.error("[nlp] COD stock commit failed:", (e as Error)?.message);
+    }
     try {
       const { codEvents } = await import("../../drizzle/schema");
       await db.insert(codEvents).values({
@@ -791,7 +792,17 @@ export async function createChatOrder(
     } catch (e: unknown) {
       console.error("[nlp] cod event insert failed (non-blocking):", (e as Error)?.message);
     }
+    // Paid orders get their delivery PIN on the receipt; a cash order has no receipt, so its PIN goes in the order
+    // message (delivery orders only), and the rider checks it at the door like any other.
+    let codDeliveryPin: string | null = null;
+    try {
+      const { ensureDeliveryShipment } = await import("../services/paymentConfirm");
+      codDeliveryPin = await ensureDeliveryShipment(db, orderId, opts.tenantId);
+    } catch (e: unknown) {
+      console.error("[nlp] COD delivery PIN failed (non-blocking):", (e as Error)?.message);
+    }
     return {
+      deliveryPin: codDeliveryPin,
       created: true,
       orderId,
       orderNumber,
@@ -869,13 +880,13 @@ export async function createChatOrder(
         : null;
     if (provider) {
       const txId = installmentDownRef ?? crypto.randomUUID();
-      const callbackUrl = `https://wa.me/${opts.waPhoneNumber}`;
+      const callbackUrl = opts.web?.callbackUrl ?? `https://wa.me/${opts.waPhoneNumber}`;
       // Paystack rejects /transaction/initialize outright without an email —
       // WhatsApp customers never type one, so synthesize one from their phone
       // number against a real, resolvable domain (Paystack validates the
       // address format; a non-resolving placeholder domain like the old
       // "@wa.commerce" gets rejected with "Invalid Email Address Passed").
-      const customerEmail = `${opts.waPhoneNumber.replace(/\D/g, "") || "customer"}@wa-app.newfire.app`;
+      const customerEmail = opts.web?.email?.trim() || `${opts.waPhoneNumber.replace(/\D/g, "") || "customer"}@wa-app.newfire.app`;
       // === W48 integrations (PERF-INT-11/13): bounded PSP initialize ===
       // These raw fetches had NO timeout — during a PSP brownout the buyer
       // waited 30s+ in-chat for a payment link. Now routed through the shared
@@ -1201,6 +1212,13 @@ export const nlpRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
+      // Tap buttons (WhatsApp reply buttons / Telegram inline keyboard) arrive
+      // as their ids: "say:<text>" means the customer typed <text>; product
+      // card buttons carry "cart_add:<productId>" / "buy_now:<productId>".
+      if (input.message.startsWith(SAY_PREFIX)) input.message = input.message.slice(SAY_PREFIX.length);
+      const tapMatch = /^(cart_add|buy_now):([A-Za-z0-9_-]{1,64})$/.exec(input.message.trim());
+      const tapAction = tapMatch ? { type: tapMatch[1] === "buy_now" ? "buy" as const : "add" as const, productId: tapMatch[2]! } : null;
+
       // === W27 catalog-ai (additive): merchant text fallback for AI listing
       // drafts — "PUBLISH <id8>" / "REJECT <id8>" resolves the merchant's
       // pending catalog_ai_drafts without touching the buyer NLP pipeline.
@@ -1382,7 +1400,13 @@ export const nlpRouter = router({
       // directly instead of spending an LLM call on a structured reply.
       {
         const stepCtx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
-        if (cartSession && (stepCtx.awaitingFulfillment === true || stepCtx.awaitingAddress === true)) {
+        if (tapAction) {
+          // A product tap mid-checkout changes the cart, so the pending step
+          // (pickup/delivery or address) is abandoned; checkout restarts.
+          delete stepCtx.awaitingFulfillment;
+          delete stepCtx.awaitingAddress;
+        }
+        if (!tapAction && cartSession && (stepCtx.awaitingFulfillment === true || stepCtx.awaitingAddress === true)) {
           const text = input.message.trim();
           const lower = text.toLowerCase();
           let reply: string;
@@ -1392,7 +1416,7 @@ export const nlpRouter = router({
           // Rich follow-up annotation: set when this turn creates an order —
           // the webhook delivers an interactive order action card after the
           // payment summary.
-          let stepOrderCard: { orderId: string; orderNumber: string; paymentUrl: string | null } | undefined;
+          let stepOrderCard: { orderId: string; orderNumber: string; paymentUrl: string | null; paymentMethod?: string | null } | undefined;
 
           // Promo code capture: "use code SAVE10" at any checkout step sticks
           // to the session and is applied when the order is created.
@@ -1528,7 +1552,7 @@ export const nlpRouter = router({
             if (order.loyalty) delete stepCtx.loyaltyRedeem; // W27: one-shot redeem flag consumed
             nextState = "payment";
             stepIntent = "confirm_order";
-            stepOrderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null };
+            stepOrderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null, paymentMethod: order.paymentMethod ?? null };
             let summary = buildOrderSummary({
               fmt: (await dualFormatterFor(db, input.tenantId)) ?? undefined,
               fulfillment,
@@ -1545,6 +1569,7 @@ export const nlpRouter = router({
               currency: order.currency!,
               paymentUrl: order.paymentUrl ?? null,
               paymentMethod: order.paymentMethod ?? "online",
+              deliveryPin: (order as any).deliveryPin ?? null,
               trackingUrl: trackingUrlFor(order.orderId!),
               // === W46 uc-money (UC-15): tip prompt (tenant opt-in) ===
               tipPrompt: order.paymentMethod === "cod" ? null
@@ -1694,6 +1719,7 @@ export const nlpRouter = router({
             sessionId: session.id,
             confidence: 1,
             orderCard: stepOrderCard,
+            buttons: stepCtx.awaitingFulfillment === true ? FULFILLMENT_BUTTONS : undefined,
           };
         }
       }
@@ -3704,7 +3730,33 @@ export const nlpRouter = router({
       // conversation, "what ingredients do I need for jollof rice", indirect phrasing) a rule-based matcher has no
       // business guessing at.
       const { classifyDeterministically } = await import("../services/deterministicShop");
-      llmResult = classifyDeterministically(input.message, tenantProducts, cartItemsList, session.state);
+      if (tapAction) {
+        // The tapped product by id, scoped to this shop and still on sale.
+        const [tapped] = await db.select({
+          id: products.id, name: products.name, price: products.price,
+          currency: products.currency, stockQuantity: products.stockQuantity,
+          description: products.description, imageUrl: products.imageUrl,
+        }).from(products)
+          .where(and(eq(products.id, tapAction.productId), eq(products.tenantId, input.tenantId), eq(products.status, "active")))
+          .limit(1)
+          .catch(() => [] as any[]);
+        if (tapped) {
+          if (!tenantProducts.some((p) => p.id === tapped.id)) tenantProducts.push(tapped);
+          llmResult = {
+            reply: "", intent: "add_to_cart", nextState: "add_to_cart", confidence: 1,
+            extractedItems: [{ product: tapped.name, quantity: 1 }],
+            extractedProduct: tapped.name, extractedQuantity: 1, extractedAddress: null,
+          };
+        } else {
+          llmResult = {
+            reply: "Sorry — that item isn't available any more. Type *shop* to see what we have.",
+            intent: "tap_unavailable", nextState: session.state, confidence: 1,
+            extractedItems: [], extractedProduct: null, extractedQuantity: null, extractedAddress: null,
+          };
+        }
+      } else {
+        llmResult = classifyDeterministically(input.message, tenantProducts, cartItemsList, session.state);
+      }
       // Was the real LLM's answer actually used, or did we stay on the deterministic classification/catch-all?
       // Recorded on agent_events below — "gpt-5-mini" there used to be a flat lie regardless of which path
       // answered (found live 2026-09-26 while debugging why images never appeared: there was no way to tell
@@ -3780,8 +3832,9 @@ export const nlpRouter = router({
       // 6. Act on intent
       const ctx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
       // Rich follow-up annotations for the webhook delivery layer.
-      let orderCard: { orderId: string; orderNumber: string; paymentUrl: string | null } | undefined;
+      let orderCard: { orderId: string; orderNumber: string; paymentUrl: string | null; paymentMethod?: string | null } | undefined;
 
+      let addedThisTurn = false;
       if (llmResult.intent === "add_to_cart") {
         // Multi-item support: the LLM returns extractedItems[] for messages like
         // "2 spicy chicken wraps and 1 sweet chilli wrap"; the legacy single
@@ -3827,6 +3880,26 @@ export const nlpRouter = router({
             }
           }
           // === END W48 PERF-API-12 ===
+          // Numbered picks carry the exact product id; make sure that product is in the list even when it sits
+          // outside the catalog window, so it's never resolved by name instead (two products can share a name).
+          const windowIds = new Set(tenantProducts.map((p) => p.id));
+          const missingIds = Array.from(new Set(
+            itemsToAdd.map((i) => i.productId).filter((id): id is string => !!id && !windowIds.has(id)),
+          ));
+          if (missingIds.length > 0) {
+            const picked = await db.select({
+              id: products.id, name: products.name, price: products.price,
+              currency: products.currency, stockQuantity: products.stockQuantity,
+              description: products.description, imageUrl: products.imageUrl,
+            }).from(products)
+              .where(and(
+                eq(products.tenantId, input.tenantId),
+                eq(products.status, "active"),
+                inArray(products.id, missingIds),
+              ))
+              .catch(() => [] as any[]);
+            tenantProducts.push(...picked);
+          }
           // Shortage recovery: a mention of a product that was JUST reported short (buildShortageReply told the
           // buyer to "adjust your quantities") means "change my order to this amount", not "add this on top of
           // the stuck quantity that already caused the shortage" — one-shot, consumed below regardless of outcome.
@@ -3844,6 +3917,7 @@ export const nlpRouter = router({
           });
           cartSession = result.cartSession;
           if (result.added.length > 0) {
+            addedThisTurn = true;
             // Keep the in-memory cart context in sync for this turn.
             cartItemsList = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, result.cartSession.id));
             const addedSummary = result.added
@@ -3869,6 +3943,11 @@ export const nlpRouter = router({
           }
         }
         delete ctx.lastShortageProductIds;
+      }
+
+      if (tapAction?.type === "buy" && addedThisTurn && cartSession) {
+        llmResult.intent = "confirm_order";
+        llmResult.nextState = "checkout_confirm";
       }
 
       if (llmResult.intent === "remove_from_cart") {
@@ -4131,7 +4210,7 @@ export const nlpRouter = router({
               ctx.lastOrderId = order.orderId;
               ctx.lastOrderNumber = order.orderNumber;
               if (order.loyalty) delete ctx.loyaltyRedeem; // W27: one-shot redeem flag consumed
-              orderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null };
+              orderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null, paymentMethod: order.paymentMethod ?? null };
               llmResult.reply = buildOrderSummary({
                 fmt: (await dualFormatterFor(db, input.tenantId)) ?? undefined,
                 fulfillment,
@@ -4148,6 +4227,7 @@ export const nlpRouter = router({
                 currency: order.currency!,
                 paymentUrl: order.paymentUrl ?? null,
                 paymentMethod: order.paymentMethod ?? "online",
+                deliveryPin: (order as any).deliveryPin ?? null,
                 trackingUrl: trackingUrlFor(order.orderId!),
                 // === W46 uc-money (UC-15): tip prompt (tenant opt-in) ===
                 tipPrompt: order.paymentMethod === "cod" ? null
@@ -4341,6 +4421,18 @@ export const nlpRouter = router({
         createdAt: new Date(),
       });
 
+      // Next-step buttons, so the customer taps instead of typing commands.
+      let buttons: Array<{ id: string; title: string }> | undefined;
+      const cartHasItems = cartItemsList.length > 0;
+      if (llmResult.intent === "add_to_cart" && addedThisTurn && cartHasItems) {
+        llmResult.reply = `${llmResult.reply}\n\n${cartTotalLine(cartItemsList)}`.trim();
+        buttons = [BTN_CHECKOUT, BTN_VIEW_CART, BTN_KEEP_SHOPPING];
+      } else if ((llmResult.intent === "view_cart" || llmResult.intent === "remove_from_cart") && cartHasItems) {
+        buttons = [BTN_CHECKOUT, BTN_KEEP_SHOPPING];
+      } else if (llmResult.intent === "confirm_order" && !orderCard && ctx.awaitingFulfillment === true) {
+        buttons = FULFILLMENT_BUTTONS;
+      }
+
       return {
         reply: llmResult.reply,
         intent: llmResult.intent,
@@ -4349,6 +4441,7 @@ export const nlpRouter = router({
         sessionId: session.id,
         confidence: llmResult.confidence ?? 0,
         orderCard,
+        buttons,
         productImage,
         browseProducts, // === W49 RICHMEDIA (RICH-4/5) ===
         promoCard, // === W51 PROMOS ===

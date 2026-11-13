@@ -47,8 +47,10 @@ function TenantAnalyticsInner() {
   const [tenantId, setTenantId] = useState<string>("");
 
   // Load tenants list
-  const { data: tenantsData } = trpc.tenant.list.useQuery(undefined, { enabled: !!user });
-  const tenants = (tenantsData as any)?.tenants ?? tenantsData ?? [];
+  // Shops with the most recent orders first, so the page opens on one that has data.
+  const { data: shopsData } = trpc.platformOverview.shops.useQuery(undefined, { enabled: !!user });
+  const tenants = [...(shopsData ?? [])].sort((a, b) =>
+    (b.lastOrderAt ? new Date(b.lastOrderAt).getTime() : 0) - (a.lastOrderAt ? new Date(a.lastOrderAt).getTime() : 0) || b.orders - a.orders);
   const activeTenantId = tenantId || (Array.isArray(tenants) && tenants.length > 0 ? tenants[0]?.id : "");
 
   const daysNum = parseInt(days);
@@ -71,10 +73,10 @@ function TenantAnalyticsInner() {
   );
 
   const fmt = (n: number) => n >= 1_000_000
-    ? `$${(n / 1_000_000).toFixed(2)}M`
+    ? `₦${(n / 1_000_000).toFixed(2)}M`
     : n >= 1_000
-    ? `$${(n / 1_000).toFixed(1)}K`
-    : `$${n.toFixed(2)}`;
+    ? `₦${(n / 1_000).toFixed(1)}K`
+    : `₦${n.toFixed(2)}`;
 
   return (
     <DashboardLayout>

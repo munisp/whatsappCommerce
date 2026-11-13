@@ -2,7 +2,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ShoppingCart, DollarSign, MessageSquare, Users, FileText, AlertTriangle, Wallet } from "lucide-react";
+import { ShoppingCart, Banknote, MessageSquare, Users, FileText, AlertTriangle, Wallet } from "lucide-react";
 import { Rocket, ChevronRight, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -138,7 +138,7 @@ export default function PortalDashboard() {
                   </span>
                 ) : "0"
               }
-              icon={DollarSign}
+              icon={Banknote}
               sub="all-time"
               color="yellow"
             />

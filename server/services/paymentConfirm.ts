@@ -97,7 +97,7 @@ async function settleIntentLedger(
 // nullable in the schema; only orderId/tenantId are required), scoped to delivery-fulfillment orders
 // only, and returns the PLAINTEXT pin so the receipt can show it in the SAME message the buyer already
 // gets after paying — the stored copy is hashed immediately, same as createShipment's own convention.
-async function ensureDeliveryShipment(
+export async function ensureDeliveryShipment(
   db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
   orderId: string,
   tenantId: string,

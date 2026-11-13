@@ -84,6 +84,14 @@ export function serveStatic(app: Express) {
     );
   }
 
+  // A browser must always be able to learn there's a new version. A cached worker keeps serving old pages.
+  for (const file of ["sw.js", "registerSW.js"]) {
+    app.get(`/${file}`, (_req, res) => {
+      res.set("Cache-Control", "no-store");
+      res.sendFile(path.resolve(distPath, file));
+    });
+  }
+
   useBrotliPrecompression(app, "/", distPath);
   // Brand photos are heavy and rarely change, so let browsers and Cloudflare keep them.
   // To replace one, give the new file a new name, or old copies linger for up to 30 days.

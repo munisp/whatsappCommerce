@@ -5,8 +5,12 @@
 export const ROLLOUT_STATES = ["off", "selected", "all"] as const;
 export type RolloutState = (typeof ROLLOUT_STATES)[number];
 
-/** A shop can't run without these, so they can't be hidden. */
-export const ALWAYS_ON_FEATURES: readonly string[] = ["/portal", "/portal/setup", "/tenant-settings"];
+/**
+ * A shop can't run without these, so they can't be hidden. Set up shop (/onboarding-wizard) is where a new business
+ * is created and where it submits business verification (KYB), which going live requires; hiding it stranded every
+ * new merchant the moment their shop existed (the bulk switch-off of 2026-11-03).
+ */
+export const ALWAYS_ON_FEATURES: readonly string[] = ["/portal", "/portal/setup", "/tenant-settings", "/onboarding-wizard"];
 
 export const NEW_BADGE_DAYS = 14;
 

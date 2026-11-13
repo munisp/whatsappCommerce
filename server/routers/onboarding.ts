@@ -417,6 +417,7 @@ export const onboardingRouter = router({
       const settings = (tenant.settings ?? {}) as TenantSettings;
       return {
         tenantId: tenant.id,
+        tenantName: tenant.name,
         tenantStatus: tenant.status,
         ...state,
         whatsappConfigured: Boolean(

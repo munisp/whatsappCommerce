@@ -34,7 +34,7 @@ export interface DeterministicResult {
   reply: string;
   intent: "add_to_cart" | "remove_from_cart" | "confirm_order" | "view_cart" | "greeting" | "product_detail" | "browse" | "dispute" | "unknown";
   nextState: string;
-  extractedItems: Array<{ product: string; quantity: number }>;
+  extractedItems: Array<{ product: string; quantity: number; productId?: string }>;
   extractedProduct: string | null;
   extractedQuantity: number | null;
   extractedAddress: string | null;
@@ -92,6 +92,7 @@ function parseQuantityAndMention(part: string): { mention: string; quantity: num
 
 /** A numbered catalog listing — the reference point for every reply this module writes when nothing else applies. */
 export function renderCatalog(products: DeterministicProduct[]): string {
+  if (products.length === 0) return "Nothing on the menu just yet. Please check back soon, or reply *3* to talk to the shop.";
   const lines = products.slice(0, 20).map((p, i) => {
     const stock = p.stockQuantity > 0 ? "" : " (out of stock)";
     return `${i + 1}. ${p.name} — ${p.currency} ${p.price}${stock}`;
@@ -261,7 +262,7 @@ export function classifyDeterministically(
       const quantity = bareNumber[2] ? Math.max(1, parseInt(bareNumber[2], 10)) : 1;
       return {
         reply: "", intent: "add_to_cart", nextState: "add_to_cart", confidence: 0.9,
-        extractedItems: [{ product: product.name, quantity }],
+        extractedItems: [{ product: product.name, quantity, productId: product.id }],
         extractedProduct: product.name, extractedQuantity: quantity, extractedAddress: null,
       };
     }

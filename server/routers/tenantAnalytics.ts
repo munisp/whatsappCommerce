@@ -22,7 +22,7 @@ export const tenantAnalyticsRouter = router({
       const [cur] = await db.select({
         gmv: sql<number>`COALESCE(SUM(CAST(${orders.totalAmount} AS FLOAT)), 0)::float`,
         orderCount: sql<number>`COUNT(*)::int`,
-        paidOrders: sql<number>`COUNT(CASE WHEN ${orders.paymentStatus} = 'paid' THEN 1 END)::int`,
+        paidOrders: sql<number>`COUNT(CASE WHEN ${orders.paymentStatus} = 'completed' THEN 1 END)::int`,
         cancelledOrders: sql<number>`COUNT(CASE WHEN ${orders.status} = 'cancelled' THEN 1 END)::int`,
       }).from(orders).where(and(eq(orders.tenantId, input.tenantId), gte(orders.createdAt, cutoff)));
 
@@ -107,7 +107,7 @@ export const tenantAnalyticsRouter = router({
         FROM orders o,
              jsonb_array_elements(o.items) AS item
         WHERE o."tenantId" = ${input.tenantId}
-          AND o."createdAt" >= ${cutoff}
+          AND o."createdAt" >= ${cutoff.toISOString()}::timestamptz
           AND o.status != 'cancelled'
           AND item->>'name' IS NOT NULL
         GROUP BY item->>'name', item->>'productId'
@@ -143,7 +143,7 @@ export const tenantAnalyticsRouter = router({
           MIN(o."createdAt") AS first_order_in_period
         FROM orders o
         WHERE o."tenantId" = ${input.tenantId}
-          AND o."createdAt" >= ${cutoff}
+          AND o."createdAt" >= ${cutoff.toISOString()}::timestamptz
           AND o.status != 'cancelled'
         GROUP BY o."customerId"
       `);
@@ -152,7 +152,7 @@ export const tenantAnalyticsRouter = router({
         SELECT DISTINCT o."customerId"
         FROM orders o
         WHERE o."tenantId" = ${input.tenantId}
-          AND o."createdAt" < ${cutoff}
+          AND o."createdAt" < ${cutoff.toISOString()}::timestamptz
           AND o.status != 'cancelled'
       `);
       const returningIds = new Set((returningSet as any[]).map(r => r.customerId));
@@ -169,7 +169,7 @@ export const tenantAnalyticsRouter = router({
           COUNT(*)::int AS orders
         FROM orders o
         WHERE o."tenantId" = ${input.tenantId}
-          AND o."createdAt" >= ${cutoff}
+          AND o."createdAt" >= ${cutoff.toISOString()}::timestamptz
           AND o.status != 'cancelled'
         GROUP BY DATE_TRUNC('week', o."createdAt")
         ORDER BY week

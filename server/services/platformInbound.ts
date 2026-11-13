@@ -22,21 +22,27 @@ import { chunkWhatsAppText, normalizeWaPhone } from "./waSender";
 import { redactString } from "./logRedact";
 import {
   clearActiveShop,
+  clearCustomerLocation,
   clearPendingQuery,
   clearResultsList,
+  clearSelling,
   getActiveShop,
+  getSelling,
   getCustomerLocation,
   getPendingQuery,
   getResultsList,
   isGreeting,
   isHomeCommand,
+  isSellIntent,
   type LatLng,
+  parseShopDirective,
   resolvePlatformWaCredentialsFull,
   resolveShopRef,
   setActiveShop,
   setCustomerLocation,
   setPendingQuery,
   setResultsList,
+  setSelling,
 } from "./platformNumber";
 import { defaultRadiusKm, discoverNearbyPure, loadDiscoveryData, maxRadiusKm, type DiscoverItem } from "./geoDiscovery";
 import { getDb } from "../db";
@@ -91,6 +97,53 @@ function directoryPrompt(): string {
   );
 }
 
+/**
+ * Run the onboarding assistant for a business owner, answered from the shared
+ * number (the same assistant as the onboarding number and the Telegram bot).
+ */
+async function runShopSetup(phone: string, msg: any): Promise<void> {
+  const { handleInbound } = await import("./waOnboarding");
+  await handleInbound(msg, phone, {
+    tenantId: null,
+    channel: "whatsapp",
+    transport: {
+      sendText: async (body) => {
+        await sendPlatformText(phone, body);
+        return { sent: true, simulated: false };
+      },
+      sendButtons: async (body, buttons) => {
+        const ok = await sendPlatformButtons(phone, body, buttons);
+        if (!ok) await sendPlatformText(phone, body + "\n\n" + buttons.map((b, i) => `${i + 1}. ${b.title}`).join("\n"));
+        return { sent: true, simulated: false };
+      },
+    },
+  });
+}
+
+/** Reply buttons from the platform number; false when they couldn't be sent. */
+async function sendPlatformButtons(toPhone: string, body: string, buttons: { id: string; title: string }[]): Promise<boolean> {
+  const creds = await resolvePlatformWaCredentialsFull();
+  if (!creds || buttons.length === 0 || buttons.length > 3) return false;
+  try {
+    const res = await fetch(`${GRAPH_API_BASE}/${creds.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${creds.accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messaging_product: "whatsapp", recipient_type: "individual", to: normalizeWaPhone(toPhone), type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: body.length > 1024 ? body.slice(0, 1023) + "…" : body },
+          action: { buttons: buttons.map((b) => ({ type: "reply", reply: { id: b.id.slice(0, 256), title: b.title.length > 20 ? b.title.slice(0, 19) + "…" : b.title } })) },
+        },
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Load a shop row only if it is still reachable on the platform number. */
 async function loadReachableShop(tenantId: string): Promise<any | null> {
   const db = await getDb();
@@ -110,7 +163,21 @@ async function loadReachableShop(tenantId: string): Promise<any | null> {
 export async function platformActiveShop(opts: {
   customerPhone: string;
   text: string;
-}): Promise<{ shopRow: any } | null> {
+}): Promise<{ shopRow: any; text?: string } | null> {
+  // A web store link names its shop, which takes priority over wherever the customer last was.
+  // A business owner setting up (or asking to set up) a shop talks to the
+  // onboarding assistant in the directory, not to the shop they were browsing.
+  if (isSellIntent(opts.text) || (await getSelling(opts.customerPhone))) return null;
+  const directive = parseShopDirective(opts.text);
+  if (directive) {
+    const shop = await resolveShopRef(directive.ref);
+    const shopRow = shop ? await loadReachableShop(shop.tenantId) : null;
+    if (shop && shopRow) {
+      await setActiveShop(opts.customerPhone, shop.tenantId);
+      return { shopRow, text: directive.rest || "Hi" };
+    }
+    return null; // unknown or closed shop: handlePlatformDirectory shows the directory
+  }
   if (isHomeCommand(opts.text)) return null;
   const activeId = await getActiveShop(opts.customerPhone);
   if (!activeId) return null;
@@ -180,7 +247,7 @@ async function filterSharedItems(db: any, items: DiscoverItem[]): Promise<Discov
   return items.filter((i) => sharedIds.has(i.tenantId));
 }
 
-async function discoverAndReply(phone: string, query: string, loc: LatLng): Promise<void> {
+async function discoverAndReply(phone: string, query: string, loc: LatLng, fromSaved = false): Promise<void> {
   const db = await getDb();
   if (!db) {
     await sendPlatformText(phone, "Search is unavailable right now — please try again shortly.");
@@ -204,10 +271,11 @@ async function discoverAndReply(phone: string, query: string, loc: LatLng): Prom
   }
 
   if (items.length === 0) {
-    await sendPlatformText(
-      phone,
-      `😕 No store has *${query}* near you yet — try another item, or send a *store's name* if you know one.`,
-    );
+    const miss = looksLikeStoreName(query)
+      ? `😕 I couldn't find a store called *${query}* on ${platformName() || "here"} yet, and no store near you sells it. ` +
+        `Check the spelling, or ask the store for its shop link.`
+      : `😕 No store near you has *${query}* yet.`;
+    await nearbyStoresReply(phone, loc, miss, fromSaved);
     return;
   }
   // List each store with the matching products (name + price) it stocks.
@@ -216,7 +284,7 @@ async function discoverAndReply(phone: string, query: string, loc: LatLng): Prom
   await setResultsList(phone, shown.map((i) => i.tenantId));
   const prodByTenant = await matchingProductsByTenant(db, shown.map((i) => i.tenantId), query);
   const blocks = shown.map((it, n) => {
-    let block = `${n + 1}. *${it.businessName}* · ${formatKm(it.distanceKm)} km`;
+    let block = `${n + 1}. *${it.businessName}* · ${formatKm(it.distanceKm)} km away`;
     for (const p of prodByTenant.get(it.tenantId) ?? []) {
       block += `\n   • ${p.name} — ${money(p.price, p.currency)}`;
     }
@@ -228,15 +296,139 @@ async function discoverAndReply(phone: string, query: string, loc: LatLng): Prom
   await sendPlatformText(
     phone,
     `🛍️ *Stores near you with "${query}":*${widened}\n\n${blocks.join("\n\n")}\n\n` +
-      `Reply with the *number* or the *store's name* to start shopping.`,
+      `Reply with the *number* or the *store's name* to start shopping.` + savedNote(fromSaved),
   );
+}
+
+// Questions about what's around rather than a product: "what's available near me",
+// "which stores are around", "show me shops", "what can I buy".
+const NEARBY_QUESTION_RE = /\b(around|near(by| me)?|close to me|available|what can i (buy|get)|what do you (have|sell)|stores?|shops?|vendors?|sellers?|everything|anything)\b/i;
+const QUESTION_START_RE = /^(what|which|where|who|show|list|any|is there|are there|do you|can i|give me|tell me)\b/i;
+export function isNearbyQuestion(text: string): boolean {
+  const t = text.trim();
+  if (/^(stores?|shops?|browse|nearby|near me|around me|list|explore)\??$/i.test(t)) return true;
+  return QUESTION_START_RE.test(t) && NEARBY_QUESTION_RE.test(t);
+}
+
+// Words that make a message read as a business name rather than a product.
+const STORE_WORD_RE = /\b(hub|store|stores|shop|shops|mart|market|supermarket|ventures|enterprises?|ltd|limited|plaza|boutique|collections?|fashion|stores|kitchen|pharmacy|place|world|global|nig|int'?l)\b/i;
+export function looksLikeStoreName(text: string): boolean {
+  return STORE_WORD_RE.test(text) && text.trim().split(/\s+/).length <= 6;
+}
+
+/** First few products of each shop, for "what's near me" listings. */
+async function sampleProductsByTenant(db: any, tenantIds: string[]): Promise<Map<string, MatchedProduct[]>> {
+  const out = new Map<string, MatchedProduct[]>();
+  if (!tenantIds.length) return out;
+  const rows = await db
+    .select({ tenantId: products.tenantId, name: products.name, price: products.price, currency: products.currency })
+    .from(products)
+    .where(and(inArray(products.tenantId, tenantIds), eq(products.status, "active"), sql`coalesce(${products.stockQuantity}, 1) > 0`))
+    .orderBy(sql`${products.updatedAt} desc`)
+    .limit(200)
+    .catch(() => [] as any[]);
+  for (const r of rows) {
+    const arr = out.get(r.tenantId) ?? [];
+    if (arr.length < 3) arr.push({ name: r.name, price: r.price, currency: r.currency });
+    out.set(r.tenantId, arr);
+  }
+  return out;
+}
+
+/**
+ * Stores near the customer (no product filter), nearest first, with a few of
+ * each one's products — the answer to "what's around me", and what a search
+ * with no results falls back to so a customer always has somewhere to go.
+ */
+async function nearbyStoresReply(phone: string, loc: LatLng, lead?: string, fromSaved = false): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    await sendPlatformText(phone, "Search is unavailable right now — please try again shortly.");
+    return;
+  }
+  const data = await loadDiscoveryData(db).catch(() => ({ merchants: [], sponsored: [] }));
+  const maxR = maxRadiusKm();
+  let radius = Math.min(defaultRadiusKm(), maxR);
+  let items: DiscoverItem[] = [];
+  for (;;) {
+    const result = discoverNearbyPure({ lat: loc.lat, lng: loc.lng, query: "", radiusKm: radius, sortBy: "distance" }, data);
+    items = await filterSharedItems(db, result.items);
+    if (items.length > 0 || radius >= maxR) break;
+    radius = Math.min(radius * 2, maxR);
+  }
+  const head = lead ? `${lead}\n\n` : "";
+  if (items.length === 0) {
+    await sendPlatformText(
+      phone,
+      `${head}There are no stores near you on ${platformName() || "here"} yet — more are joining. ` +
+        `If you know a store's name, send it and I'll take you there.`,
+    );
+    return;
+  }
+  const shown = items.slice(0, 10);
+  await setResultsList(phone, shown.map((i) => i.tenantId));
+  const sample = await sampleProductsByTenant(db, shown.map((i) => i.tenantId));
+  const blocks = shown.map((it, n) => {
+    let block = `${n + 1}. *${it.businessName}* · ${formatKm(it.distanceKm)} km away`;
+    for (const p of sample.get(it.tenantId) ?? []) block += `\n   • ${p.name} — ${money(p.price, p.currency)}`;
+    return block;
+  });
+  await sendPlatformText(
+    phone,
+    `${head}🛍️ *Stores near you:*\n\n${blocks.join("\n\n")}\n\n` +
+      `Reply with the *number* or the *store's name* to start shopping, or tell me what you're looking for.` + savedNote(fromSaved),
+  );
+}
+
+/** Said when a search used the location the customer shared earlier. */
+function savedNote(fromSaved: boolean): string {
+  return fromSaved ? `\n\n📍 _Using the location you shared earlier — send a new 📎 location to update it, or "forget my location"._` : "";
+}
+
+/** "What's around me": list nearby stores now, or ask for the location first. */
+async function runNearbyQuestion(phone: string): Promise<void> {
+  const loc = await getCustomerLocation(phone);
+  if (loc) {
+    await nearbyStoresReply(phone, loc, undefined, true);
+    return;
+  }
+  await setPendingQuery(phone, NEARBY_PENDING);
+  await sendPlatformText(
+    phone,
+    `📍 Send your *location* and I'll show you the stores around you:\n` +
+      `tap 📎 → *Location* → *Send your current location*.`,
+  );
+}
+const NEARBY_PENDING = "__nearby__";
+
+/**
+ * A shop whose name contains what was typed (or the other way round), among
+ * shops reachable here. One match → that shop; several → they're listed.
+ */
+async function partialShopMatches(text: string): Promise<Array<{ id: string; name: string }>> {
+  const q = text.trim().toLowerCase().replace(/[%_]/g, "");
+  if (q.length < 4) return [];
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ id: tenants.id, name: tenants.name })
+    .from(tenants)
+    .where(and(
+      eq(tenants.status, "active"),
+      isNull(tenants.whatsappPhoneNumberId),
+      sql`coalesce(${tenants.settings}->'onboarding'->>'status', '') = 'live'`, // open for orders
+      sql`(lower(${tenants.name}) like ${"%" + q + "%"} or ${q} like '%' || lower(${tenants.name}) || '%')`,
+    ))
+    .limit(5)
+    .catch(() => [] as any[]);
+  return rows;
 }
 
 /** A product search: discover now if we know the customer's location, else ask for it. */
 async function runPlatformDiscovery(phone: string, query: string): Promise<void> {
   const loc = await getCustomerLocation(phone);
   if (loc) {
-    await discoverAndReply(phone, query, loc);
+    await discoverAndReply(phone, query, loc, true);
     return;
   }
   await setPendingQuery(phone, query);
@@ -261,6 +453,30 @@ export async function handlePlatformDirectory(opts: {
 }): Promise<void> {
   const { customerPhone, msg } = opts;
 
+  // ── Shop setup on the shared number (SELL / "create a shop") ─────────────
+  {
+    const sellText = typeof msg?.text?.body === "string" ? msg.text.body.trim() : "";
+    if (await getSelling(customerPhone)) {
+      if (isHomeCommand(sellText)) {
+        await clearSelling(customerPhone);
+        await sendPlatformText(customerPhone, "You've left shop setup — it's saved. Send *SELL* any time to carry on.\n\n" + directoryPrompt());
+        return;
+      }
+      const { hasOpenOnboarding } = await import("./waOnboarding");
+      if (await hasOpenOnboarding(customerPhone)) {
+        await runShopSetup(customerPhone, msg);
+        return;
+      }
+      await clearSelling(customerPhone); // setup finished, failed or moved to the web: back to shopping
+    }
+    if (msg?.type === "text" && isSellIntent(sellText)) {
+      await clearActiveShop(customerPhone);
+      await setSelling(customerPhone);
+      await runShopSetup(customerPhone, msg);
+      return;
+    }
+  }
+
   // Location share → remember it, then run any pending product search.
   if (msg?.type === "location" && typeof msg?.location?.latitude === "number" && typeof msg?.location?.longitude === "number") {
     const loc: LatLng = { lat: msg.location.latitude, lng: msg.location.longitude };
@@ -268,7 +484,8 @@ export async function handlePlatformDirectory(opts: {
     const pending = await getPendingQuery(customerPhone);
     if (pending) {
       await clearPendingQuery(customerPhone);
-      await discoverAndReply(customerPhone, pending, loc);
+      if (pending === NEARBY_PENDING) await nearbyStoresReply(customerPhone, loc);
+      else await discoverAndReply(customerPhone, pending, loc);
       return;
     }
     await sendPlatformText(customerPhone, '📍 Got your location! Now tell me what you\'re looking for (e.g. *toothpaste*), or send a *store\'s name*.');
@@ -276,6 +493,12 @@ export async function handlePlatformDirectory(opts: {
   }
 
   const text = typeof msg?.text?.body === "string" ? msg.text.body.trim() : "";
+
+  if (/^(please\s+)?(forget|clear|delete|remove)\s+my\s+location[.!]?$/i.test(text)) {
+    await clearCustomerLocation(customerPhone);
+    await sendPlatformText(customerPhone, "Done — I've forgotten your location. I'll ask for it again next time you search for shops nearby.");
+    return;
+  }
 
   if (isHomeCommand(text)) {
     await clearActiveShop(customerPhone);
@@ -301,6 +524,11 @@ export async function handlePlatformDirectory(opts: {
     return;
   }
 
+  // A store link for a shop we can't enter must not turn into a product search.
+  if (parseShopDirective(text)) {
+    await sendPlatformText(customerPhone, directoryPrompt());
+    return;
+  }
   const shop = await resolveShopRef(text);
   if (shop) {
     await setActiveShop(customerPhone, shop.tenantId);
@@ -314,6 +542,31 @@ export async function handlePlatformDirectory(opts: {
   // Greeting / empty / unsupported first contact → directory prompt.
   if (!text || isGreeting(text)) {
     await sendPlatformText(customerPhone, directoryPrompt());
+    return;
+  }
+
+  // "What's around me?" → the nearby stores, not a search for those words.
+  if (isNearbyQuestion(text)) {
+    await runNearbyQuestion(customerPhone);
+    return;
+  }
+
+  // Part of a store's name ("akoka", "meridian office") → that store, or a short list.
+  const partial = await partialShopMatches(text);
+  if (partial.length === 1) {
+    await setActiveShop(customerPhone, partial[0].id);
+    await sendPlatformText(
+      customerPhone,
+      `🛍️ You're now shopping at *${partial[0].name}*. Send *hi* to see what they've got — or type *home* anytime to browse other stores.`,
+    );
+    return;
+  }
+  if (partial.length > 1) {
+    await setResultsList(customerPhone, partial.map((p) => p.id));
+    await sendPlatformText(
+      customerPhone,
+      `Which store did you mean?\n\n${partial.map((p, n) => `${n + 1}. *${p.name}*`).join("\n")}\n\nReply with the *number*.`,
+    );
     return;
   }
 

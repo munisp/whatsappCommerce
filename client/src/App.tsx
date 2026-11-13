@@ -63,6 +63,7 @@ const Journeys = lazy(() => import("./pages/Journeys"));
 const Consents = lazy(() => import("./pages/Consents"));
 const InventoryHub = lazy(() => import("./pages/InventoryHub"));
 const TrackOrder = lazy(() => import("./pages/TrackOrder"));
+const RiderDelivery = lazy(() => import("./pages/RiderDelivery"));
 const DriverApp = lazy(() => import("./pages/driver/DriverApp"));
 const Invoices = lazy(() => import("./pages/Invoices"));
 const MerchantEscrow = lazy(() => import("./pages/MerchantEscrow"));
@@ -104,7 +105,10 @@ const TenantSettings = lazy(() => import("./pages/TenantSettings"));
 const DiscoverNearby = lazy(() => import("./pages/DiscoverNearby"));
 // === W27 storefront-i18n ===
 const Shop = lazy(() => import("./pages/Shop"));
+const StorePreview = lazy(() => import("./pages/Shop").then((m) => ({ default: m.StorePreview })));
 const StorefrontSettings = lazy(() => import("./pages/StorefrontSettings"));
+const StorefrontTemplates = lazy(() => import("./pages/storefront/StorefrontTemplates"));
+const StorefrontBuilder = lazy(() => import("./pages/storefront/StorefrontBuilder"));
 const MerchantGeoSettings = lazy(() => import("./pages/MerchantGeoSettings"));
 // === W28 medusa-storefront (Coder B) ===
 const MedusaStorefrontSettings = lazy(() => import("./pages/MedusaStorefrontSettings"));
@@ -207,6 +211,7 @@ function Router() {
       {/* === END W27 === */}
       <Route path="/orders/:orderNumber" component={OrderTimeline} />
       <Route path="/track/:token" component={TrackOrder} />
+      <Route path="/deliver/:token" component={RiderDelivery} />
       <Route path="/driver" component={DriverApp} />
       <Route path="/payments" component={Payments} />
       {/* === W55 ui-c === */}
@@ -282,7 +287,10 @@ function Router() {
           <Route path="/tenant-settings" component={TenantSettings} />
         <Route path="/discover" component={DiscoverNearby} />
         {/* === W27 storefront-i18n === */}
-        <Route path="/shop/:slug" component={Shop} />
+        <Route path="/shop/:slug/*?" component={Shop} />
+        <Route path="/store-preview/:id/*?" component={StorePreview} />
+        <Route path="/settings/storefront/templates" component={StorefrontTemplates} />
+        <Route path="/settings/storefront/builder" component={StorefrontBuilder} />
         <Route path="/settings/storefront" component={StorefrontSettings} />
         <Route path="/settings/discovery" component={MerchantGeoSettings} />
         {/* === W28 medusa-storefront (Coder B) === */}

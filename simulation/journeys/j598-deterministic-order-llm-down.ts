@@ -14,6 +14,7 @@ import { and, eq } from "drizzle-orm";
 import { assert, assertIncludes, bodyText, TENANT_ID, type World } from "../world";
 import type { Journey } from "../runner";
 import { ensureTelegramConfig, tgPost, tgTextUpdate, TG_SECRET } from "./j235-telegram-webhook-security";
+import { lastReply, replyCount } from "./helpers";
 
 export const journey: Journey = {
   id: "J598",
@@ -29,18 +30,18 @@ export const journey: Journey = {
 
     llm.forceNetworkError = true;
     try {
-      let before = world.outbound.ofType("text", phone).length;
+      let before = replyCount(world, phone);
       await world.text(phone, "shop");
-      await world.waitFor(() => world.outbound.ofType("text", phone).length > before, 15000, "shop handoff");
+      await world.waitFor(() => replyCount(world, phone) > before, 15000, "shop handoff");
 
       // A genuinely ambiguous message first — the EXACT string from the live bug report (a stray Telegram button id
       // that leaked into NLP as raw text): must stay in ENGLISH, not get flagged as Igbo because the old detector's
       // "hint" for Igbo was the single letter "m" (which "menu_3" — and almost any English sentence — contains),
       // and must not dead-end — it should still show the catalog, not just apologize.
-      before = world.outbound.ofType("text", phone).length;
+      before = replyCount(world, phone);
       await world.text(phone, "menu_3");
-      await world.waitFor(() => world.outbound.ofType("text", phone).length > before, 20000, "reply despite LLM down");
-      const greetReply = bodyText(world.outbound.lastOfType("text", phone));
+      await world.waitFor(() => replyCount(world, phone) > before, 20000, "reply despite LLM down");
+      const greetReply = bodyText(lastReply(world, phone));
       // The bug this guards: Yoruba/Hausa/Igbo fallback copy carries diacritics no English sentence has (ẹ ọ ṣ ị ụ
       // etc.) — a short, ambiguous message like this one used to get flagged as one of those languages from a
       // single-letter substring "hint" match. None of those characters should appear now.
@@ -48,22 +49,22 @@ export const journey: Journey = {
       assertIncludes(greetReply, "Jollof Rice", "an unrecognized message still shows the catalog, not just an apology");
 
       // Add a real item deterministically — real English, quantity + product name embedded in an ordinary sentence.
-      before = world.outbound.ofType("text", phone).length;
+      before = replyCount(world, phone);
       await world.text(phone, "I need 2 jollof rice please");
-      await world.waitFor(() => world.outbound.ofType("text", phone).length > before, 20000, "add-to-cart reply (LLM down)");
-      assertIncludes(bodyText(world.outbound.lastOfType("text", phone)), "Jollof Rice", "item added to cart without any LLM call");
+      await world.waitFor(() => replyCount(world, phone) > before, 20000, "add-to-cart reply (LLM down)");
+      assertIncludes(bodyText(lastReply(world, phone)), "Jollof Rice", "item added to cart without any LLM call");
 
       // Confirm — deterministically recognized, and the cart is real (nlpCart.ts's own matching + insert, not
       // anything this module fabricates).
-      before = world.outbound.ofType("text", phone).length;
+      before = replyCount(world, phone);
       await world.text(phone, "confirm");
-      await world.waitFor(() => world.outbound.ofType("text", phone).length > before, 20000, "order summary (LLM down)");
+      await world.waitFor(() => replyCount(world, phone) > before, 20000, "order summary (LLM down)");
 
       // Fulfillment: this step was ALREADY deterministic before today (server/routers/nlp.ts's own pre-LLM
       // "awaitingFulfillment" block) — confirms the two code paths compose correctly end to end.
-      before = world.outbound.ofType("text", phone).length;
+      before = replyCount(world, phone);
       await world.text(phone, "1"); // pickup
-      await world.waitFor(() => world.outbound.ofType("text", phone).length > before, 15000, "fulfillment reply");
+      await world.waitFor(() => replyCount(world, phone) > before, 15000, "fulfillment reply");
     } finally {
       llm.forceNetworkError = false;
     }

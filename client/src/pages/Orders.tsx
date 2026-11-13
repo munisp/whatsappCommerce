@@ -271,6 +271,9 @@ function OrdersInner() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {(o as any).metadata?.fulfillment === "delivery" && !["delivered", "cancelled", "refunded"].includes(o.status) && (
+                              <RiderLinkItem orderId={o.id} />
+                            )}
                             {!["delivered", "cancelled", "refunded"].includes(o.status) && (
                               <DropdownMenuItem onClick={() => { setStatusEdit({ id: o.id, status: o.status }); setNewStatus(o.status); setStatusNotes(""); }}>
                                 Update status
@@ -384,5 +387,24 @@ export default function Orders() {
     <CapabilityGuard cap="orders">
       <OrdersInner />
     </CapabilityGuard>
+  );
+}
+
+
+/** Copies this order's rider link: the shop sends it to its own rider, who confirms the delivery with the PIN + a photo. */
+function RiderLinkItem({ orderId }: { orderId: string }) {
+  const utils = trpc.useUtils();
+  return (
+    <DropdownMenuItem onClick={async () => {
+      try {
+        const { url } = await utils.rider.linkFor.fetch({ orderId });
+        await navigator.clipboard.writeText(url);
+        toast.success("Rider link copied. Send it to your rider: they open it at the door, enter the customer's PIN and take a photo.");
+      } catch (e: any) {
+        toast.error(e?.message ?? "Couldn't make the rider link");
+      }
+    }}>
+      Copy rider link
+    </DropdownMenuItem>
   );
 }

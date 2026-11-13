@@ -52,6 +52,7 @@ import {
   type WaMenuUseCase,
 } from "@shared/waMenu";
 import { INTEGRATION_PROVIDERS, type IntegrationProvider } from "@shared/tenantConfig";
+import { missingScreeningFields, listInWords } from "@shared/kybScreening";
 
 const STEPS = [
   { id: "business", label: "Business" },
@@ -248,12 +249,26 @@ function TenantOnboardingWizardInner() {
     reader.readAsDataURL(file);
   };
   const kybDocsPresent = new Set((kybApp?.documents ?? []).map((d) => d.documentType));
+  const kybMissing = missingScreeningFields(kybForm);
   const kybCanSubmit =
     !!kybAppId &&
     kybForm.applicantName.trim() !== "" &&
-    kybForm.businessName.trim() !== "" &&
+    kybMissing.length === 0 &&
     kybDocsPresent.has("business_registration") &&
     kybApp?.status !== "pending" && kybApp?.status !== "approved";
+  // Submit saves what's on screen first: the form is pre-filled locally (the business name from the shop), so
+  // submitting the id alone used to send an application with nothing saved on it.
+  // Blank fields are left out rather than sent as "" (the server rejects an empty email, and "" would wipe a value).
+  const kybDetails = () => Object.fromEntries(Object.entries(kybForm).map(([k, v]) => [k, v.trim()]).filter(([, v]) => v !== ""));
+  const submitKyb = async () => {
+    if (!kybAppId) return;
+    try {
+      await saveKybMutation.mutateAsync({ applicationId: kybAppId, ...kybDetails() });
+      await submitKybMutation.mutateAsync({ applicationId: kybAppId });
+    } catch {
+      // each mutation's onError already told the merchant what went wrong
+    }
+  };
 
   // Seed forms from the live config once loaded.
   const { data: savedMenu } = trpc.tenantConfig.getWaMenuConfig.useQuery(
@@ -289,7 +304,7 @@ function TenantOnboardingWizardInner() {
 
   const startMutation = trpc.onboarding.start.useMutation({
     onSuccess: (data) => {
-      toast.success(`Tenant "${provision.name}" provisioned (${data.slug})`);
+      toast.success(`${provision.name} is set up. Next, connect WhatsApp.`);
       setCreatedTenantId(data.tenantId);
       setActiveTenantId(data.tenantId);
       // users.tenantId only updates server-side for non-admin callers — refresh
@@ -408,10 +423,10 @@ function TenantOnboardingWizardInner() {
           <div>
             <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
               <Rocket className="w-6 h-6 text-primary" />
-              Tenant Onboarding
+              Set up your business
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              {status ? `Provisioning "${status.tenantId}" — configure, validate, go live.` : "Configure, validate and activate the tenant."}
+              {status ? `Setting up ${status.tenantName || "your business"}: connect WhatsApp, check everything, then go live.` : "Create your business, connect WhatsApp, then go live."}
             </p>
           </div>
           <Badge variant="outline" className={statusMeta.className}>{statusMeta.label}</Badge>
@@ -479,7 +494,7 @@ function TenantOnboardingWizardInner() {
                   <CardDescription>
                     {tenantId
                       ? "Configure, validate and activate your business."
-                      : "Create your business to get started — this becomes your tenant."}
+                      : "Create your business to get started."}
                     {user?.role === "admin" && " Platform admins can also provision a tenant on a business's behalf below."}
                   </CardDescription>
                 </CardHeader>
@@ -487,20 +502,20 @@ function TenantOnboardingWizardInner() {
                   {status && (
                     <div className="rounded-lg border p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                       <div>
-                        <p className="text-muted-foreground text-xs">Tenant</p>
-                        <p className="font-medium">{status.tenantId}</p>
+                        <p className="text-muted-foreground text-xs">Business</p>
+                        <p className="font-medium">{status.tenantName || "Your business"}</p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground text-xs">Tenant status</p>
+                        <p className="text-muted-foreground text-xs">Status</p>
                         <p className="font-medium capitalize">{status.tenantStatus}</p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground text-xs">Onboarding</p>
+                        <p className="text-muted-foreground text-xs">Set-up</p>
                         <p className="font-medium capitalize">{onboardingStatus}</p>
                       </div>
                       <div>
-                        <p className="text-muted-foreground text-xs">WhatsApp creds</p>
-                        <p className="font-medium">{status.whatsappConfigured ? "Configured" : "Missing"}</p>
+                        <p className="text-muted-foreground text-xs">WhatsApp</p>
+                        <p className="font-medium">{status.whatsappConfigured ? "Connected" : "Not connected yet"}</p>
                       </div>
                     </div>
                   )}
@@ -614,7 +629,7 @@ function TenantOnboardingWizardInner() {
                           }
                         >
                           {startMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
-                          Provision tenant
+                          Create my business
                         </Button>
                       </div>
                     </>
@@ -1068,7 +1083,7 @@ function TenantOnboardingWizardInner() {
                       variant="outline"
                       size="sm"
                       disabled={saveKybMutation.isPending || !kybAppId}
-                      onClick={() => kybAppId && saveKybMutation.mutate({ applicationId: kybAppId, ...kybForm })}
+                      onClick={() => kybAppId && saveKybMutation.mutate({ applicationId: kybAppId, ...kybDetails() })}
                     >
                       {saveKybMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
                       Save details
@@ -1111,11 +1126,14 @@ function TenantOnboardingWizardInner() {
                     })}
                   </div>
 
+                  {kybMissing.length > 0 && kybApp?.status !== "pending" && kybApp?.status !== "approved" && (
+                    <p className="text-sm text-muted-foreground">Add your {listInWords(kybMissing)} to submit.</p>
+                  )}
                   <Button
-                    disabled={!kybCanSubmit || submitKybMutation.isPending}
-                    onClick={() => kybAppId && submitKybMutation.mutate({ applicationId: kybAppId })}
+                    disabled={!kybCanSubmit || submitKybMutation.isPending || saveKybMutation.isPending}
+                    onClick={() => void submitKyb()}
                   >
-                    {submitKybMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                    {(submitKybMutation.isPending || saveKybMutation.isPending) && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
                     Submit for review
                   </Button>
                 </CardContent>
@@ -1166,7 +1184,7 @@ function TenantOnboardingWizardInner() {
                       disabled={!canActivate || busy}
                     >
                       {activateMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
-                      Activate tenant
+                      Go live
                     </Button>
                   )}
                 </CardContent>
@@ -1198,6 +1216,15 @@ function TenantOnboardingWizardInner() {
 }
 
 export default function TenantOnboardingWizard() {
+  const { user, loading } = useAuth();
+  // A signed-in person with no business yet is exactly who this wizard is for: onboarding.start creates their shop
+  // (and refuses anyone who already has one). The Owner/Operator guard alone turned every new merchant away, because
+  // nobody is an owner before their shop exists. Platform admins configure tenants they manage. Decided once, when
+  // the page opens, so creating the shop mid-wizard doesn't swap in the guard and lose the wizard's progress.
+  const newMerchant = useRef<boolean | null>(null);
+  if (newMerchant.current === null && !loading && user) newMerchant.current = !user.tenantId || user.role === "admin";
+  if (loading || (user && newMerchant.current === null)) return <div className="p-8 text-center text-muted-foreground">Loading...</div>;
+  if (newMerchant.current) return <TenantOnboardingWizardInner />;
   return (
     <CapabilityGuard roles={["owner", "operator"]}>
       <TenantOnboardingWizardInner />

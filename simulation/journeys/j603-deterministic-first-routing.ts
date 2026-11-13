@@ -24,6 +24,7 @@
 import { eq } from "drizzle-orm";
 import { assert, assertIncludes, bodyText, TENANT_ID, type World } from "../world";
 import type { Journey } from "../runner";
+import { lastReply, replyCount } from "./helpers";
 
 export const journey: Journey = {
   id: "J603",
@@ -32,7 +33,7 @@ export const journey: Journey = {
   async run(world: World) {
     const phone = world.newPhone("483");
     await world.grantConsent(phone);
-    const last = () => bodyText(world.outbound.lastOfType("text", phone));
+    const last = () => bodyText(lastReply(world, phone));
 
     // sim-tenant's seed products (Jollof Rice/Grilled Chicken) are shared, mutable state — some other journey
     // may have genuinely sold some of the stock by the time this runs deep in a full suite. Read the ACTUAL
@@ -52,17 +53,17 @@ export const journey: Journey = {
 
     // 1. Greeting mid-conversation — warm, not a menu dump, zero LLM calls.
     const callsBeforeGreeting = world.llm.calls.length;
-    const beforeGreeting = world.outbound.ofType("text", phone).length;
+    const beforeGreeting = replyCount(world, phone);
     await world.text(phone, "hey there");
-    await world.waitFor(() => world.outbound.ofType("text", phone).length > beforeGreeting, 8000, "greeting reply");
+    await world.waitFor(() => replyCount(world, phone) > beforeGreeting, 8000, "greeting reply");
     assertIncludes(last(), "What would you like", "bare greeting gets a warm, human reply");
     assert(world.llm.calls.length === callsBeforeGreeting, "greeting must not call the LLM — it's an instant, unambiguous case");
 
     // 2. Stock question — answers directly, does NOT add to cart (the exact live bug this traces back to).
     const callsBeforeStock = world.llm.calls.length;
-    const before = world.outbound.ofType("text", phone).length;
+    const before = replyCount(world, phone);
     await world.text(phone, "how many jollof rice do you have left");
-    await world.waitFor(() => world.outbound.ofType("text", phone).length > before, 8000, "stock reply");
+    await world.waitFor(() => replyCount(world, phone) > before, 8000, "stock reply");
     const stockReply = last();
     assertIncludes(stockReply, String(currentJollofStock), "stock question answers with the real, current count");
     assertIncludes(stockReply, "Jollof Rice", "stock question names the product");
@@ -89,9 +90,9 @@ export const journey: Journey = {
     // SPECIFIC names appear was the wrong test. Assert the actual, channel-agnostic property instead: whatever
     // items DO show up are in strictly ascending price order.
     const callsBeforeCheaper = world.llm.calls.length;
-    const beforeCheaper = world.outbound.ofType("text", phone).length;
+    const beforeCheaper = replyCount(world, phone);
     await world.text(phone, "any cheaper options?");
-    await world.waitFor(() => world.outbound.ofType("text", phone).length > beforeCheaper, 8000, "cheaper-options reply");
+    await world.waitFor(() => replyCount(world, phone) > beforeCheaper, 8000, "cheaper-options reply");
     const cheaperReply = last();
     const prices = [...cheaperReply.matchAll(/—\s*[A-Z]{3}\s*([\d,]+\.\d{2})/g)].map((m) => Number(m[1].replace(/,/g, "")));
     assert(prices.length >= 2, `cheaper-options must list at least 2 priced items (got: ${JSON.stringify(cheaperReply)})`);
@@ -108,18 +109,18 @@ export const journey: Journey = {
       confidence: 0.8,
     });
     const callsBeforeOpen = world.llm.calls.length;
-    const beforeOpen = world.outbound.ofType("text", phone).length;
+    const beforeOpen = replyCount(world, phone);
     await world.text(phone, "what's the difference between jollof and fried rice");
-    await world.waitFor(() => world.outbound.ofType("text", phone).length > beforeOpen, 8000, "open-ended reply");
+    await world.waitFor(() => replyCount(world, phone) > beforeOpen, 8000, "open-ended reply");
     assertIncludes(last(), "tomato-pepper", "a genuinely open-ended question reaches the LLM and uses its answer");
     assert(world.llm.calls.length === callsBeforeOpen + 1, "exactly one LLM call for the open-ended question — deterministic couldn't place it, so it (and only it) escalated");
 
     // 6. Same kind of open-ended message, but with the LLM forced down — must NOT dead-end. The deterministic
     //    catch-all (already computed before the LLM was ever tried) is what the buyer sees instead.
     world.llm.forceNetworkError = true;
-    const beforeDown = world.outbound.ofType("text", phone).length;
+    const beforeDown = replyCount(world, phone);
     await world.text(phone, "what's the difference between suya and kilishi");
-    await world.waitFor(() => world.outbound.ofType("text", phone).length > beforeDown, 15000, "LLM-down reply");
+    await world.waitFor(() => replyCount(world, phone) > beforeDown, 15000, "LLM-down reply");
     const downReply = last();
     assert(downReply.length > 0, "LLM down must never produce silence");
     assertIncludes(downReply, "Jollof Rice", "LLM-down catch-all still shows the catalog, same safety net as before this change");
@@ -139,14 +140,14 @@ export const journey: Journey = {
     await world.db.update(schema2.products).set({ imageUrl: RELATIVE_PATH }).where(eq(schema2.products.id, "p-jollof"));
     try {
       const callsBeforeRelImg = world.llm.calls.length;
-      const beforeRelImgTxt = world.outbound.ofType("text", phone).length;
+      const beforeRelImgTxt = replyCount(world, phone);
       const beforeRelImg = productImageSends().length;
       await world.text(phone, "show me the jollof rice");
       await world.waitFor(() => productImageSends().length > beforeRelImg, 8000, "relative-path product image sent");
       const relImgCard = productImageSends().at(-1);
       const relImgCardStr = JSON.stringify(relImgCard?.body ?? {});
       assert(/https?:\/\//i.test(relImgCardStr) && !relImgCardStr.includes('"/api/storage'), `a relative imageUrl must be resolved to an absolute URL before being sent to the channel (got: ${relImgCardStr.slice(0, 200)})`);
-      await world.waitFor(() => world.outbound.ofType("text", phone).length > beforeRelImgTxt, 8000, "relative-path product text reply");
+      await world.waitFor(() => replyCount(world, phone) > beforeRelImgTxt, 8000, "relative-path product text reply");
       assertIncludes(last(), "http", "the image link also appears as a plain clickable URL in the text reply, not just the native photo attachment");
       assert(world.llm.calls.length === callsBeforeRelImg, "product detail lookup must not call the LLM");
     } finally {
@@ -163,32 +164,33 @@ export const journey: Journey = {
       extractedItems: [{ product: "Jollof Rice", quantity: 2 }],
       extractedProduct: null, extractedQuantity: null, extractedAddress: null, confidence: 0.95,
     });
-    const beforeAdd = world.outbound.ofType("text", phone).length;
+    const beforeAdd = replyCount(world, phone);
     await world.text(phone, "2 jollof rice");
-    await world.waitFor(() => world.outbound.ofType("text", phone).length > beforeAdd, 8000, "add-to-cart reply");
-    const beforeConfirm = world.outbound.ofType("text", phone).length;
+    await world.waitFor(() => replyCount(world, phone) > beforeAdd, 8000, "add-to-cart reply");
+    const beforeConfirm = replyCount(world, phone);
     await world.text(phone, "confirm");
-    await world.waitFor(() => world.outbound.ofType("text", phone).length > beforeConfirm, 8000, "fulfillment prompt");
-    const beforeOrder = world.outbound.ofType("text", phone).length;
+    await world.waitFor(() => replyCount(world, phone) > beforeConfirm, 8000, "fulfillment prompt");
+    const beforeOrder = replyCount(world, phone);
     await world.text(phone, "1"); // pickup
-    await world.waitFor(() => world.outbound.ofType("text", phone).length > beforeOrder, 15000, "order created with a real payment link");
-    const orderReply = last();
-    const linkMatch = /https:\/\/checkout\.paystack\.com\/sim\/\S+/.exec(orderReply);
+    await world.waitFor(() => replyCount(world, phone) > beforeOrder, 15000, "order created with a real payment link");
+    // The link rides on the order summary's Pay now button.
+    const orderReply = JSON.stringify(lastReply(world, phone)?.body ?? {});
+    const linkMatch = /https:\/\/checkout\.paystack\.com\/sim\/[^"\s]+/.exec(orderReply);
     assert(!!linkMatch, `order confirmation must include a real Paystack link to compare against (got: ${orderReply.slice(0, 300)})`);
     const realPaymentUrl = linkMatch![0];
 
     const callsBeforePay = world.llm.calls.length;
-    const beforePayReply = world.outbound.ofType("text", phone).length;
+    const beforePayReply = replyCount(world, phone);
     await world.text(phone, "Ok so what account should I pay to?");
-    await world.waitFor(() => world.outbound.ofType("text", phone).length > beforePayReply, 8000, "payment-question reply");
+    await world.waitFor(() => replyCount(world, phone) > beforePayReply, 8000, "payment-question reply");
     const payReply1 = last();
     assertIncludes(payReply1, realPaymentUrl, "asking about the payment account returns the REAL order's REAL payment link, not an invented account or a fake link");
     assert(!/example\.com/i.test(payReply1), "must never contain a fabricated placeholder link");
     assert(world.llm.calls.length === callsBeforePay, "a payment/account question must be answered from real order data, never escalated to the LLM to improvise");
 
-    const beforePayReply2 = world.outbound.ofType("text", phone).length;
+    const beforePayReply2 = replyCount(world, phone);
     await world.text(phone, "Can you share the paystack link with me?");
-    await world.waitFor(() => world.outbound.ofType("text", phone).length > beforePayReply2, 8000, "second payment-question reply");
+    await world.waitFor(() => replyCount(world, phone) > beforePayReply2, 8000, "second payment-question reply");
     const payReply2 = last();
     assertIncludes(payReply2, realPaymentUrl, "the SAME real payment link is returned for a differently-phrased request, not a freshly-invented one");
     assert(world.llm.calls.length === callsBeforePay, "still zero LLM calls for the second phrasing");
@@ -202,9 +204,9 @@ export const journey: Journey = {
       extractedItems: [{ product: "Dani milk", quantity: 1 }],
       extractedProduct: null, extractedQuantity: null, extractedAddress: null, confidence: 0.9,
     });
-    const beforeDani = world.outbound.ofType("text", phone).length;
+    const beforeDani = replyCount(world, phone);
     await world.text(phone, "Dani");
-    await world.waitFor(() => world.outbound.ofType("text", phone).length > beforeDani, 8000, "nonexistent-product reply");
+    await world.waitFor(() => replyCount(world, phone) > beforeDani, 8000, "nonexistent-product reply");
     const daniReply = last();
     assert(!/✅.*Dani/i.test(daniReply), `the LLM's own false "added" claim for a nonexistent product must be discarded, not shown (got: ${JSON.stringify(daniReply)})`);
     assertIncludes(daniReply, "couldn't find", "the real, grounded clarification is what the buyer sees instead");

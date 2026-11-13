@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from .ocr_processor import OCRProcessor
-from .vlm_processor import VLMProcessor
+from .vlm_processor import VLMProcessor, VerificationUnavailable
 from .liveness_processor import LivenessProcessor
 from .docling_processor import DoclingProcessor
 from .kafka_client import KafkaEventClient
@@ -23,7 +23,6 @@ from .redis_client import RedisSessionClient
 from .models import (
     DocumentVerificationRequest, DocumentVerificationResult,
     LivenessSessionRequest, LivenessFrameRequest, LivenessResult,
-    KYCApplicationSummary,
 )
 # === W34 otel-sidecars === fail-open OpenTelemetry (OTEL_ENABLED default
 # false — telemetry.py is import-safe without any opentelemetry packages).
@@ -125,22 +124,31 @@ async def verify_document(
     4. Risk scoring
     """
     content = await file.read()
+    mime = file.content_type or "image/jpeg"
     log.info("doc.verify.start", app_id=application_id, doc_type=document_type, size=len(content))
+    try:
+        # OCR and the vision model read images; a PDF (how most registration certificates arrive) is checked on
+        # its first page rendered as PNG. Docling reads the original.
+        image = await asyncio.get_running_loop().run_in_executor(None, _as_image, content, mime)
 
-    # Steps 1+2: OCR and Docling are independent — run them concurrently
-    # (=== W48 sidecars PERF-SC-25 ===; was sequential await → 2× latency).
-    ocr_result, docling_result = await asyncio.gather(
-        app.state.ocr.process(content, file.content_type or "image/jpeg"),
-        app.state.docling.parse(content, file.content_type or "image/jpeg"),
-    )
+        # Steps 1+2: OCR and Docling are independent — run them concurrently
+        # (=== W48 sidecars PERF-SC-25 ===; was sequential await → 2× latency).
+        ocr_result, docling_result = await asyncio.gather(
+            app.state.ocr.process(image, "image/png" if image is not content else mime),
+            app.state.docling.parse(content, mime),
+        )
 
-    # Step 3: VLM analysis
-    vlm_result = await app.state.vlm.analyze_document(
-        content=content,
-        document_type=document_type,
-        ocr_text=ocr_result.get("text", ""),
-        docling_fields=docling_result.get("fields", {}),
-    )
+        # Step 3: VLM analysis
+        vlm_result = await app.state.vlm.analyze_document(
+            content=image,
+            document_type=document_type,
+            ocr_text=ocr_result.get("text", ""),
+            docling_fields=docling_result.get("fields", {}),
+        )
+    except VerificationUnavailable as exc:
+        # Fail closed: the document stays unverified and the caller can retry. Never a made-up verdict.
+        log.error("doc.verify.unavailable", app_id=application_id, doc_type=document_type, reason=str(exc))
+        raise HTTPException(status_code=503, detail=f"verification unavailable: {exc}") from exc
 
     # Step 4: Risk scoring
     risk_score = _compute_document_risk(ocr_result, vlm_result)
@@ -245,15 +253,31 @@ async def get_liveness_session(session_id: str, _: str = Depends(verify_api_key)
     return session
 
 # ─── Risk Scoring ─────────────────────────────────────────────────────────────
+def _as_image(content: bytes, mime: str) -> bytes:
+    if "pdf" not in mime and not content.startswith(b"%PDF"):
+        return content
+    try:
+        import io
+        from pdf2image import convert_from_bytes
+        pages = convert_from_bytes(content, dpi=150, first_page=1, last_page=1)
+        out = io.BytesIO()
+        pages[0].save(out, format="PNG")
+        return out.getvalue()
+    except Exception as exc:
+        raise VerificationUnavailable("could not read the PDF") from exc
+
+
 def _compute_document_risk(ocr_result: dict, vlm_result: dict) -> float:
-    score = 1.0
+    """0 = no problems found, 1 = as risky as it gets. (It used to start at 1 and subtract per problem, so a fake,
+    tampered document scored "risk 0" — read by reviewers as safe.)"""
+    risk = 0.0
     if ocr_result.get("confidence", 0) < 0.6:
-        score -= 0.2
+        risk += 0.2
     if vlm_result.get("is_tampered"):
-        score -= 0.5
+        risk += 0.5
     if not vlm_result.get("is_authentic"):
-        score -= 0.3
+        risk += 0.3
     if vlm_result.get("missing_fields"):
-        score -= 0.1 * len(vlm_result["missing_fields"])
-    return max(0.0, round(score, 3))
+        risk += 0.1 * len(vlm_result["missing_fields"])
+    return min(1.0, round(risk, 3))
 

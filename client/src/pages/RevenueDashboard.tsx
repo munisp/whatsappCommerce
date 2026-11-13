@@ -11,11 +11,9 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts";
-import {
-  TrendingUp, TrendingDown, DollarSign, Users, CreditCard,
-  BarChart2, Info, ArrowUpRight, ArrowDownRight, Telescope, Trophy,
-} from "lucide-react";
+import { TrendingUp, TrendingDown, Banknote, Users, CreditCard, BarChart2, Info, ArrowUpRight, ArrowDownRight, Telescope, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatMoney, formatMoneyShort } from "@/lib/money";
 
 const COLORS = ["#33507A", "#2F6B46", "#B08D45", "#5A3E2B", "#A63A24", "#B4552F"];
 
@@ -25,8 +23,8 @@ function fmt(n: number, decimals = 0) {
   return `₦${n.toFixed(decimals)}`;
 }
 function fmtUsd(n: number) {
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(2)}k`;
-  return `$${n.toFixed(2)}`;
+  if (n >= 1_000) return `₦${(n / 1_000).toFixed(2)}k`;
+  return `₦${n.toFixed(2)}`;
 }
 function pct(n: number) {
   return `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
@@ -150,7 +148,7 @@ function RevenueDashboardInner() {
               title="Platform Revenue (MTD)"
               value={fmtUsd(summary.totalPlatformRevenue)}
               sub={`Profit share: ${fmtUsd(summary.platformProfitShare)} · Txn: ${fmtUsd(summary.platformTxnRevenue)}`}
-              icon={DollarSign}
+              icon={Banknote}
               accent
             />
             <KpiCard
@@ -225,7 +223,7 @@ function RevenueDashboardInner() {
                       <Tooltip content={<CustomTooltip />} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
                       <Area type="monotone" dataKey="gmv" name="GMV (₦)" stroke="#33507A" fill="url(#gmvGrad)" strokeWidth={2} />
-                      <Area type="monotone" dataKey="platformRevenue" name="Platform Revenue ($)" stroke="#2F6B46" fill="url(#revGrad)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="platformRevenue" name="Platform Revenue (₦)" stroke="#2F6B46" fill="url(#revGrad)" strokeWidth={2} />
                     </AreaChart>
                   </ResponsiveContainer>
                 )}
@@ -337,7 +335,7 @@ function RevenueDashboardInner() {
                       <YAxis tick={{ fontSize: 11, fill: "#75695A" }} tickFormatter={(v) => fmtUsd(v)} />
                       <Tooltip content={<CustomTooltip />} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Area type="monotone" dataKey="platformRevenue" name="Platform Revenue ($)" stroke="#2F6B46" fill="url(#foreGrad)" strokeWidth={2} connectNulls />
+                      <Area type="monotone" dataKey="platformRevenue" name="Platform Revenue (₦)" stroke="#2F6B46" fill="url(#foreGrad)" strokeWidth={2} connectNulls />
                       <Area type="monotone" dataKey="gmv" name="GMV (₦)" stroke="#33507A" fill="none" strokeWidth={1.5} connectNulls />
                     </AreaChart>
                   </ResponsiveContainer>
@@ -524,10 +522,10 @@ function RevenueDashboardInner() {
                       {accuracyData.map((row: any) => (
                         <tr key={row.snapshotMonth} className="border-b last:border-0 hover:bg-muted/30">
                           <td className="py-2 pr-4 font-mono font-medium">{row.snapshotMonth}</td>
-                          <td className="py-2 pr-4 text-right">${row.projectedRevenue.toFixed(2)}</td>
-                          <td className="py-2 pr-4 text-right">{row.actualRevenue != null ? `$${row.actualRevenue.toFixed(2)}` : <span className="text-muted-foreground">Pending</span>}</td>
-                          <td className="py-2 pr-4 text-right">${row.projectedGmv.toFixed(2)}</td>
-                          <td className="py-2 pr-4 text-right">{row.actualGmv != null ? `$${row.actualGmv.toFixed(2)}` : <span className="text-muted-foreground">Pending</span>}</td>
+                          <td className="py-2 pr-4 text-right">{formatMoney(row.projectedRevenue)}</td>
+                          <td className="py-2 pr-4 text-right">{row.actualRevenue != null ? formatMoney(row.actualRevenue) : <span className="text-muted-foreground">Pending</span>}</td>
+                          <td className="py-2 pr-4 text-right">{formatMoney(row.projectedGmv)}</td>
+                          <td className="py-2 pr-4 text-right">{row.actualGmv != null ? formatMoney(row.actualGmv) : <span className="text-muted-foreground">Pending</span>}</td>
                           <td className="py-2 text-right">
                             {row.accuracyPct != null ? (
                               <span className={`font-semibold ${row.accuracyPct >= 90 ? "text-green-600" : row.accuracyPct >= 70 ? "text-yellow-600" : "text-red-600"}`}>

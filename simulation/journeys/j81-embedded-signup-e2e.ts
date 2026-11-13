@@ -158,7 +158,9 @@ export const journey: Journey = {
       assert(row?.wabaId === "waba_j81", "tenants.whatsappBusinessAccountId updated");
       assert(row?.phoneNumberId === "pn_j81", "tenants.whatsappPhoneNumberId updated");
       const wa = ((row?.settings as any)?.whatsapp ?? {}) as Record<string, unknown>;
-      assert(wa.accessToken === "meta-token-j81", "settings.whatsapp.accessToken persisted");
+      const { decryptSecret } = await import("../../server/services/crypto/secrets");
+      assert(typeof wa.accessToken === "string" && wa.accessToken !== "meta-token-j81", "settings.whatsapp.accessToken is stored encrypted, never in clear");
+      assert(decryptSecret(wa.accessToken as string) === "meta-token-j81", "settings.whatsapp.accessToken persisted (decrypts to the exchanged token)");
       assert(wa.onboardingStatus === "completed", "settings.whatsapp.onboardingStatus completed");
       const creds = await resolveWabaCredentials(world.db, TENANT_ID);
       assert(creds?.wabaId === "waba_j81" && creds.accessToken === "meta-token-j81", "resolveWabaCredentials reads the new creds");

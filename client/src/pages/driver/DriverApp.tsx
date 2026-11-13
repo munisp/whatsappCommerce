@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Bike, LogOut, MapPin, Package, Power, CheckCircle2 } from "lucide-react";
+import { Bike, Camera, LogOut, MapPin, Package, Power, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
+import { shrinkPhoto } from "@/lib/shrinkPhoto";
 
 const TOKEN_KEY = "driverToken";
 
@@ -253,7 +254,11 @@ function DriverDashboard({ token, driver, onLogout }: { token: string; driver: D
                         <span>{(d.dropoffAddress as { raw?: string })?.raw ?? "Delivery address on file"}</span>
                       </div>
                     ) : null}
-                    {next && (
+                    {next === "delivered" ? (
+                      <Handover delivery={d as any} pending={updateStatus.isPending}
+                        error={updateStatus.error?.message}
+                        onDeliver={(h) => updateStatus.mutate({ token, deliveryId: d.id, status: "delivered", ...h })} />
+                    ) : next && (
                       <Button
                         size="sm"
                         className="w-full"
@@ -271,6 +276,45 @@ function DriverDashboard({ token, driver, onLogout }: { token: string; driver: D
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+
+/** The handover on the "delivered" step: the customer's PIN and a photo (required when the shop asks for one). */
+function Handover({ delivery, pending, error, onDeliver }: {
+  delivery: { needsPin?: boolean; photoRequired?: boolean; cashDue?: number | null };
+  pending: boolean;
+  error?: string;
+  onDeliver: (h: { pin?: string; photoBase64?: string; photoMimeType?: string; cashCollected?: number }) => void;
+}) {
+  const [pin, setPin] = useState("");
+  const [cash, setCash] = useState(delivery.cashDue != null ? String(delivery.cashDue) : "");
+  const [photo, setPhoto] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const ready = (!delivery.needsPin || pin.length >= 4) && (!delivery.photoRequired || !!photo) && (delivery.cashDue == null || Number(cash) > 0) && !pending;
+  return (
+    <div className="space-y-2">
+      {delivery.cashDue != null && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-2 space-y-1">
+          <div className="text-xs font-semibold">Collect ₦{delivery.cashDue.toLocaleString()} in cash</div>
+          <Input inputMode="decimal" value={cash} aria-label="Cash you collected" onChange={(e) => setCash(e.target.value.replace(/[^\d.]/g, ""))} />
+        </div>
+      )}
+      {delivery.needsPin && (
+        <Input inputMode="numeric" maxLength={8} value={pin} aria-label="Customer's delivery PIN"
+          placeholder="Customer's delivery PIN" onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} />
+      )}
+      <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" aria-label="Take a photo of the delivery"
+        onChange={async (e) => { const f = e.target.files?.[0]; if (f) setPhoto((await shrinkPhoto(f)).dataUrl); }} />
+      <Button type="button" size="sm" variant="outline" className="w-full" onClick={() => fileRef.current?.click()}>
+        <Camera className="h-3.5 w-3.5 mr-1" /> {photo ? "Photo taken (tap to retake)" : `Take photo${delivery.photoRequired ? "" : " (optional)"}`}
+      </Button>
+      {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+      <Button size="sm" className="w-full" disabled={!ready}
+        onClick={() => onDeliver({ pin: pin || undefined, photoBase64: photo ?? undefined, photoMimeType: photo ? photo.slice(5, photo.indexOf(";")) : undefined, cashCollected: delivery.cashDue != null ? Number(cash) : undefined })}>
+        <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Mark as delivered
+      </Button>
     </div>
   );
 }
