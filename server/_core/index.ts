@@ -1900,16 +1900,17 @@ async function startServer() {
         }
       }
       if (!authorized) { res.status(401).json({ error: "Authentication required" }); return; }
-      const { join, normalize } = await import("path");
-      const { createReadStream, existsSync } = await import("fs");
-      const { ucDocsDir } = await import("../services/ucDocsPdf");
-      const abs = normalize(join(ucDocsDir(), rel));
-      if (!abs.startsWith(normalize(ucDocsDir())) || !existsSync(abs)) { res.status(404).send("Not found"); return; }
+      // W67: streamed via the OpenDAL facade (uc-docs namespace); fs scheme
+      // reads the exact UC_DOCS_DIR layout, s3 scheme reads uc-docs/{rel}.
+      // Traversal guard (".." rejected above) is unchanged.
+      const { docsGet } = await import("../services/opendalStorage");
+      const buf = await docsGet("uc-docs", rel);
+      if (!buf) { res.status(404).send("Not found"); return; }
       res.set("Content-Type", "application/pdf");
       res.set("Content-Disposition", `attachment; filename="${rel.split("/").pop()}"`);
       res.set("X-Content-Type-Options", "nosniff");
       res.set("Cache-Control", "private, no-store");
-      createReadStream(abs).pipe(res);
+      res.end(buf);
     } catch {
       res.status(404).send("Not found");
     }

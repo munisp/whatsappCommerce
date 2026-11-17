@@ -62,7 +62,7 @@ export const journey: Journey = {
     // Idempotent regeneration: same key, regenerated flag, single manifest entry.
     const regen = await svc.generateWalletStatement(world.db, { tenantId, from, to });
     assert(regen.regenerated === true && regen.record.id === gen.record.id, "regeneration reuses the manifest entry");
-    assert(svc.listWalletStatements(tenantId).length === 1, "one manifest entry after regeneration");
+    assert((await svc.listWalletStatements(tenantId)).length === 1, "one manifest entry after regeneration");
 
     // Empty period (Sept 2025): honest carry-forward, zero totals.
     const empty = await svc.computeWalletStatement(world.db, {

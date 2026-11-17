@@ -50,7 +50,7 @@ export const journey: Journey = {
     assert(reply.includes("5,000.00"), "reply carries the closing balance");
     await world.waitFor(() => world.outbound.ofType("document", adminPhone).length >= 1,
       12000, "WA statement PDF document delivered");
-    const waStatements = svc.listWalletStatements(TENANT_ID);
+    const waStatements = await svc.listWalletStatements(TENANT_ID);
     assert(waStatements.some((s) => s.periodStart === period.from.toISOString().slice(0, 10)),
       "statement recorded in the manifest");
 

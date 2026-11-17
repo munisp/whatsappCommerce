@@ -15,6 +15,8 @@ KNOWN_KINDS = {
     ("cilium.io/v2", "CiliumClusterwideNetworkPolicy"),
     ("cilium.io/v2alpha1", "CiliumL2AnnouncementPolicy"),
     ("cilium.io/v2alpha1", "CiliumLoadBalancerIPPool"),
+    # W67: one-shot provisioning Jobs (e.g. minio-init bucket creation).
+    ("batch/v1", "Job"),
     ("external-secrets.io/v1beta1", "ExternalSecret"),
 }
 CNP_SPEC_FIELDS = {"endpointSelector", "ingress", "egress", "description", "nodeSelector", "ingressDeny", "egressDeny"}

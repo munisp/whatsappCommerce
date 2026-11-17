@@ -19,7 +19,6 @@
  * never carry JS Dates (ISO strings only) for PGlite compatibility.
  */
 import { sql } from "drizzle-orm";
-import fs from "node:fs";
 import path from "node:path";
 import { getDb } from "../db";
 
@@ -112,10 +111,13 @@ export async function exportTable(db: Db, def: ExportTableDef, opts: { tenantId?
     const wmRaw = rows[rows.length - 1][def.wmCol.replace(/"/g, "")];
     const wmDate = new Date(wmRaw);
     const day = wmDate.toISOString().slice(0, 10);
-    const dir = path.join(bronzeDir(), "bronze", def.table, `dt=${day}`);
-    fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, `batch-${wmDate.getTime()}.json`);
-    fs.writeFileSync(file, JSON.stringify(rows, (_k, v) => (typeof v === "bigint" ? Number(v) : v)));
+    // W67: written through the OpenDAL facade. Lakehouse stays fs-rooted
+    // even under OPENDAL_SCHEME=s3 — the python ml-stack pipeline reads the
+    // same shared directory (docs/storage-opendal.md, shared-root contract).
+    const relKey = `bronze/${def.table}/dt=${day}/batch-${wmDate.getTime()}.json`;
+    const file = path.join(bronzeDir(), relKey);
+    const { lakehousePut } = await import("./opendalStorage");
+    await lakehousePut(relKey, JSON.stringify(rows, (_k, v) => (typeof v === "bigint" ? Number(v) : v)));
 
     await writeWatermark(db, def.table, wmDate.toISOString(), rows.length);
     return { table: def.table, rows: rows.length, watermark: wmDate.toISOString(), file };

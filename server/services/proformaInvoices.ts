@@ -133,7 +133,7 @@ export function proformaPdfLines(pf: any): string[] {
   ];
 }
 
-export function renderProformaPdf(pf: any, tenantId: string): string {
+export async function renderProformaPdf(pf: any, tenantId: string): Promise<string> {
   const pdf = linesToPdf({ title: `PROFORMA INVOICE PF-${String(pf.proformaNo).padStart(5, "0")}`, lines: proformaPdfLines(pf) });
   const rel = `${String(tenantId).replace(/[^A-Za-z0-9_.-]/g, "_")}/proformas/pf-${String(pf.proformaNo).padStart(5, "0")}.pdf`;
   return writeDocPdf(rel, pdf);
@@ -151,7 +151,7 @@ export async function sendProforma(db: Db, opts: { tenantId: string; proformaId:
   const phone = opts.phone ?? pf.customerPhone;
   if (!phone) throw new ProformaError("NO_PHONE", "no customer phone on file");
 
-  const rel = renderProformaPdf(pf, opts.tenantId); // re-render deterministically
+  const rel = await renderProformaPdf(pf, opts.tenantId); // re-render deterministically
   const res = await sendChatDocument(opts.tenantId, phone, {
     relPath: rel,
     filename: `proforma-PF-${String(pf.proformaNo).padStart(5, "0")}.pdf`,

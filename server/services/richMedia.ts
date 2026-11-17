@@ -274,7 +274,7 @@ export async function sendOrderReceiptPdf(
       ],
     });
     const rel = `receipts/${tenantId}/receipt-${input.orderNumber}.pdf`;
-    writeDocPdf(rel, pdf);
+    await writeDocPdf(rel, pdf);
     const res = await sendChatDocument(tenantId, phone, {
       relPath: rel,
       filename: `receipt-${input.orderNumber}.pdf`,

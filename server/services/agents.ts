@@ -276,7 +276,7 @@ export async function generateCommissionStatement(
       lines: commissionStatementPdfLines({ ...st, tenant_id: tenantId }, agent, lines.map((l) => ({ orderId: l.order_id, orderTotalCents: Number(l.order_total_cents), commissionCents: Number(l.commission_cents) }))),
     });
     const rel = `${String(tenantId).replace(/[^A-Za-z0-9_.-]/g, "_")}/commissions/${agent.code}-${from.toISOString().slice(0, 10)}_${to.toISOString().slice(0, 10)}.${currency}.${statementId.slice(0, 8)}.pdf`;
-    writeDocPdf(rel, pdf); // throws honestly before any row claims 'generated'
+    await writeDocPdf(rel, pdf); // throws honestly before any row claims 'generated'
 
     const now = new Date();
     await db.insert(agentCommissionStatements).values({

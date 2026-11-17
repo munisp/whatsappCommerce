@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017861238",
+      "phone": "2348016326462",
       "profileName": "Port J356",
       "inboundId": "wamid.sim.in.j356.00001",
-      "at": 1792879471471,
+      "at": 1794939766217,
       "kind": "system",
-      "text": "{\"from\":\"2348017861238\",\"id\":\"wamid.sim.in.j356.00001\",\"timestamp\":\"1792879471\",\"type\":\"system\",\"system\":{\"body\":\"User changed from old to new number\",\"type\":\"customer_changed_number\",\"new_wa_id\":\"234"
+      "text": "{\"from\":\"2348016326462\",\"id\":\"wamid.sim.in.j356.00001\",\"timestamp\":\"1794939766\",\"type\":\"system\",\"system\":{\"body\":\"User changed from old to new number\",\"type\":\"customer_changed_number\",\"new_wa_id\":\"234"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.j356.00001",
-      "at": 1792879471478
+      "at": 1794939766222
     },
     {
       "dir": "out",
-      "phone": "2348018219218",
+      "phone": "2348016542792",
       "wamid": "wamid.sim.001012",
       "statuses": [
         "sent"
       ],
-      "at": 1792879471489,
+      "at": 1794939766228,
       "kind": "text",
       "body": "Your WhatsApp number changed — we've moved your account, consent and cart to your new number. ✅"
     }

@@ -1,15 +1,15 @@
 {
   "statements": [
     {
-      "id": "b8963e5c-36bd-4d54-844e-950923fdecb2",
+      "id": "d83cb83f-7a6c-4039-92bc-ee8d0cdc5e63",
       "walletId": "platform-fee-wallet",
-      "periodStart": "2026-09-01",
-      "periodEnd": "2026-10-01",
-      "pdfPath": "platform-fees/wallet-statements/statement-2026-09-01_2026-10-01.pdf",
+      "periodStart": "2026-10-01",
+      "periodEnd": "2026-11-01",
+      "pdfPath": "platform-fees/wallet-statements/statement-2026-10-01_2026-11-01.pdf",
       "openingCents": 37865,
       "closingCents": 37865,
       "txCount": 0,
-      "generatedAt": "2026-10-24T21:43:47.470Z",
+      "generatedAt": "2026-11-17T18:26:11.192Z",
       "deliveries": []
     }
   ]

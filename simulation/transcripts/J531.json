@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017618017",
-      "profileName": "Sim User 8017",
+      "phone": "2348019379718",
+      "profileName": "Sim User 9718",
       "inboundId": "wamid.sim.in.text.00578",
-      "at": 1792879620061,
+      "at": 1794939902375,
       "kind": "text",
       "text": "do you have shoes?"
     },
@@ -18,27 +18,27 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00578",
-      "at": 1792879620073
+      "at": 1794939902378
     },
     {
       "dir": "out",
-      "phone": "2348017618017",
+      "phone": "2348019379718",
       "wamid": "wamid.sim.001184",
       "statuses": [
         "sent"
       ],
-      "at": 1792879620109,
+      "at": 1794939902401,
       "kind": "text",
       "body": "Yes — we have shoes in stock."
     },
     {
       "dir": "out",
-      "phone": "2348017618017",
+      "phone": "2348019379718",
       "wamid": "wamid.sim.001185",
       "statuses": [
         "sent"
       ],
-      "at": 1792879620118,
+      "at": 1794939902406,
       "kind": "interactive",
       "body": "🔥 Promo SHARE31 — 25% off with code SHARE31",
       "header": "Promo SHARE31",
@@ -59,10 +59,10 @@
     },
     {
       "dir": "in",
-      "phone": "2348017618017",
-      "profileName": "Sim User 8017",
+      "phone": "2348019379718",
+      "profileName": "Sim User 9718",
       "inboundId": "wamid.sim.in.btn.00579",
-      "at": 1792879620606,
+      "at": 1794939902919,
       "kind": "button_reply",
       "text": "📤 Share",
       "payloadId": "promo_share:SHARE31"
@@ -71,18 +71,18 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.btn.00579",
-      "at": 1792879620613
+      "at": 1794939902924
     },
     {
       "dir": "out",
-      "phone": "2348017618017",
+      "phone": "2348019379718",
       "wamid": "wamid.sim.001186",
       "statuses": [
         "sent"
       ],
-      "at": 1792879620627,
+      "at": 1794939902938,
       "kind": "text",
-      "body": "📤 Share this deal with friends!\n🔥 Promo SHARE31 — 25% off at our store! Use code SHARE31. Referral: REF-TU258W\n\nWhatsApp: https://wa.me/?text=%F0%9F%94%A5%20Promo%20SHARE31%20%E2%80%94%2025%25%20off%20at%20our%20store!%20Use%20code%20SHARE31.%20Referral%3A%20REF-TU258W%20https%3A%2F%2Fwa.me%2F2349000000531%3Ftext%3DDEAL%2520SHARE31%2520REF%2520REF-TU258W\nTelegram: https://t.me/share/url?url=https%3A%2F%2Fwa.me%2F2349000000531%3Ftext%3DDEAL%2520SHARE31%2520REF%2520REF-TU258W&text=%F0%9F%94%A5%20Promo%20SHARE31%20%E2%80%94%2025%25%20off%20at%20our%20store!%20Use%20code%20SHARE31.%20Referral%3A%20REF-TU258W\n\nForward: 🔥 Promo SHARE31 — 25% off at our store! Use code SHARE31. Referral: REF-TU258W https://wa.me/2349000000531?text=DEAL%20SHARE31%20REF%20REF-TU258W"
+      "body": "📤 Share this deal with friends!\n🔥 Promo SHARE31 — 25% off at our store! Use code SHARE31. Referral: REF-KR9PT6\n\nWhatsApp: https://wa.me/?text=%F0%9F%94%A5%20Promo%20SHARE31%20%E2%80%94%2025%25%20off%20at%20our%20store!%20Use%20code%20SHARE31.%20Referral%3A%20REF-KR9PT6%20https%3A%2F%2Fwa.me%2F2349000000531%3Ftext%3DDEAL%2520SHARE31%2520REF%2520REF-KR9PT6\nTelegram: https://t.me/share/url?url=https%3A%2F%2Fwa.me%2F2349000000531%3Ftext%3DDEAL%2520SHARE31%2520REF%2520REF-KR9PT6&text=%F0%9F%94%A5%20Promo%20SHARE31%20%E2%80%94%2025%25%20off%20at%20our%20store!%20Use%20code%20SHARE31.%20Referral%3A%20REF-KR9PT6\n\nForward: 🔥 Promo SHARE31 — 25% off at our store! Use code SHARE31. Referral: REF-KR9PT6 https://wa.me/2349000000531?text=DEAL%20SHARE31%20REF%20REF-KR9PT6"
     }
   ]
 }

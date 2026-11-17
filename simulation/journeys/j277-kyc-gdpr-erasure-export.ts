@@ -93,7 +93,28 @@ export const journey: Journey = {
     assert(kyc.livenessChecks.length === 1, "export includes liveness checks");
 
     // ── 2. Erasure scrubs KYC PII + tombstones the S3 scan ───────────────
-    const erased = await caller.privacy.requestErasure({ reason: "J277 DSAR" });
+    // W67: the sim now HAS a working object store (OpenDAL fs scheme), so
+    // to exercise the honest-tombstone contract we point the facade at an
+    // s3 scheme with no reachable backend for the duration of the erasure —
+    // the delete then genuinely throws, exactly like the pre-W67 "no object
+    // store in sim" environment. Env is restored afterwards.
+    const od = await import("../../server/services/opendalStorage");
+    const savedEnv: Record<string, string | undefined> = {};
+    for (const k of ["OPENDAL_SCHEME", "OPENDAL_S3_BUCKET", "OPENDAL_S3_ENDPOINT", "OPENDAL_S3_ACCESS_KEY_ID", "OPENDAL_S3_SECRET_ACCESS_KEY", "S3_BUCKET", "S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY"]) {
+      savedEnv[k] = process.env[k];
+      delete process.env[k];
+    }
+    process.env.OPENDAL_SCHEME = "s3"; // unconfigured → delete fails closed
+    od._resetOpendalForTests();
+    let erased: any;
+    try {
+      erased = await caller.privacy.requestErasure({ reason: "J277 DSAR" });
+    } finally {
+      for (const [k, v] of Object.entries(savedEnv)) {
+        if (v === undefined) delete process.env[k]; else process.env[k] = v;
+      }
+      od._resetOpendalForTests();
+    }
     assert(erased.status === "completed", "erasure completed (no open escrows/withdrawals)");
     const k = (erased as any).kycErasure;
     assert(k && k.documentsScrubbed === 1, `KYC document scrubbed (got ${JSON.stringify(k)})`);
@@ -113,8 +134,21 @@ export const journey: Journey = {
     assert(liv.analysisResult === null, "liveness analysis (biometrics-adjacent) scrubbed");
 
     // ── 3. The erasure sweep picks up the tombstone (retry still fails in sim) ──
-    const { runKycErasureSweep } = await import("../../server/services/kycPrivacy");
-    const sweep = await runKycErasureSweep(world.db);
+    // Same forced-unreachable backend as step 2, so the sweep's retry also
+    // honestly fails (with the fs scheme the idempotent delete would succeed).
+    for (const k of Object.keys(savedEnv)) delete process.env[k];
+    process.env.OPENDAL_SCHEME = "s3";
+    od._resetOpendalForTests();
+    let sweep: any;
+    try {
+      const { runKycErasureSweep } = await import("../../server/services/kycPrivacy");
+      sweep = await runKycErasureSweep(world.db);
+    } finally {
+      for (const [k, v] of Object.entries(savedEnv)) {
+        if (v === undefined) delete process.env[k]; else process.env[k] = v;
+      }
+      od._resetOpendalForTests();
+    }
     assert(sweep.scanned >= 1, "sweep found the tombstoned document");
     assert(sweep.deleted === 0 && sweep.failed >= 1, "sweep honestly reports the still-failing S3 delete");
 

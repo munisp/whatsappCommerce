@@ -70,7 +70,7 @@ export const walletStatementsRouter = router({
       await requireDb();
       assertTenantAccess(ctx.user, input.tenantId);
       const { listWalletStatements } = await import("../services/walletStatements");
-      return listWalletStatements(input.tenantId);
+      return listWalletStatements(input.tenantId); // async passthrough
     }),
 
   /** Authorized download: capability-token URL for the exact PDF key. */
@@ -80,7 +80,7 @@ export const walletStatementsRouter = router({
       await requireDb();
       assertTenantAccess(ctx.user, input.tenantId);
       const { getWalletStatementRecord } = await import("../services/walletStatements");
-      const record = getWalletStatementRecord(input.tenantId, input.statementId);
+      const record = await getWalletStatementRecord(input.tenantId, input.statementId);
       if (!record) throw new TRPCError({ code: "NOT_FOUND", message: "statement not found" });
       const { mintCapabilityToken } = await import("../services/capabilityTokens");
       const cap = mintCapabilityToken({ type: "storage_cap", resource: `uc-docs/${record.pdfPath}`, tenantId: input.tenantId }, 3600);

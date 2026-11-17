@@ -59,7 +59,10 @@ export const journey: Journey = {
     assertIncludes(src, "pg_dump", "logical dump via pg_dump");
     assertIncludes(src, "--format=custom", "custom-format dump");
     assertIncludes(src, "PRE_MIGRATION_DUMP_S3_BUCKET", "object-storage upload knob");
-    assertIncludes(src, "fPutObject", "minio upload path");
+    // W67: the upload path moved from the minio SDK (fPutObject) to the
+    // OpenDAL facade's putToBucket (s3 service, legacy S3_* env fallback).
+    assertIncludes(src, "putToBucket", "opendal upload path");
+    assertIncludes(src, "opendalStorage", "upload goes through the OpenDAL facade");
     assertIncludes(src, "databaseUrl: url", "CLI hands the DSN to the dump step");
 
     // ── docs ─────────────────────────────────────────────────────────────

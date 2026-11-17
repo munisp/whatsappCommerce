@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-24T22:09:06.090Z",
+  "generatedAt": "2026-11-17T18:27:01.736Z",
   "businessName": "Simply Green (simulated tenant)",
   "allPass": true,
   "journeys": [
@@ -4746,6 +4746,46 @@
       "pass": true,
       "file": "J630.json",
       "messageCount": 7
+    },
+    {
+      "id": "J631",
+      "title": "opendal facade put/get/list/stat/presign fallback roundtrip (fs scheme)",
+      "feature": "W67 OpenDAL storage layer",
+      "pass": true,
+      "file": "J631.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J632",
+      "title": "uc-docs statement write+read through the OpenDAL facade (manifest RMW)",
+      "feature": "W67 OpenDAL storage layer",
+      "pass": true,
+      "file": "J632.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J633",
+      "title": "storage route auth policy + delegates regression on the OpenDAL backend",
+      "feature": "W67 OpenDAL storage layer",
+      "pass": true,
+      "file": "J633.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J634",
+      "title": "GDPR delete contract: idempotent delete, throw-on-unreachable, prod fail-closed",
+      "feature": "W67 OpenDAL storage layer",
+      "pass": true,
+      "file": "J634.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J635",
+      "title": "JSONL append/rewrite via OpenDAL facade + DLQ fallback end-to-end",
+      "feature": "W67 OpenDAL storage layer",
+      "pass": true,
+      "file": "J635.json",
+      "messageCount": 0
     },
     {
       "id": "J64",

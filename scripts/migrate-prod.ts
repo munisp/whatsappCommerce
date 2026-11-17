@@ -288,20 +288,15 @@ export async function runPreMigrationDump(opts: {
   const bucket = (env.PRE_MIGRATION_DUMP_S3_BUCKET ?? "").trim();
   if (!bucket) return { status: "local", path: file };
   try {
-    const { Client } = await import("minio");
-    const endpointRaw = (env.S3_ENDPOINT ?? "").trim();
-    const endpointUrl = endpointRaw.startsWith("http") ? new URL(endpointRaw) : null;
-    const client = new Client(endpointUrl
-      ? {
-          endPoint: endpointUrl.hostname,
-          port: Number(endpointUrl.port || (endpointUrl.protocol === "https:" ? 443 : 80)),
-          useSSL: endpointUrl.protocol === "https:",
-          accessKey: env.S3_ACCESS_KEY ?? "",
-          secretKey: env.S3_SECRET_KEY ?? "",
-        }
-      : { endPoint: endpointRaw, useSSL: false, accessKey: env.S3_ACCESS_KEY ?? "", secretKey: env.S3_SECRET_KEY ?? "" });
+    // W67: upload via the OpenDAL facade (s3 service; honors OPENDAL_S3_*
+    // with fallback to the legacy S3_ENDPOINT/S3_ACCESS_KEY/S3_SECRET_KEY).
+    const { putToBucket } = await import("../server/services/opendalStorage");
     const objectKey = `pre-migration/${path.basename(file)}`;
-    await client.fPutObject(bucket, objectKey, file, { "Content-Type": "application/octet-stream" });
+    await putToBucket(bucket, objectKey, fs.readFileSync(file), {
+      endpoint: env.S3_ENDPOINT ?? "",
+      accessKeyId: env.S3_ACCESS_KEY ?? "",
+      secretAccessKey: env.S3_SECRET_KEY ?? "",
+    });
     log(`[migrate-prod] pre-migration dump uploaded: s3://${bucket}/${objectKey}`);
     return { status: "uploaded", path: file, objectKey };
   } catch (err: any) {

@@ -36,7 +36,7 @@ describe("WhatsApp feature simulation (496 journeys)", () => {
   });
 
   it("loads the full journey registry", () => {
-    expect(journeys.length).toBe(629); // W66 learning: 623 + J625-J630 (lakehouse export, intent-miss, dispute outcomes, demand signals, restock intel, buyer reorder) = 629 ACTUAL via loadJourneys.
+    expect(journeys.length).toBe(634); // W67 opendal: 629 + J631-J635 (facade roundtrip, uc-docs facade, auth-policy regression, GDPR delete contract, JSONL append) = 634 ACTUAL via loadJourneys.
     const ids = journeys.map((j) => j.id);
     expect(new Set(ids).size).toBe(ids.length);
   });

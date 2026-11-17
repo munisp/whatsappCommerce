@@ -132,7 +132,10 @@ export const journey: Journey = {
       });
       const [stored] = await world.db.select().from(schema.logisticsShipments)
         .where(eq(schema.logisticsShipments.id, shipmentId));
-      assert(stored.deliveryPin && isHashedDeliveryPin(stored.deliveryPin) && !stored.deliveryPin.includes("4321"),
+      // Structural check: pinv1: + 64 hex chars (HMAC-SHA256). Note: a
+      // substring check like !hash.includes("4321") is probabilistically
+      // flaky — the hex digest can legitimately contain "4321" by chance.
+      assert(stored.deliveryPin && isHashedDeliveryPin(stored.deliveryPin) && /^pinv1:[0-9a-f]{64}$/.test(stored.deliveryPin),
         "PIN stored hashed, never plaintext");
 
       for (let i = 1; i <= 5; i++) {

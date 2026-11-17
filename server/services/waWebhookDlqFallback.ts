@@ -17,7 +17,6 @@
  * and J310/J311 journeys).
  */
 
-import { appendFile, readFile, writeFile } from "fs/promises";
 import { eq } from "drizzle-orm";
 import type { getDb } from "../db";
 import { tenants, waWebhookEvents } from "../../drizzle/schema";
@@ -62,7 +61,10 @@ export async function persistWaWebhookFallback(record: WaWebhookDlqRecord): Prom
   } catch (e: any) {
     console.warn("[wa-dlq-fallback] redis persist failed, trying file:", e?.message ?? e);
   }
-  await appendFile(waDlqFallbackFile(), JSON.stringify(stamped) + "\n", "utf8");
+  // W67: append via the OpenDAL facade (fs scheme = native O_APPEND on the
+  // same path; s3 scheme = read-append-rewrite of the JSONL object).
+  const { jsonlAppend } = await import("./opendalStorage");
+  await jsonlAppend(waDlqFallbackFile(), JSON.stringify(stamped));
   return "file";
 }
 
@@ -163,7 +165,8 @@ export async function replayWaWebhookFallback(db: Db): Promise<{
   // ── File backend ─────────────────────────────────────────────────────────
   try {
     const path = waDlqFallbackFile();
-    const content = await readFile(path, "utf8").catch(() => "");
+    const { jsonlReadAll, jsonlWriteAll } = await import("./opendalStorage");
+    const content = await jsonlReadAll(path).catch(() => "");
     const lines = content.split("\n").filter((l) => l.trim().length > 0);
     let replayed = 0;
     for (const line of lines) {
@@ -173,9 +176,9 @@ export async function replayWaWebhookFallback(db: Db): Promise<{
       else break;
     }
     if (replayed === lines.length) {
-      await writeFile(path, "", "utf8");
+      await jsonlWriteAll(path, "");
     } else if (replayed > 0) {
-      await writeFile(path, lines.slice(replayed).join("\n") + "\n", "utf8");
+      await jsonlWriteAll(path, lines.slice(replayed).join("\n") + "\n");
     }
     result.file.replayed = replayed;
     result.file.remaining = lines.length - replayed;

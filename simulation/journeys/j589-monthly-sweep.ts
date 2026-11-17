@@ -78,7 +78,7 @@ export const journey: Journey = {
     assert(docs.length >= 1, "WA document message pushed to the admin phone");
 
     // Statement generated for the previous month on the WA tenant.
-    const waStatements = svc.listWalletStatements(waTenant.tenantId);
+    const waStatements = await svc.listWalletStatements(waTenant.tenantId);
     const periodKey = svc.previousMonthPeriod(new Date()).from.toISOString().slice(0, 10);
     assert(waStatements.length === 1 && waStatements[0]!.periodStart === periodKey, "previous-month statement generated");
     assert(waStatements[0]!.deliveries.length === 1 && waStatements[0]!.deliveries[0]!.channel === "whatsapp",
@@ -88,7 +88,7 @@ export const journey: Journey = {
     const run2 = await world.runCron("/api/scheduled/monthly-statements");
     assert(run2.status === 200, "replay ok");
     assert(detail2(waTenant.tenantId) === "already-delivered", "replay skips the delivered wallet");
-    assert(svc.listWalletStatements(waTenant.tenantId).length === 1, "no duplicate manifest entry");
+    assert((await svc.listWalletStatements(waTenant.tenantId)).length === 1, "no duplicate manifest entry");
     assert(world.outbound.ofType("document", waPhone).length === docs.length, "no second WA document on replay");
 
     function detail2(tenantId: string) {

@@ -24,11 +24,9 @@
  * formatNGN.
  */
 import crypto from "crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
 import { and, asc, desc, eq, gte, lt } from "drizzle-orm";
 import { merchantWallets, tenants, walletTransactions } from "../../drizzle/schema";
-import { linesToPdf, ucDocsDir, writeDocPdf, sendChatDocument } from "./ucDocsPdf";
+import { linesToPdf, writeDocPdf, sendChatDocument } from "./ucDocsPdf";
 
 type Db = any;
 
@@ -245,25 +243,27 @@ function tenantDir(tenantId: string): string {
   return `${String(tenantId).replace(/[^A-Za-z0-9_.-]/g, "_")}/wallet-statements`;
 }
 
-function manifestAbs(tenantId: string): string {
-  return join(ucDocsDir(), tenantDir(tenantId), "manifest.json");
+function manifestRel(tenantId: string): string {
+  return `${tenantDir(tenantId)}/manifest.json`;
 }
 
-export function readStatementManifest(tenantId: string): WalletStatementRecord[] {
+/** W67: manifest RMW goes through the OpenDAL facade (uc-docs namespace;
+ *  fs scheme keeps the exact UC_DOCS_DIR layout). */
+export async function readStatementManifest(tenantId: string): Promise<WalletStatementRecord[]> {
   try {
-    const abs = manifestAbs(tenantId);
-    if (!existsSync(abs)) return [];
-    const parsed = JSON.parse(readFileSync(abs, "utf8"));
+    const { docsGet } = await import("./opendalStorage");
+    const buf = await docsGet("uc-docs", manifestRel(tenantId));
+    if (!buf) return [];
+    const parsed = JSON.parse(buf.toString("utf8"));
     return Array.isArray(parsed?.statements) ? parsed.statements : [];
   } catch {
     return []; // corrupt manifest must never break the ledger reads
   }
 }
 
-function writeStatementManifest(tenantId: string, statements: WalletStatementRecord[]): void {
-  const abs = manifestAbs(tenantId);
-  mkdirSync(join(abs, ".."), { recursive: true });
-  writeFileSync(abs, JSON.stringify({ statements }, null, 2));
+async function writeStatementManifest(tenantId: string, statements: WalletStatementRecord[]): Promise<void> {
+  const { docsPut } = await import("./opendalStorage");
+  await docsPut("uc-docs", manifestRel(tenantId), JSON.stringify({ statements }, null, 2), "application/json");
 }
 
 /** Generate (idempotently regenerate) the statement PDF for one period. */
@@ -280,9 +280,9 @@ export async function generateWalletStatement(
   });
   // Deterministic filename → regeneration overwrites, never duplicates.
   const rel = `${tenantDir(opts.tenantId)}/statement-${st.periodStart}_${st.periodEnd}.pdf`;
-  writeDocPdf(rel, pdf); // throws honestly — the manifest only records real files
+  await writeDocPdf(rel, pdf); // throws honestly — the manifest only records real files
 
-  const manifest = readStatementManifest(opts.tenantId);
+  const manifest = await readStatementManifest(opts.tenantId);
   const existing = manifest.find((r) => r.walletId === st.walletId && r.periodStart === st.periodStart && r.periodEnd === st.periodEnd);
   const now = new Date().toISOString();
   if (existing) {
@@ -291,7 +291,7 @@ export async function generateWalletStatement(
     existing.closingCents = st.closingCents;
     existing.txCount = st.txCount;
     existing.generatedAt = now;
-    writeStatementManifest(opts.tenantId, manifest);
+    await writeStatementManifest(opts.tenantId, manifest);
     return { record: existing, regenerated: true };
   }
   const record: WalletStatementRecord = {
@@ -307,16 +307,16 @@ export async function generateWalletStatement(
     deliveries: [],
   };
   manifest.push(record);
-  writeStatementManifest(opts.tenantId, manifest);
+  await writeStatementManifest(opts.tenantId, manifest);
   return { record, regenerated: false };
 }
 
-export function getWalletStatementRecord(tenantId: string, statementId: string): WalletStatementRecord | null {
-  return readStatementManifest(tenantId).find((r) => r.id === statementId) ?? null;
+export async function getWalletStatementRecord(tenantId: string, statementId: string): Promise<WalletStatementRecord | null> {
+  return (await readStatementManifest(tenantId)).find((r) => r.id === statementId) ?? null;
 }
 
-export function listWalletStatements(tenantId: string): WalletStatementRecord[] {
-  return readStatementManifest(tenantId)
+export async function listWalletStatements(tenantId: string): Promise<WalletStatementRecord[]> {
+  return (await readStatementManifest(tenantId))
     .slice()
     .sort((a, b) => b.periodStart.localeCompare(a.periodStart));
 }
@@ -330,7 +330,7 @@ export async function deliverWalletStatement(
   db: Db,
   opts: { tenantId: string; statementId: string; phone: string },
 ): Promise<{ channel: string; sent: boolean; simulated: boolean; messageId: string | null }> {
-  const record = getWalletStatementRecord(opts.tenantId, opts.statementId);
+  const record = await getWalletStatementRecord(opts.tenantId, opts.statementId);
   if (!record) throw new WalletStatementError("not-found", "statement not found for this tenant");
   const res = await sendChatDocument(opts.tenantId, opts.phone, {
     relPath: record.pdfPath,
@@ -339,11 +339,11 @@ export async function deliverWalletStatement(
     notifType: "wallet_statement_send",
     category: "wallet_statement",
   });
-  const manifest = readStatementManifest(opts.tenantId);
+  const manifest = await readStatementManifest(opts.tenantId);
   const entry = manifest.find((r) => r.id === record.id);
   if (entry) {
     entry.deliveries.push({ channel: res.channel, at: new Date().toISOString(), messageId: res.messageId, target: opts.phone });
-    writeStatementManifest(opts.tenantId, manifest);
+    await writeStatementManifest(opts.tenantId, manifest);
   }
   return res;
 }
@@ -383,7 +383,7 @@ export async function runMonthlyStatementSweep(db: Db, opts: { now?: Date } = {}
   for (const wallet of wallets ?? []) {
     out.wallets += 1;
     try {
-      const manifest = readStatementManifest(wallet.tenantId);
+      const manifest = await readStatementManifest(wallet.tenantId);
       const existing = manifest.find((r) => r.walletId === wallet.id && r.periodStart === period.from.toISOString().slice(0, 10));
       if (existing && existing.deliveries.length > 0) {
         out.skipped += 1;
@@ -423,11 +423,11 @@ export async function runMonthlyStatementSweep(db: Db, opts: { now?: Date } = {}
         // idempotent per (wallet, period) in every environment.
         if (!ok) console.info(`[wallet-statements] email delivery simulated for tenant ${wallet.tenantId}`);
         // Record the delivery on the manifest for idempotency.
-        const m2 = readStatementManifest(wallet.tenantId);
+        const m2 = await readStatementManifest(wallet.tenantId);
         const e2 = m2.find((r) => r.id === record.id);
         if (e2) {
           e2.deliveries.push({ channel: "email", at: new Date().toISOString(), messageId: null, target: email });
-          writeStatementManifest(wallet.tenantId, m2);
+          await writeStatementManifest(wallet.tenantId, m2);
         }
         out.deliveredEmail += 1;
         out.details.push({ tenantId: wallet.tenantId, outcome: "delivered-email" });

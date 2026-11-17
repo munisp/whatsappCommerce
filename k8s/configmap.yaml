@@ -21,4 +21,13 @@ data:
   # Public base URL the Hermes Agent calls back on (no loopback — fail-closed
   # at hermes-bridge boot). Replace with the real ingress host before deploy.
   HERMES_CALLBACK_BASE_URL: "https://hermes-bridge.example.com"
+  # === W67 opendal === object storage backend (docs/storage-opendal.md).
+  # Required in production (fail-closed when unset). Secrets
+  # OPENDAL_S3_ACCESS_KEY_ID/OPENDAL_S3_SECRET_ACCESS_KEY come from
+  # platform-secrets.
+  OPENDAL_SCHEME: "s3"
+  OPENDAL_S3_ENDPOINT: "http://minio.whatsapp-commerce.svc.cluster.local:9000"
+  OPENDAL_S3_BUCKET: "wacommerce"
+  OPENDAL_S3_REGION: "us-east-1"
+  # === END W67 opendal ===
 

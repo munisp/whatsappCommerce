@@ -1,0 +1,8 @@
+{
+  "id": "J635",
+  "title": "JSONL append/rewrite via OpenDAL facade + DLQ fallback end-to-end",
+  "feature": "W67 OpenDAL storage layer",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

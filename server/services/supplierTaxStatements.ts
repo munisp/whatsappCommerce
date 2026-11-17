@@ -29,7 +29,6 @@
  *    withholding rail exists, nothing is deducted (fail honestly).
  */
 import crypto from "crypto";
-import { mkdirSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { and, desc, eq, gte, inArray, lt, or, lte, sql } from "drizzle-orm";
 import {
@@ -471,10 +470,11 @@ export async function generateAnnualStatement(
     });
     // Deterministic path → regeneration replaces the same file.
     const rel = join(String(tenantId), String(year), `${t.supplierRef.replace(/[^A-Za-z0-9_.-]/g, "_")}.${t.currency}.pdf`);
-    const abs = join(statementsDir(), rel);
-    mkdirSync(join(abs, ".."), { recursive: true });
-    writeFileSync(abs, pdf); // throws honestly on failure — no row is written
-    if (!existsSync(abs)) throw new Error(`statement PDF write failed for ${abs}`);
+    // W67: persisted through the OpenDAL facade (docs namespace
+    // "tax-statements"); fs scheme keeps the exact TAX_STATEMENTS_DIR layout.
+    const { docsPut, docsExists } = await import("./opendalStorage");
+    await docsPut("tax-statements", rel, pdf); // throws honestly on failure — no row is written
+    if (!(await docsExists("tax-statements", rel))) throw new Error(`statement PDF write failed for ${rel}`);
 
     const [existing] = await db.select().from(annualStatements)
       .where(and(
@@ -540,7 +540,8 @@ export async function sendStatement(
     .where(and(eq(annualStatements.id, opts.statementId), eq(annualStatements.tenantId, opts.tenantId)))
     .limit(1);
   if (!st) throw Object.assign(new Error("statement not found"), { code: "NOT_FOUND" });
-  if (!st.pdfPath || !existsSync(join(statementsDir(), st.pdfPath))) {
+  const { docsExists } = await import("./opendalStorage");
+  if (!st.pdfPath || !(await docsExists("tax-statements", st.pdfPath))) {
     throw Object.assign(new Error("statement PDF missing on disk — regenerate first"), { code: "CONFLICT" });
   }
   // Supplier phone: explicit override → profile metadata.phone → supplier

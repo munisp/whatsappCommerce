@@ -13,8 +13,6 @@
  * path (sendWhatsAppMedia type 'document') as the fallback — byte-identical
  * to the existing annual-statement send for WA customers.
  */
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from "fs";
-import { join } from "path";
 
 /** Directory W46 document PDFs are written to (honest local persistence). */
 export function ucDocsDir(): string {
@@ -72,12 +70,13 @@ export function linesToPdf(input: SimplePdfInput): Buffer {
   return Buffer.from(pdf, "binary");
 }
 
-/** Write a document PDF deterministically; throws honestly on failure. */
-export function writeDocPdf(rel: string, pdf: Buffer): string {
-  const abs = join(ucDocsDir(), rel);
-  mkdirSync(join(abs, ".."), { recursive: true });
-  writeFileSync(abs, pdf);
-  if (!existsSync(abs)) throw new Error(`document PDF write failed for ${abs}`);
+/** Write a document PDF deterministically; throws honestly on failure.
+ *  W67: persisted through the OpenDAL facade (docs namespace "uc-docs") —
+ *  the fs scheme keeps the byte-identical UC_DOCS_DIR layout. */
+export async function writeDocPdf(rel: string, pdf: Buffer): Promise<string> {
+  const { docsPut, docsExists } = await import("./opendalStorage");
+  await docsPut("uc-docs", rel, pdf);
+  if (!(await docsExists("uc-docs", rel))) throw new Error(`document PDF write failed for ${rel}`);
   return rel;
 }
 
@@ -111,7 +110,9 @@ export async function sendChatDocument(
   // Telegram route first (channelParity resolves the linked identity).
   try {
     const { notifyCustomer } = await import("./channelParity");
-    const buffer = readFileSync(join(ucDocsDir(), opts.relPath));
+    const { docsGet } = await import("./opendalStorage");
+    const buffer = await docsGet("uc-docs", opts.relPath);
+    if (!buffer) throw new Error(`document PDF missing: ${opts.relPath}`);
     const routed = await notifyCustomer(tenantId, { phone }, opts.category, {
       text: opts.caption,
       notifType: opts.notifType,

@@ -161,7 +161,7 @@ export async function generateCustomerStatement(
       lines: statementPdfLines(t, { ...opts, customerName: opts.customerName }),
     });
     const rel = `${String(tenantId).replace(/[^A-Za-z0-9_.-]/g, "_")}/statements/${customerPhone.replace(/[^0-9+]/g, "")}-${from.toISOString().slice(0, 10)}_${to.toISOString().slice(0, 10)}.${t.currency}.pdf`;
-    writeDocPdf(rel, pdf); // throws honestly — no row is written first
+    await writeDocPdf(rel, pdf); // throws honestly — no row is written first
 
     const [existing] = await db.select().from(customerStatements)
       .where(and(

@@ -13,6 +13,8 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  minio_data: # W67: dev-parity object store (OpenDAL s3 backend)
+
   redis_durable_data: # W48 PERF-SC-16: noeviction idempotency/approval instance
   kafka_data:
   zookeeper_data:
@@ -67,6 +69,42 @@ services:
   # records, DLQ lists and liveness sessions — an eviction there breaks
   # exactly-once/approval guarantees. Alert on evicted_keys on the cache
   # instance; this one should never evict.
+  # === W67 opendal === dev-parity MinIO. The platform stores objects through
+  # Apache OpenDAL (server/services/opendalStorage.ts); OPENDAL_SCHEME=s3 in
+  # this stack so dev exercises the same backend as prod instead of silently
+  # degrading. Bucket provisioning is the minio-init one-shot below.
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks: [platform]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER:-minioadmin} $${MINIO_ROOT_PASSWORD:-minioadmin}
+      && mc mb --ignore-existing local/$${S3_BUCKET:-wacommerce}
+      && echo 'minio-init: bucket ready';
+      "
+    networks: [platform]
+  # === END W67 opendal ===
+
   redis-durable:
     image: redis:7-alpine
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
@@ -329,11 +367,22 @@ services:
       CRON_JWT: ${CRON_JWT:-dev-only-cron-secret-change-in-prod}
       # KYC document-verification sidecar (internal DNS; mock only in dev).
       KYC_SERVICE_URL: ${KYC_SERVICE_URL:-http://kyc-verifier:8001}
+      # ── W67 OpenDAL object storage (dev parity: s3 against bundled MinIO) ──
+      OPENDAL_SCHEME: ${OPENDAL_SCHEME:-s3}
+      OPENDAL_S3_ENDPOINT: ${OPENDAL_S3_ENDPOINT:-http://minio:9000}
+      OPENDAL_S3_BUCKET: ${OPENDAL_S3_BUCKET:-wacommerce}
+      OPENDAL_S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      OPENDAL_S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      OPENDAL_S3_REGION: ${OPENDAL_S3_REGION:-us-east-1}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     networks: [platform]
     logging: *default-logging
     restart: unless-stopped

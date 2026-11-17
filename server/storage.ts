@@ -1,46 +1,27 @@
 /**
- * File storage — self-hosted MinIO (S3-compatible).
- * Replaces Manus built-in storage API.
+ * File storage — thin delegates onto the Apache OpenDAL facade
+ * (server/services/opendalStorage.ts, W67). The backend is selected by
+ * OPENDAL_SCHEME (fs for dev/sim, s3 for prod/MinIO); the export signatures
+ * and semantics below are unchanged from the direct-MinIO implementation,
+ * including the GDPR throw-on-unreachable delete contract (W40 TEN-5) and
+ * the /api/storage/{key} app-proxied URL shape.
  */
-import { Client as MinioClient } from "minio";
 import { ENV } from "./_core/env";
 import crypto from "crypto";
+import * as od from "./services/opendalStorage";
 
-let _client: MinioClient | null = null;
-
-function getClient(): MinioClient {
-  if (!_client) {
-    const rawUrl = ENV.s3Endpoint.startsWith("http") ? ENV.s3Endpoint : `http://${ENV.s3Endpoint}`;
-    const url = new URL(rawUrl);
-    _client = new MinioClient({
-      endPoint: url.hostname,
-      port: parseInt(url.port || (url.protocol === "https:" ? "443" : "80")),
-      useSSL: url.protocol === "https:",
-      accessKey: ENV.s3AccessKey,
-      secretKey: ENV.s3SecretKey,
-    });
-  }
-  return _client;
-}
-
-async function ensureBucket(): Promise<void> {
-  try {
-    const client = getClient();
-    const exists = await client.bucketExists(ENV.s3Bucket).catch(() => false);
-    if (!exists) await client.makeBucket(ENV.s3Bucket, "us-east-1");
-  } catch { /* MinIO not available in dev — graceful degradation */ }
-}
+// ENV import retained: s3 fallback env (S3_ENDPOINT/S3_BUCKET/…) is still
+// honored by the facade when OPENDAL_S3_* is unset.
+void ENV;
 
 export async function storagePut(
   relKey: string,
   data: Buffer | Uint8Array | string,
   contentType = "application/octet-stream"
 ): Promise<{ key: string; url: string }> {
-  await ensureBucket();
-  const client = getClient();
   const buf = typeof data === "string" ? Buffer.from(data) : Buffer.from(data as Uint8Array);
   const key = relKey.replace(/^\/+/, "");
-  await client.putObject(ENV.s3Bucket, key, buf, buf.length, { "Content-Type": contentType });
+  await od.put(key, buf, contentType);
   return { key, url: `/api/storage/${key}` };
 }
 
@@ -51,18 +32,16 @@ export async function storagePut(
  * deletion. Deleting a non-existent key is treated as success (idempotent).
  */
 export async function storageDelete(relKey: string): Promise<{ key: string }> {
-  await ensureBucket();
-  const client = getClient();
   const key = relKey.replace(/^\/+/, "");
-  await client.removeObject(ENV.s3Bucket, key);
+  await od.deleteObject(key);
   return { key };
 }
 
 export async function storageGet(relKey: string, expiresIn = 3600): Promise<{ key: string; url: string }> {
-  await ensureBucket();
-  const client = getClient();
   const key = relKey.replace(/^\/+/, "");
-  const url = await client.presignedGetObject(ENV.s3Bucket, key, expiresIn).catch(() => `/api/storage/${key}`);
+  // Native presign on the s3 scheme; fs scheme (or any presign failure)
+  // falls back to the app-proxied route URL — same as before.
+  const url = await od.presignRead(key, expiresIn, `/api/storage/${key}`);
   return { key, url };
 }
 
@@ -80,16 +59,12 @@ export function generateStorageKey(filename: string): string {
 /**
  * Stream an object back for the /api/storage/:key route below. storagePut's
  * returned url is `/api/storage/{key}` — a permanent, app-proxied path (as
- * opposed to storageGet's presigned MinIO URL, which expires) — so callers
- * that persist the URL (e.g. a tenant's logo, stored in Postgres) need a
- * route that actually serves it. Throws if the object doesn't exist.
+ * opposed to storageGet's presigned URL, which expires) — so callers that
+ * persist the URL (e.g. a tenant's logo, stored in Postgres) need a route
+ * that actually serves it. Throws if the object doesn't exist.
  */
 export async function storageServe(
   relKey: string
 ): Promise<{ stream: NodeJS.ReadableStream; contentType: string }> {
-  const client = getClient();
-  const key = relKey.replace(/^\/+/, "");
-  const stat = await client.statObject(ENV.s3Bucket, key);
-  const stream = await client.getObject(ENV.s3Bucket, key);
-  return { stream, contentType: stat.metaData?.["content-type"] ?? "application/octet-stream" };
+  return od.serveStream(relKey.replace(/^\/+/, ""));
 }

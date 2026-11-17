@@ -816,6 +816,13 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j629-restock-intel"),
     import("./journeys/j630-buyer-reorder"),
     // === END W66 learning ===
+    // === W67 opendal ===
+    import("./journeys/j631-opendal-facade"),
+    import("./journeys/j632-opendal-ucdocs"),
+    import("./journeys/j633-opendal-auth-policy"),
+    import("./journeys/j634-opendal-gdpr-delete"),
+    import("./journeys/j635-opendal-jsonl"),
+    // === END W67 opendal ===
     // === END W55 parity ===
     // === END W54 CAPABILITIES ===
     // === END W51 PROMOS ===

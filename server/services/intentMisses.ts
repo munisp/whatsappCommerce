@@ -184,7 +184,6 @@ export async function reviewIntentMiss(
     // Append few-shot example (fail-open file write; the DB row is truth).
     try {
       const file = fewshotPath();
-      fs.mkdirSync(path.dirname(file), { recursive: true });
       const ex: FewShotExample = {
         tenantId: miss.tenantId,
         message: miss.message,
@@ -192,7 +191,11 @@ export async function reviewIntentMiss(
         language: miss.language,
         approvedAt: now.toISOString(),
       };
-      fs.appendFileSync(file, JSON.stringify(ex) + "\n");
+      // W67: append via the OpenDAL facade (fs scheme = native O_APPEND on
+      // the same path; s3 scheme = read-append-rewrite). The DB status flip
+      // above remains the claim — semantics unchanged.
+      const { jsonlAppend } = await import("./opendalStorage");
+      await jsonlAppend(file, JSON.stringify(ex));
     } catch (e: any) {
       console.warn("[intent-miss] few-shot append failed (fail-open):", e?.message);
     }
